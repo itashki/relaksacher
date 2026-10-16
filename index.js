@@ -1,11 +1,13 @@
 import {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   Client,
   Events,
   GatewayIntentBits,
   MessageFlags,
+  MessageType,
   PermissionFlagsBits,
 } from "discord.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -245,9 +247,6 @@ const searchClient = config.OLLAMA_API_KEY
 // Максимум раундов «модель -> инструмент -> модель» за один запрос.
 const MAX_TOOL_ROUNDS = 5;
 
-// Статус, пока модель «думает» (режим /think) и ещё не начала отвечать.
-const THINKING_STATUS = "💭 Думаю…";
-
 // Сколько первых результатов поиска сразу подгружать целиком (полный текст страницы).
 const SEARCH_FETCH_TOP = 2;
 
@@ -287,6 +286,19 @@ const TOOLS = [
     },
   },
 ];
+
+// Серый блок с рассуждениями модели: ANSI-код 30 в ```ansi блоке Discord
+// рисует серым. Показываем только хвост, чтобы влезть в лимит сообщения.
+function thinkingBlock(raw, room) {
+  const clean = raw
+    .replace(/\u001b/g, "")
+    .replace(/```/g, "'''")
+    .trim();
+  const maxTail = room - 60; // запас на заголовок и обрамление блока
+  if (!clean || maxTail < 100) return "";
+  const tail = clean.length > maxTail ? `…${clean.slice(-maxTail)}` : clean;
+  return `-# 💭 Размышления\n\`\`\`ansi\n\u001b[30m${tail}\u001b[0m\n\`\`\``;
+}
 
 function truncate(value, maxLength) {
   const textValue = String(value ?? "");
@@ -411,6 +423,36 @@ function parseCommands(content) {
   return { flags, content: cleaned };
 }
 
+// Название треда: начало вопроса без упоминаний и команд (лимит Discord — 100).
+function threadName(message) {
+  const topic = parseCommands(message.content)
+    .content.replace(/<[@#][!&]?\d+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const author = message.member?.displayName ?? message.author.username;
+  return truncate(topic || `Диалог с ${author}`, 90);
+}
+
+// Контекст для треда, который создал бот: исходное сообщение, из которого вырос
+// тред, и последние сообщения в самом треде (у них нет цепочки reply).
+async function buildThreadConversation(message) {
+  const thread = message.channel;
+  const [starter, history] = await Promise.all([
+    thread.fetchStarterMessage().catch(() => null),
+    thread.messages.fetch({ limit: 30, before: message.id }).catch(() => null),
+  ]);
+  const past = history ? [...history.values()].reverse() : [];
+
+  return [...(starter ? [starter] : []), ...past, message].filter(
+    (entry) =>
+      entry === message ||
+      ((entry.type === MessageType.Default ||
+        entry.type === MessageType.Reply) &&
+        entry.content.trim() &&
+        (!entry.author.bot || entry.author.id === client.user.id)),
+  );
+}
+
 // Описание автора сообщения для модели: отображаемое имя, username и id.
 function describeAuthor(entry) {
   const displayName =
@@ -504,9 +546,13 @@ client.on(Events.MessageCreate, async (message) => {
     : null;
   const isReplyToBot = referencedMessage?.author.id === client.user.id;
 
-  if (!isMentioned && !isReplyToBot) return;
+  // В треде, который создал сам бот, отвечаем на все сообщения без упоминания.
+  const inBotThread =
+    message.channel.isThread() && message.channel.ownerId === client.user.id;
 
-  const conversation = [message];
+  if (!isMentioned && !isReplyToBot && !inBotThread) return;
+
+  let conversation = [message];
   while (referencedMessage) {
     conversation.push(referencedMessage);
     referencedMessage = referencedMessage.reference
@@ -515,9 +561,25 @@ client.on(Events.MessageCreate, async (message) => {
   }
   conversation.reverse();
 
+  if (inBotThread) conversation = await buildThreadConversation(message);
+
   // Команды берём только из текущего сообщения, а не из всей цепочки.
   const { flags } = parseCommands(message.content);
   const useSearch = flags.search && Boolean(searchClient);
+
+  // Вместо ответа в канале создаём тред под сообщением пользователя и пишем в
+  // него. В уже существующем треде тред не создаётся (вложенные запрещены):
+  // там бот отвечает как раньше. Если создать тред не вышло (нет прав и т.п.),
+  // тоже отвечаем обычным реплаем.
+  let newThread = null;
+  if (message.guild && !message.channel.isThread()) {
+    newThread = await message
+      .startThread({ name: threadName(message), autoArchiveDuration: 60 })
+      .catch((error) => {
+        console.error("Failed to create thread:", error);
+        return null;
+      });
+  }
 
   const generationId = message.id;
   const stopRow = buildStopRow(generationId);
@@ -539,14 +601,25 @@ client.on(Events.MessageCreate, async (message) => {
       ? "⚠️ Поиск недоступен: не задан OLLAMA_API_KEY.\n\n"
       : "";
   let status = ""; // временная строка вроде «Ищу в интернете…», не часть ответа
+  let thinkingLog = ""; // все рассуждения модели за запрос (режим /think)
+  let liveThinking = ""; // рассуждения текущего раунда, пока стримятся в сообщение
+  let attachedLog = ""; // что уже лежит в прикреплённом thinking.txt
+  let attachNow = false; // прикрепить файл при ближайшей правке (начался ответ)
   const replies = []; // отправленные сообщения бота
   const sent = []; // что сейчас показано в каждом сообщении
 
   // Приводит отправленные сообщения в соответствие с накопленным текстом.
   async function flush(final) {
-    const displayed = status
-      ? `${text ? `${text}\n\n` : ""}*${status}*`
-      : text;
+    let displayed = text;
+    if (status) {
+      displayed = `${text ? `${text}\n\n` : ""}*${status}*`;
+    }
+    // Пока модель думает, её рассуждения стримятся в сообщение серым блоком.
+    if (liveThinking.trim()) {
+      const room = 1850 - displayed.length - (displayed ? 2 : 0);
+      const block = thinkingBlock(liveThinking, room);
+      if (block) displayed = displayed ? `${displayed}\n\n${block}` : block;
+    }
     const chunks = splitMessage(displayed);
     for (let i = 0; i < chunks.length; i++) {
       const isLast = i === chunks.length - 1;
@@ -559,16 +632,44 @@ client.on(Events.MessageCreate, async (message) => {
         allowedMentions: { parse: [], repliedUser: false },
       };
 
+      // Когда начался ответ (или в конце), рассуждения уходят в файл на первом
+      // сообщении. Если рассуждения изменились, файл заменяется новым.
+      const logSnapshot = thinkingLog.trim();
+      const attachThinking =
+        i === 0 &&
+        logSnapshot.length > 0 &&
+        logSnapshot !== attachedLog &&
+        (final || attachNow);
+      if (attachThinking) {
+        payload.files = [
+          new AttachmentBuilder(Buffer.from(logSnapshot, "utf8"), {
+            name: "thinking.txt",
+          }),
+        ];
+        // При правке без attachments прежний файл заменяется новым.
+        if (replies[i]) payload.attachments = [];
+      }
+
       if (!replies[i]) {
-        const parent = i === 0 ? message : replies[i - 1];
-        replies[i] = await parent.reply(payload);
+        if (i === 0 && newThread) {
+          // Первый кусок ответа идёт прямо в созданный тред.
+          replies[i] = await newThread.send(payload);
+        } else {
+          const parent = i === 0 ? message : replies[i - 1];
+          replies[i] = await parent.reply(payload);
+        }
         sent[i] = { content, withButton };
       } else if (
+        attachThinking ||
         sent[i].content !== content ||
         sent[i].withButton !== withButton
       ) {
         await replies[i].edit(payload);
         sent[i] = { content, withButton };
+        if (attachThinking) {
+          attachedLog = logSnapshot;
+          attachNow = false;
+        }
       }
     }
   }
@@ -589,12 +690,15 @@ client.on(Events.MessageCreate, async (message) => {
     const memoryFacts = message.guildId
       ? await loadMemory(message.guildId)
       : [];
-    const memoryPrompt = buildMemoryPrompt(memoryFacts, Boolean(message.guildId));
+    const memoryPrompt = buildMemoryPrompt(
+      memoryFacts,
+      Boolean(message.guildId),
+    );
 
     const messages = [
-        {
-          role: "system",
-          content: `Тебя зовут Релаксачер. Ты находишься на сервере Discord и общаешься с его участниками в текстовых каналах. Упоминание пользователя в формате <@${client.user.id}> или <@!${client.user.id}> означает, 
+      {
+        role: "system",
+        content: `Тебя зовут Релаксачер. Ты находишься на сервере Discord и общаешься с его участниками в текстовых каналах. Упоминание пользователя в формате <@${client.user.id}> или <@!${client.user.id}> означает, 
             что сообщение адресовано тебе. Упоминание роли в формате <@&ID> само по себе не является упоминанием тебя. 
             Отвечай сразу по сути запроса, учитывая контекст диалога. 
             Не представляйся без необходимости и не начинай ответ с приветствия, если его не требует контекст. Если тебя спросят, как тебя зовут, отвечай, что ты Релаксачер. Всегда старайся отвечать на русском языке, даже если вопрос или найденные источники на другом языке; отвечай на другом языке только если пользователь прямо об этом попросил (например, просит ответить по-английски или перевести текст).
@@ -617,15 +721,15 @@ client.on(Events.MessageCreate, async (message) => {
             В конце укажи 1-3 самых полезных источника, оборачивая ссылки в <>, чтобы Discord не разворачивал превью.`
                 : ""
             }`,
-        },
-        ...conversation.map((entry) =>
-          entry.author.id === client.user.id
-            ? { role: "assistant", content: entry.content }
-            : {
-                role: "user",
-                content: `[Автор: ${describeAuthor(entry)}]\n${parseCommands(entry.content).content}`,
-              },
-        ),
+      },
+      ...conversation.map((entry) =>
+        entry.author.id === client.user.id
+          ? { role: "assistant", content: entry.content }
+          : {
+              role: "user",
+              content: `[Автор: ${describeAuthor(entry)}]\n${parseCommands(entry.content).content}`,
+            },
+      ),
     ];
 
     // Инструменты памяти доступны на серверах всегда, поиск — только по /search.
@@ -635,6 +739,7 @@ client.on(Events.MessageCreate, async (message) => {
     ];
     const tools = allTools.length ? allTools : undefined;
     let lastEdit = 0;
+    let forceFlush = false; // сразу обновить сообщение, не дожидаясь интервала
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
       if (generation.stopped) break;
@@ -658,6 +763,8 @@ client.on(Events.MessageCreate, async (message) => {
 
       let roundContent = "";
       let roundThinking = "";
+      liveThinking = "";
+      let roundHasThinking = false;
       let separated = false;
       const toolCalls = [];
 
@@ -667,12 +774,23 @@ client.on(Events.MessageCreate, async (message) => {
         const thinkingDelta = part.message?.thinking ?? "";
         if (thinkingDelta) {
           roundThinking += thinkingDelta;
-          if (!status) status = THINKING_STATUS;
+          // Раунды (например, до и после поиска) разделяем чертой.
+          if (!roundHasThinking && thinkingLog) {
+            thinkingLog += "\n\n---\n\n";
+          }
+          roundHasThinking = true;
+          thinkingLog += thinkingDelta;
+          liveThinking += thinkingDelta;
         }
 
         const delta = part.message?.content ?? "";
         if (delta) {
-          if (status === THINKING_STATUS) status = "";
+          // Ответ начался: убираем рассуждения из сообщения и кладём в файл.
+          if (liveThinking) {
+            liveThinking = "";
+            attachNow = true;
+            forceFlush = true;
+          }
           // Отделяем текст после поиска от текста до него.
           if (!separated && round > 0 && text) text += "\n\n";
           separated = true;
@@ -684,11 +802,14 @@ client.on(Events.MessageCreate, async (message) => {
           toolCalls.push(...part.message.tool_calls);
         }
 
-        if (Date.now() - lastEdit >= EDIT_INTERVAL_MS) {
+        if (forceFlush || Date.now() - lastEdit >= EDIT_INTERVAL_MS) {
+          forceFlush = false;
           lastEdit = Date.now();
           await flush(false);
         }
       }
+
+      liveThinking = ""; // рассуждения раунда закончились
 
       // Модель закончила ответ (или остановили) — выходим из цикла.
       if (generation.stopped || toolCalls.length === 0) break;
@@ -730,14 +851,19 @@ client.on(Events.MessageCreate, async (message) => {
   } finally {
     clearTimeout(timeoutTimer);
     status = "";
+    liveThinking = "";
     generation.stream?.abort();
     activeGenerations.delete(generationId);
   }
 
   if (failed) {
-    text += text ? "\n\n⚠️ Ошибка при генерации ответа." : "Произошла ошибка при обработке запроса.";
+    text += text
+      ? "\n\n⚠️ Ошибка при генерации ответа."
+      : "Произошла ошибка при обработке запроса.";
   } else if (generation.timedOut) {
-    text += text ? "\n\n⚠️ Превышено время ожидания." : "Превышено время ожидания ответа.";
+    text += text
+      ? "\n\n⚠️ Превышено время ожидания."
+      : "Превышено время ожидания ответа.";
   } else if (generation.stopped && !text.trim()) {
     text = "Генерация остановлена.";
   }
