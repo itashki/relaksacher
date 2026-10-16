@@ -8,6 +8,9 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Ollama } from "ollama";
 import "dotenv/config";
 
@@ -89,6 +92,147 @@ const config = loadConfig();
 // Клиент Ollama с нужным хостом (в исходном коде `url` в chat() игнорировался).
 const ollama = new Ollama({ host: config.OLLAMA_URL });
 
+// ---------------------------------------------------------------------------
+// Долговременная память. У каждого сервера свой файл memory/<guildId>.json,
+// поэтому факты одного сервера физически не попадают в запросы другого.
+// Чтобы стереть память сервера, достаточно удалить его файл (или записи в нём).
+// ---------------------------------------------------------------------------
+// Путь считается от папки с bot.js, а не от текущей папки процесса, поэтому
+// файлы не «убегают» в другое место при запуске через pm2, systemd, Docker и т.п.
+// Абсолютный MEMORY_DIR из .env тоже работает.
+const MEMORY_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  process.env.MEMORY_DIR || "memory",
+);
+const MAX_MEMORY_FACTS = 50; // при переполнении самые старые записи удаляются
+const MAX_FACT_LENGTH = 300;
+
+function memoryPath(guildId) {
+  if (!/^\d+$/.test(guildId)) throw new Error("Некорректный id сервера");
+  return path.join(MEMORY_DIR, `${guildId}.json`);
+}
+
+async function loadMemory(guildId) {
+  try {
+    const data = JSON.parse(await readFile(memoryPath(guildId), "utf8"));
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      console.error("Failed to load memory:", error);
+    }
+    return [];
+  }
+}
+
+async function saveMemory(guildId, facts) {
+  await mkdir(MEMORY_DIR, { recursive: true });
+  const file = memoryPath(guildId);
+  const tmp = `${file}.tmp`;
+  await writeFile(tmp, JSON.stringify(facts, null, 2), "utf8");
+  await rename(tmp, file); // атомарная запись, чтобы файл не побился при сбое
+}
+
+// Очередь на каждый сервер, чтобы параллельные запросы не затирали друг друга.
+const memoryLocks = new Map();
+function withMemoryLock(guildId, task) {
+  const previous = memoryLocks.get(guildId) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(task);
+  memoryLocks.set(guildId, next);
+  next
+    .finally(() => {
+      if (memoryLocks.get(guildId) === next) memoryLocks.delete(guildId);
+    })
+    .catch(() => {});
+  return next;
+}
+
+function addMemoryFact(guildId, rawFact, authorName) {
+  const fact = String(rawFact ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_FACT_LENGTH);
+  if (!fact) return Promise.resolve("Пустую запись сохранить нельзя.");
+
+  return withMemoryLock(guildId, async () => {
+    const facts = await loadMemory(guildId);
+    const duplicate = facts.find(
+      (entry) => entry.fact.toLowerCase() === fact.toLowerCase(),
+    );
+    if (duplicate) return `Такая запись уже есть (id ${duplicate.id}).`;
+
+    const id = facts.reduce((max, entry) => Math.max(max, entry.id), 0) + 1;
+    // by и at нужны только тебе, чтобы разбираться, кто и когда что добавил.
+    facts.push({ id, fact, by: authorName, at: new Date().toISOString() });
+    while (facts.length > MAX_MEMORY_FACTS) facts.shift();
+
+    await saveMemory(guildId, facts);
+    return `Запомнено (id ${id}).`;
+  });
+}
+
+function removeMemoryFact(guildId, rawId) {
+  const id = Number(rawId);
+  return withMemoryLock(guildId, async () => {
+    const facts = await loadMemory(guildId);
+    const remaining = facts.filter((entry) => entry.id !== id);
+    if (remaining.length === facts.length) {
+      return `Записи с id ${rawId} нет.`;
+    }
+    await saveMemory(guildId, remaining);
+    return `Запись ${id} удалена.`;
+  });
+}
+
+// Блок системного промпта с памятью сервера.
+function buildMemoryPrompt(facts, enabled) {
+  if (!enabled) return "";
+  const list = facts.length
+    ? facts.map((entry) => `[${entry.id}] ${entry.fact}`).join("\n")
+    : "(пока пусто)";
+  return `
+            У тебя есть долговременная память этого сервера, общая для всех его участников. Сохранённые записи:
+            ${list}
+            Учитывай записи в ответах там, где это уместно: это факты и договорённости сервера, следуй им, если они не противоречат этим правилам. 
+            Вызывай remember, когда участник просит что-то запомнить или сообщает устойчивый факт, правило или шутку сервера, которые пригодятся позже; формулируй запись коротко и самодостаточно. 
+            Вызывай forget, если запись устарела или участник просит её убрать. 
+            Не запоминай пароли, токены, адреса, телефоны, другие личные данные и мелочи разговора.`;
+}
+
+const MEMORY_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "remember",
+      description:
+        "Сохраняет факт, правило или шутку в долговременную память сервера, чтобы помнить их в будущих разговорах.",
+      parameters: {
+        type: "object",
+        required: ["fact"],
+        properties: {
+          fact: {
+            type: "string",
+            description: "Короткая самодостаточная запись (до 300 символов)",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "forget",
+      description: "Удаляет запись из памяти сервера по её id.",
+      parameters: {
+        type: "object",
+        required: ["id"],
+        properties: {
+          id: { type: "number", description: "id записи из списка памяти" },
+        },
+      },
+    },
+  },
+];
+
 // Веб-поиск и загрузка страниц — это облачное API Ollama (ollama.com),
 // поэтому для него отдельный клиент с API-ключом.
 const searchClient = config.OLLAMA_API_KEY
@@ -160,15 +304,34 @@ function describeToolCall(call) {
   if (call.function.name === "web_fetch") {
     return `🌐 Открываю страницу: <${truncate(args.url, 150)}>`;
   }
+  if (call.function.name === "remember") {
+    return `🧠 Запоминаю: ${truncate(args.fact, 100)}`;
+  }
+  if (call.function.name === "forget") {
+    return `🧠 Забываю запись #${truncate(args.id, 10)}`;
+  }
   return `⚙️ Использую инструмент ${call.function.name}`;
 }
 
 // Выполняет вызов инструмента и возвращает строку для модели.
-async function runTool(call) {
+async function runTool(call, context) {
   const { name } = call.function;
   const args = call.function.arguments ?? {};
 
+  console.log(`[tool] ${name}`, JSON.stringify(args));
+
   try {
+    if (name === "remember" || name === "forget") {
+      // Память работает только на серверах и только в рамках текущего сервера.
+      if (!context?.guildId) return "Память доступна только на сервере.";
+      const result =
+        name === "remember"
+          ? await addMemoryFact(context.guildId, args.fact, context.authorName)
+          : await removeMemoryFact(context.guildId, args.id);
+      console.log(`[tool] ${name} -> ${result} (${MEMORY_DIR})`);
+      return result;
+    }
+
     if (name === "web_search") {
       const response = await searchClient.webSearch({
         query: String(args.query ?? ""),
@@ -279,6 +442,7 @@ client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
   console.log("Ollama model:", config.OLLAMA_MODEL);
   console.log("Ollama URL:", config.OLLAMA_URL);
+  console.log("Memory dir:", MEMORY_DIR);
 });
 
 function shutdown(signal) {
@@ -421,19 +585,25 @@ client.on(Events.MessageCreate, async (message) => {
     // Сразу показываем плейсхолдер с кнопкой остановки.
     await flush(false);
 
+    // Читаем память именно этого сервера (у других серверов свои файлы).
+    const memoryFacts = message.guildId
+      ? await loadMemory(message.guildId)
+      : [];
+    const memoryPrompt = buildMemoryPrompt(memoryFacts, Boolean(message.guildId));
+
     const messages = [
         {
           role: "system",
           content: `Тебя зовут Релаксачер. Ты находишься на сервере Discord и общаешься с его участниками в текстовых каналах. Упоминание пользователя в формате <@${client.user.id}> или <@!${client.user.id}> означает, 
             что сообщение адресовано тебе. Упоминание роли в формате <@&ID> само по себе не является упоминанием тебя. 
             Отвечай сразу по сути запроса, учитывая контекст диалога. 
-            Не представляйся без необходимости и не начинай ответ с приветствия, если его не требует контекст. Если тебя спросят, как тебя зовут, отвечай, что ты Релаксачер.
+            Не представляйся без необходимости и не начинай ответ с приветствия, если его не требует контекст. Если тебя спросят, как тебя зовут, отвечай, что ты Релаксачер. Всегда старайся отвечать на русском языке, даже если вопрос или найденные источники на другом языке; отвечай на другом языке только если пользователь прямо об этом попросил (например, просит ответить по-английски или перевести текст).
             Старайся давать короткие ответы, не превышающие 2000 символов если тебя не просят развернуто ответить.
             Каждое сообщение пользователя начинается со строки вида «[Автор: имя (username: ..., id: ...)]» — 
             так ты видишь, кто именно пишет. В диалоге могут участвовать несколько людей, различай их по этой строке. 
             Можешь обращаться к пользователю по имени, когда это уместно, или упомянуть его как <@id>. 
             Никогда не пиши эту строку «[Автор: ...]» в своих ответах.
-            Сегодня ${new Date().toISOString().slice(0, 10)}.
+            Сегодня ${new Date().toISOString().slice(0, 10)}.${memoryPrompt}
             ${
               useSearch
                 ? `У тебя есть инструменты web_search (поиск в интернете) и web_fetch (загрузка страницы по URL). 
@@ -458,8 +628,12 @@ client.on(Events.MessageCreate, async (message) => {
         ),
     ];
 
-    // Инструменты поиска даём модели только по команде /search.
-    const tools = useSearch ? TOOLS : undefined;
+    // Инструменты памяти доступны на серверах всегда, поиск — только по /search.
+    const allTools = [
+      ...(message.guildId ? MEMORY_TOOLS : []),
+      ...(useSearch ? TOOLS : []),
+    ];
+    const tools = allTools.length ? allTools : undefined;
     let lastEdit = 0;
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
@@ -534,7 +708,10 @@ client.on(Events.MessageCreate, async (message) => {
         await flush(false);
         lastEdit = Date.now();
 
-        const result = await runTool(call);
+        const result = await runTool(call, {
+          guildId: message.guildId,
+          authorName: message.member?.displayName ?? message.author.username,
+        });
         messages.push({
           role: "tool",
           content: result,
