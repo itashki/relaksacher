@@ -1,10 +1,22 @@
+/** @file Implementation of core/memory. */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+/**
+ * Create isolated file-backed fact storage with atomic writes and per-scope locks.
+ * @param {string} directory Absolute storage directory.
+ * @returns {{loadMemory: function(string): Promise<import("../types.js").MemoryFact[]>, addMemoryFact: function(string, *, string=): Promise<string>, removeMemoryFact: function(string, *): Promise<string>, buildMemoryPrompt: function(import("../types.js").MemoryFact[], boolean): string}} Memory operations.
+ */
 export function createMemoryStore(directory) {
   const MAX_MEMORY_FACTS = 50; // при переполнении самые старые записи удаляются
   const MAX_FACT_LENGTH = 300;
 
+  /**
+   * Resolve a validated storage namespace.
+   * @param {string} scopeId Safe filename identifier.
+   * @returns {string} JSON file path.
+   * @throws {Error} When the scope contains unsafe characters.
+   */
   function memoryPath(scopeId) {
     if (typeof scopeId !== "string" || !/^[a-zA-Z0-9_-]+$/.test(scopeId)) {
       throw new Error("Invalid memory scope id");
@@ -12,6 +24,11 @@ export function createMemoryStore(directory) {
     return path.join(directory, `${scopeId}.json`);
   }
 
+  /**
+   * Read facts, returning an empty list for missing or unreadable storage.
+   * @param {string} scopeId Memory namespace.
+   * @returns {Promise<import("../types.js").MemoryFact[]>} Stored facts.
+   */
   async function loadMemory(scopeId) {
     const file = memoryPath(scopeId);
     try {
@@ -25,6 +42,12 @@ export function createMemoryStore(directory) {
     }
   }
 
+  /**
+   * Atomically replace a scope file; callers serialize writes with a lock.
+   * @param {string} scopeId Memory namespace.
+   * @param {import("../types.js").MemoryFact[]} facts Facts to persist.
+   * @returns {Promise<void>} Resolves after the rename.
+   */
   async function saveMemory(scopeId, facts) {
     await mkdir(directory, { recursive: true });
     const file = memoryPath(scopeId);
@@ -35,6 +58,13 @@ export function createMemoryStore(directory) {
 
   // Очередь на каждый сервер, чтобы параллельные запросы не затирали друг друга.
   const memoryLocks = new Map();
+  /**
+   * Serialize operations for one scope and release completed locks.
+   * @template T
+   * @param {string} scopeId Memory namespace.
+   * @param {function(): Promise<T>} task Protected operation.
+   * @returns {Promise<T>} Operation result.
+   */
   function withMemoryLock(scopeId, task) {
     const previous = memoryLocks.get(scopeId) ?? Promise.resolve();
     const next = previous.catch(() => {}).then(task);
@@ -47,6 +77,13 @@ export function createMemoryStore(directory) {
     return next;
   }
 
+  /**
+   * Normalize, deduplicate and append a bounded memory fact.
+   * @param {string} scopeId Memory namespace.
+   * @param {*} rawFact Untrusted fact value.
+   * @param {string} [authorName] Human attribution.
+   * @returns {Promise<string>} Model-facing status message.
+   */
   function addMemoryFact(scopeId, rawFact, authorName) {
     const fact = String(rawFact ?? "")
       .replace(/\s+/g, " ")
@@ -71,6 +108,12 @@ export function createMemoryStore(directory) {
     });
   }
 
+  /**
+   * Remove a fact by its numeric id.
+   * @param {string} scopeId Memory namespace.
+   * @param {*} rawId Identifier coercible to a number.
+   * @returns {Promise<string>} Model-facing status message.
+   */
   function removeMemoryFact(scopeId, rawId) {
     const id = Number(rawId);
     return withMemoryLock(scopeId, async () => {
@@ -85,6 +128,12 @@ export function createMemoryStore(directory) {
   }
 
   // Блок системного промпта с памятью сервера.
+  /**
+   * Describe shared facts and the allowed memory operations.
+   * @param {import("../types.js").MemoryFact[]} facts Scope facts.
+   * @param {boolean} enabled Whether this request supports memory.
+   * @returns {string} Prompt block, or an empty string when disabled.
+   */
   function buildMemoryPrompt(facts, enabled) {
     if (!enabled) return "";
     const list = JSON.stringify(facts.map(({ id, fact }) => ({ id, fact })));

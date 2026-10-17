@@ -1,3 +1,4 @@
+/** @file Regression tests for queue.test. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequestQueue } from "../src/core/queue.js";

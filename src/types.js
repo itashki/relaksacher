@@ -1,0 +1,135 @@
+/**
+ * Shared contracts for the platform-independent assistant and its adapters.
+ * This module contains documentation types only and has no runtime behavior.
+ * @module types
+ */
+
+/** @typedef {import("ollama").Message} ChatMessage */
+/** @typedef {import("ollama").Tool} ToolDefinition */
+/** @typedef {import("ollama").ToolCall} ToolCall */
+
+/**
+ * @typedef {object} ModelConfig
+ * @property {string} name Exact Ollama model identifier.
+ * @property {string} [alias] Public signature; omitted for single-model pools.
+ * @property {number} [numCtx] Per-model context window override.
+ */
+
+/**
+ * @typedef {object} RequestContext
+ * @property {string} [scopeId] Storage namespace; absent when memory is disabled.
+ * @property {string} [authorName] Display name used for memory attribution and logs.
+ */
+
+/**
+ * @typedef {object} BackgroundMessage
+ * @property {string} id Platform message identifier.
+ * @property {string} author Human-readable author description.
+ * @property {string} content Message text.
+ * @property {boolean} [isAssistant] Whether the author is this bot.
+ * @property {string|null} [replyTo] Referenced message identifier.
+ */
+
+/**
+ * @typedef {object} MemoryFact
+ * @property {number} id Scope-local fact identifier.
+ * @property {string} fact Stored statement.
+ * @property {string} [by] Author who added the statement.
+ * @property {string} [at] ISO timestamp of creation.
+ */
+
+/**
+ * @typedef {object} GenerationUpdate
+ * @property {string} text Accumulated answer, excluding platform formatting.
+ * @property {ToolCall|""} status Active tool call or an empty string.
+ * @property {boolean} final Whether this is the last update.
+ * @property {string} [modelAlias] Optional public model signature.
+ */
+
+/**
+ * @typedef {object} GenerationResult
+ * @property {string} text Final answer with any interruption marker.
+ * @property {string} thinkingLog Accumulated reasoning, intended for server logs.
+ * @property {string} model Actual Ollama model identifier.
+ * @property {string} [modelAlias] Optional public model signature.
+ * @property {string|null} incompleteReason Detected truncation reason, if any.
+ * @property {boolean} failed Whether generation encountered an error.
+ * @property {boolean} stopped Whether cancellation was requested.
+ * @property {boolean} timedOut Whether the generation deadline expired.
+ */
+
+/**
+ * @typedef {object} SessionOptions
+ * @property {ChatMessage[]} conversation Reply chain ending in the current request.
+ * @property {BackgroundMessage[]} [background] Optional ambient context; adapters leave it empty.
+ * @property {RequestContext} [context] Request attribution and memory scope.
+ * @property {boolean} [think] Enable thinking from the first model round.
+ * @property {boolean} [search] False disables web tools; omitted enables automatic choice.
+ * @property {string} [assistantName] Platform-specific bot name.
+ * @property {string} [platformInstructions] Platform-specific prompt instructions.
+ * @property {function(GenerationUpdate): (void|Promise<void>)} [onUpdate] Awaited delivery callback.
+ * @property {function(number): (void|Promise<void>)} [onQueued] Initial waiting position callback.
+ */
+
+/**
+ * @typedef {object} Session
+ * @property {function(): void} stop Cancel generation or mark a waiting request stopped.
+ * @property {function(): Promise<GenerationResult>} run Run once through the shared queue.
+ */
+
+/**
+ * @typedef {object} Assistant
+ * @property {function(SessionOptions): Session} createSession Create an unstarted request.
+ */
+
+/** @typedef {ReturnType<import("./core/memory.js").createMemoryStore>} MemoryStore */
+/** @typedef {ReturnType<import("./core/tools.js").createToolService>} ToolService */
+
+/**
+ * @typedef {object} AssistantOptions
+ * @property {Pick<import("ollama").Ollama, "chat">} modelClient Streaming model client.
+ * @property {MemoryStore} memory Persistent fact storage.
+ * @property {ToolService} toolService Tool definitions and execution.
+ * @property {string} [model] Legacy fallback model name.
+ * @property {number} numCtx Default context window size.
+ * @property {number} timeoutMs Generation deadline, excluding queue waiting.
+ * @property {number} [updateIntervalMs] Minimum interval between ordinary text updates.
+ * @property {string[]} [facts] Owner-provided facts.
+ * @property {string} [personality] Local personality instructions.
+ * @property {Pick<Console, "info">} [logger] Destination for reasoning logs.
+ * @property {function(): ModelConfig} [selectModel] Called once per session.
+ */
+
+/**
+ * @typedef {object} AppConfig
+ * @property {string|undefined} token Discord bot token.
+ * @property {string|undefined} telegramToken Telegram bot token.
+ * @property {number} telegramTimeoutMs Telegram API request timeout.
+ * @property {number} telegramUpdateIntervalMs Telegram rendering interval.
+ * @property {string[]} adapters Enabled adapters.
+ * @property {string|undefined} applicantId Discord application identifier.
+ * @property {string|undefined} publicKey Discord application public key.
+ * @property {string} OLLAMA_URL Ollama server address.
+ * @property {string|undefined} OLLAMA_MODEL Legacy model identifier.
+ * @property {ModelConfig[]} OLLAMA_MODELS Available model pool.
+ * @property {number} OLLAMA_TIMEOUT Generation timeout in milliseconds.
+ * @property {string|null} OLLAMA_API_KEY Optional cloud search credential.
+ * @property {number} OLLAMA_NUM_CTX Default context window size.
+ * @property {string[]} facts Owner-provided facts.
+ * @property {string} personality Active personality instructions.
+ */
+
+/**
+ * @typedef {function(string, Object<string, *>=, AbortSignal=): Promise<*>} TelegramRequest
+ */
+/**
+ * @typedef {TelegramRequest & {downloadImage: function(string): Promise<string>}} TelegramApi
+ */
+/**
+ * @typedef {object} TelegramBot
+ * @property {function(import("@grammyjs/types").Update): Promise<void>} handleUpdate Handle an incoming update.
+ * @property {function(): Promise<void>} start Start polling; resolves when polling stops.
+ * @property {function(): (Promise<void>|undefined)} stop Stop polling and active sessions.
+ */
+
+export {};

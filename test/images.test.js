@@ -1,3 +1,4 @@
+/** @file Regression tests for images.test. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { attachImages, downloadImage } from "../src/adapters/images.js";

@@ -1,3 +1,4 @@
+/** @file Implementation of core/tools. */
 import { truncate } from "./text.js";
 
 const MEMORY_TOOLS = [
@@ -77,9 +78,22 @@ const TOOLS = [
 ];
 
 
+/**
+ * Expose memory tools and optionally Ollama cloud web tools.
+ * @param {object} options Dependencies.
+ * @param {import("ollama").Ollama|null} [options.searchClient] Authenticated cloud client.
+ * @param {import("../types.js").MemoryStore} options.memory Persistent fact operations.
+ * @returns {{runTool: function(import("../types.js").ToolCall, import("../types.js").RequestContext): Promise<string>, searchEnabled: boolean, definitions: function({scopeId: string=, search: boolean=}): import("../types.js").ToolDefinition[]}} Tool service.
+ */
 export function createToolService({ searchClient = null, memory }) {
   const { addMemoryFact, removeMemoryFact } = memory;
   // Выполняет вызов инструмента и возвращает строку для модели.
+  /**
+   * Execute a tool; failures become textual results for the model.
+   * @param {import("../types.js").ToolCall} call Requested function and arguments.
+   * @param {import("../types.js").RequestContext} context Memory scope and attribution.
+   * @returns {Promise<string>} Tool output or a readable failure description.
+   */
   async function runTool(call, context) {
     const { name } = call.function;
     const args = call.function.arguments ?? {};

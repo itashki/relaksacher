@@ -1,3 +1,4 @@
+/** @file Implementation of adapters/discord. */
 import { attachImages, downloadImage } from "./images.js";
 import {
   ActionRowBuilder,
@@ -11,6 +12,12 @@ import {
 } from "discord.js";
 import { parseCommands, truncate } from "../core/text.js";
 
+/**
+ * Split Discord text at whitespace when possible, preserving Unicode code points.
+ * @param {string} content Raw text.
+ * @param {number} [maxLength=2000] Maximum code points per chunk.
+ * @returns {string[]} Message pieces.
+ */
 function splitMessage(content, maxLength = 2000) {
   const remaining = Array.from(content);
   const chunks = [];
@@ -38,6 +45,11 @@ function splitMessage(content, maxLength = 2000) {
   return chunks;
 }
 // Короткий статус для отображения в Discord, пока выполняется инструмент.
+/**
+ * Render a short, temporary Discord status for a tool call.
+ * @param {import("../types.js").ToolCall} call Active tool.
+ * @returns {string} Human-readable status.
+ */
 function describeToolCall(call) {
   const args = call.function.arguments ?? {};
   if (call.function.name === "enable_thinking") {
@@ -59,12 +71,26 @@ function describeToolCall(call) {
 }
 
 
+/**
+ * Collect supported image attachment URLs.
+ * @param {import("discord.js").Message} message Source message.
+ * @returns {string[]} Image URLs.
+ */
 function imageFiles(message) {
   return [...(message.attachments?.values() ?? [])]
     .filter((file) => /^image\/(jpeg|png|webp)$/.test(file.contentType ?? "") || /\.(png|jpe?g|webp)$/i.test(file.name ?? ""))
     .map((file) => file.url);
 }
 
+/**
+ * Construct the Discord adapter without logging in.
+ * @param {object} options Adapter dependencies.
+ * @param {import("../types.js").AppConfig} options.config Startup settings.
+ * @param {import("../types.js").Assistant} options.assistant Shared generation service.
+ * @param {string} options.memoryDirectory Memory path used in startup diagnostics.
+ * @param {function(string): Promise<string>} [options.loadImage] Injectable base64 loader.
+ * @returns {{client: import("discord.js").Client, start: function(): Promise<string>, stop: function(): void}} Adapter lifecycle.
+ */
 export function createDiscordBot({ config, assistant, memoryDirectory,
   loadImage = (url) => downloadImage(url, { allowedHosts: ["cdn.discordapp.com", "media.discordapp.net"] }),
 }) {
@@ -77,6 +103,11 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
   });
 
   // Название треда: начало вопроса без упоминаний и команд (лимит Discord — 100).
+  /**
+   * Build a short topic from the request, excluding commands and mentions.
+   * @param {import("discord.js").Message} message Source request.
+   * @returns {string} Thread title.
+   */
   function threadName(message) {
     const topic = parseCommands(message.content)
       .content.replace(/<[@#][!&]?\d+>/g, "")
@@ -87,6 +118,11 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
   }
 
   // Описание автора сообщения для модели: отображаемое имя, username и id.
+  /**
+   * Describe an author consistently for model attribution.
+   * @param {import("discord.js").Message} entry Source message.
+   * @returns {string} Display name, username and identifier.
+   */
   function describeAuthor(entry) {
     const displayName =
       entry.member?.displayName ??
@@ -100,6 +136,11 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
   // id запроса -> состояние активной генерации
   const activeGenerations = new Map();
 
+  /**
+   * Create the stop button associated with a request.
+   * @param {string} generationId Request identifier.
+   * @returns {import("discord.js").ActionRowBuilder<import("discord.js").ButtonBuilder>} Button row.
+   */
   function buildStopRow(generationId) {
     return new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -118,6 +159,11 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
     console.log("Memory dir:", memoryDirectory);
   });
 
+  /**
+   * Stop active/queued sessions and destroy the Discord connection.
+   * @param {string} signal Shutdown reason for logging.
+   * @returns {void}
+   */
   function shutdown(signal) {
     console.log(`Received ${signal}, shutting down.`);
     for (const generation of activeGenerations.values()) {
@@ -217,6 +263,11 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
     const sent = []; // что сейчас показано в каждом сообщении
 
     // Приводит отправленные сообщения в соответствие с накопленным текстом.
+    /**
+     * Synchronize Discord messages with the latest accumulated generation state.
+     * @param {import("../types.js").GenerationUpdate} state Delivery snapshot.
+     * @returns {Promise<void>} Resolves when messages have been sent or edited.
+     */
     async function flush(state) {
       snapshot = state;
       const { text, final } = state;

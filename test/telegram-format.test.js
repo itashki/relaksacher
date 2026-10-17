@@ -1,3 +1,4 @@
+/** @file Regression tests for telegram-format.test. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { formatTelegramChunks } from "../src/adapters/telegram-format.js";

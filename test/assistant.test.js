@@ -1,8 +1,15 @@
+/** @file Regression tests for assistant.test. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createAssistant } from "../src/core/assistant.js";
 import { createToolService } from "../src/core/tools.js";
 
+/**
+ * Create fake model streams and capture requests and updates.
+ * @param {Array<Array<Partial<import("ollama").ChatResponse>>>} rounds Model chunks by round.
+ * @param {Partial<import("../src/types.js").AssistantOptions>} [overrides] Dependency overrides.
+ * @returns {object} Assistant fixture and captured events.
+ */
 function setup(rounds, overrides = {}) {
   const requests = [];
   const updates = [];

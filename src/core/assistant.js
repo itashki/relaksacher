@@ -1,3 +1,4 @@
+/** @file Implementation of core/assistant. */
 import { guardContext, ContextLimitError } from "./context.js";
 import { createRequestQueue } from "./queue.js";
 import { buildMessages } from "./prompt.js";
@@ -14,6 +15,11 @@ const THINK_TOOL = {
 
 // A session is independent of any chat platform. onUpdate receives snapshots;
 // stop() can be used by a CLI, HTTP request, or a chat adapter.
+/**
+ * Create a platform-independent assistant with one shared FIFO generation queue.
+ * @param {import("../types.js").AssistantOptions} options Injected clients and policies.
+ * @returns {import("../types.js").Assistant} Assistant factory; no network calls until run().
+ */
 export function createAssistant({
   modelClient, memory, toolService, model, numCtx, timeoutMs,
   updateIntervalMs = 0,
@@ -24,6 +30,11 @@ export function createAssistant({
 }) {
   const enqueue = createRequestQueue();
   return {
+    /**
+     * Capture one request and select its model; execution starts only with run().
+     * @param {import("../types.js").SessionOptions} options Conversation and delivery hooks.
+     * @returns {import("../types.js").Session} Single-use cancellable session.
+     */
     createSession({
       conversation, background = [], context = {}, think = false, search,
       assistantName = "Релаксачер", platformInstructions = "", onUpdate = async () => {},
@@ -34,6 +45,10 @@ export function createAssistant({
         stream: null,
         stopped: false,
         timedOut: false,
+        /**
+         * Mark the session cancelled and abort the current stream if one exists.
+         * @returns {void}
+         */
         stop() {
           this.stopped = true;
           this.stream?.abort();
@@ -42,6 +57,11 @@ export function createAssistant({
       let started = false;
       return {
         stop: () => generation.stop(),
+        /**
+         * Run this session once through the shared queue; waiting does not consume its deadline.
+         * @returns {Promise<import("../types.js").GenerationResult>} Completed or interrupted result.
+         * @throws {Error} On repeated execution or failed final delivery.
+         */
         async run() {
           if (started) throw new Error("Session already started");
           started = true;
@@ -51,6 +71,11 @@ export function createAssistant({
             let text = search && !toolService.searchEnabled ? "⚠️ Поиск недоступен: не задан OLLAMA_API_KEY.\n\n" : "";
             let status = "";
             let thinkingLog = "";
+            /**
+             * Deliver a plain answer snapshot without reasoning text.
+             * @param {boolean} final Whether generation is complete.
+             * @returns {void|Promise<void>} Adapter delivery result.
+             */
             const flush = (final) => onUpdate({ text, status, final, modelAlias: selectedModel.alias });
             const timeoutTimer = setTimeout(() => {
               generation.timedOut = true;
@@ -64,6 +89,10 @@ export function createAssistant({
               const messages = buildMessages({ conversation, background, assistantName, platformInstructions, facts, personality,
                 memoryPrompt: memory.buildMemoryPrompt(memoryFacts, Boolean(context.scopeId)), useSearch });
               const definitions = toolService.definitions({ scopeId: context.scopeId, search: useSearch });
+              /**
+               * List currently available tools, omitting the thinking switch once enabled.
+               * @returns {import("../types.js").ToolDefinition[]|undefined} Available schemas.
+               */
               const toolsForRound = () => {
                 const available = [...definitions, ...(!useThinking ? [THINK_TOOL] : [])];
                 return available.length ? available : undefined;

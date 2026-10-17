@@ -1,3 +1,4 @@
+/** @file Regression tests for context.test. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { guardContext, ContextLimitError } from "../src/core/context.js";

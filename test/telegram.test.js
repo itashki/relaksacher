@@ -1,7 +1,14 @@
+/** @file Regression tests for telegram.test. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createTelegramBot, createTelegramApi } from "../src/adapters/telegram.js";
 
+/**
+ * Build an injected Telegram adapter with no external network requests.
+ * @param {Function} [run] Custom fake session execution.
+ * @param {object} [config] Telegram adapter settings.
+ * @returns {object} Bot fixture, API calls and captured session options.
+ */
 function setup(run, config = { telegramUpdateIntervalMs: 0 }) {
   const calls = [];
   const inputs = [];
@@ -21,6 +28,13 @@ function setup(run, config = { telegramUpdateIntervalMs: 0 }) {
   } } });
   return { bot, calls, inputs };
 }
+/**
+ * Build a minimal user-authored Telegram message for adapter tests.
+ * @param {number} id Message identifier.
+ * @param {string|undefined} text Text or undefined for image-only fixtures.
+ * @param {object} [chat] Chat metadata.
+ * @returns {object} Message fixture.
+ */
 const message = (id, text, chat = { id: 1, type: "private" }) => ({
   message_id: id, text, chat, from: { id: 10, first_name: "Alice" },
 });

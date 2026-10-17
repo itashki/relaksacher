@@ -1,3 +1,4 @@
+/** @file Regression tests for discord.test. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Events } from "discord.js";

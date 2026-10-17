@@ -1,3 +1,4 @@
+/** @file Regression tests for models.test. */
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";

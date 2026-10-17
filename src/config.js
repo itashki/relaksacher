@@ -1,3 +1,4 @@
+/** @file Implementation of config. */
 import JSON5 from "json5";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -5,6 +6,12 @@ import { fileURLToPath } from "node:url";
 
 const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
 
+/**
+ * Load the model pool from local JSON5 or legacy environment settings.
+ * @param {NodeJS.ProcessEnv} env Configuration environment.
+ * @returns {import("./types.js").ModelConfig[]} Parsed model entries.
+ * @throws {Error} When the configured file cannot be read or parsed.
+ */
 function loadModelPool(env) {
   const filename = env.OLLAMA_MODELS_FILE ||
     (!env.OLLAMA_MODELS && !env.OLLAMA_MODEL ? "models.json5" : null);
@@ -21,6 +28,12 @@ function loadModelPool(env) {
     : [{ name: env.OLLAMA_MODEL, alias: "р" }];
 }
 
+/**
+ * Read and validate owner-provided facts relative to the project directory.
+ * @param {string} [filename] JSON5 fact-list path.
+ * @returns {string[]} Trimmed facts.
+ * @throws {Error} When the file is missing, malformed, or contains invalid entries.
+ */
 function loadFacts(filename = "facts.json5") {
   const file = path.resolve(projectDirectory, filename);
   let facts;
@@ -35,6 +48,12 @@ function loadFacts(filename = "facts.json5") {
   return facts.map((fact) => fact.trim());
 }
 
+/**
+ * Load credentials, local prompts and adapter/model settings at startup.
+ * @param {NodeJS.ProcessEnv} [env=process.env] Environment to read without mutation.
+ * @returns {import("./types.js").AppConfig} Validated application configuration.
+ * @throws {Error} When required credentials or configuration values are invalid.
+ */
 export function loadConfig(env = process.env) {
   const facts = loadFacts(env.FACTS_FILE);
   const personalityFile = path.resolve(projectDirectory, env.PERSONALITY_FILE || "personality.json5");

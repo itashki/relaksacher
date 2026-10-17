@@ -1,3 +1,4 @@
+/** @file Implementation of adapters/telegram. */
 import { attachImages } from "./images.js";
 import { formatTelegramChunks } from "./telegram-format.js";
 import { run } from "@grammyjs/runner";
@@ -6,6 +7,12 @@ import { parseCommands } from "../core/text.js";
 
 export { createTelegramApi } from "./telegram-api.js";
 
+/**
+ * Split text into UTF-16-bounded pieces without breaking surrogate pairs.
+ * @param {string} text Raw answer for cached reply-chain reconstruction.
+ * @param {number} [limit=3800] Chunk size in UTF-16 units.
+ * @returns {string[]} Nonempty list of chunks.
+ */
 function splitText(text, limit = 3800) {
   const chunks = [];
   let chunk = "";
@@ -17,16 +24,34 @@ function splitText(text, limit = 3800) {
   return chunks;
 }
 
+/**
+ * Select the largest photo or a supported image document.
+ * @param {import("@grammyjs/types").Message} message Telegram message.
+ * @returns {string[]} Downloadable file identifiers.
+ */
 function imageFiles(message) {
   if (message.photo?.length) return [message.photo.at(-1).file_id];
   if (/^image\/(jpeg|png|webp)$/.test(message.document?.mime_type ?? "")) return [message.document.file_id];
   return [];
 }
 
+/**
+ * Format Telegram user identity for the model.
+ * @param {import("@grammyjs/types").User} user Message author.
+ * @returns {string} Name, optional username and identifier.
+ */
 function author(user) {
   return `${[user.first_name, user.last_name].filter(Boolean).join(" ") || user.username || user.id} (username: ${user.username ?? "нет"}, id: ${user.id})`;
 }
 
+/**
+ * Construct the Telegram adapter; no network access until an update or start().
+ * @param {object} options Adapter dependencies.
+ * @param {import("../types.js").AppConfig} options.config Startup settings.
+ * @param {import("../types.js").Assistant} options.assistant Shared generation service.
+ * @param {import("../types.js").TelegramApi} [options.api] Injectable Telegram API wrapper.
+ * @returns {import("../types.js").TelegramBot} Adapter lifecycle and update handler.
+ */
 export function createTelegramBot({ config, assistant, api = createTelegramApi(config.telegramToken, fetch, { timeoutMs: config.telegramTimeoutMs ?? 60000 }) }) {
   let stopped = false;
   let runner;
@@ -34,7 +59,17 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
   const active = new Map();
   let me;
   let running = false;
+  /**
+   * Isolate the reply cache by chat and topic.
+   * @param {import("@grammyjs/types").Message} message Source message.
+   * @returns {string} Cache key.
+   */
   const roomKey = (message) => `${message.chat.id}:${message.message_thread_id ?? 0}`;
+  /**
+   * Cache a message for explicit reply-chain reconstruction, with bounded storage.
+   * @param {import("@grammyjs/types").Message} message Received or generated message.
+   * @returns {void}
+   */
   function remember(message) {
     const key = roomKey(message);
     const history = histories.get(key) ?? [];
@@ -46,6 +81,11 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
     if (histories.size > 200) histories.delete(histories.keys().next().value);
   }
 
+  /**
+   * Authorize stop-button presses by requester or group administrator.
+   * @param {import("@grammyjs/types").CallbackQuery} query Incoming callback.
+   * @returns {Promise<void>} Callback acknowledgement.
+   */
   async function handleCallback(query) {
     if (!query.data?.startsWith("stop:")) return;
     const generation = active.get(query.data.slice(5));
@@ -63,6 +103,11 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
       text: allowed ? "Останавливаю." : "Остановить может автор запроса или администратор." });
   }
 
+  /**
+   * Handle an addressed text/image request and its explicit reply ancestors.
+   * @param {import("@grammyjs/types").Message} message Incoming message.
+   * @returns {Promise<void>} Resolves after session execution and UI cleanup.
+   */
   async function handleMessage(message) {
     if ((!message.text && !message.caption && !imageFiles(message).length) || !message.from || message.from.is_bot) return;
     message = { ...message, text: message.text ?? message.caption ?? "Опиши изображение.", entities: message.entities ?? message.caption_entities };
@@ -86,6 +131,11 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
       if ((parent.text || parent.caption || imageFiles(parent).length) && parent.from) conversationMessages.unshift({ ...parent, text: parent.text ?? parent.caption ?? "Изображение." });
       parent = past.find((entry) => entry.message_id === parent.message_id)?.reply_to_message ?? parent.reply_to_message;
     }
+    /**
+     * Strip this bot's username suffix from supported commands.
+     * @param {string} text Raw command-bearing text.
+     * @returns {string} Text suitable for shared command parsing.
+     */
     const cleanCommands = (text) => text.replace(/\/(think|search)@(\w+)/giu,
       (match, command, username) => username.toLowerCase() === me.username.toLowerCase() ? `/${command}` : match);
     const { flags } = parseCommands(cleanCommands(message.text));
@@ -108,6 +158,12 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
     let lastRenderedAt = -Infinity;
     let queued = false;
     let finalized = false;
+    /**
+     * Render the latest snapshot, throttling intermediate edits only.
+     * @param {import("../types.js").GenerationUpdate} state Accumulated answer.
+     * @param {boolean} [immediate=false] Bypass the ordinary render interval.
+     * @returns {Promise<void>} Delivery completion.
+     */
     async function render(state, immediate = false) {
       if (!state.final && !immediate && replies.length &&
           Date.now() - lastRenderedAt < (config.telegramUpdateIntervalMs ?? 5000)) return;
@@ -184,6 +240,11 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
     }
   }
 
+  /**
+   * Route an update after lazy bot identity initialization.
+   * @param {import("@grammyjs/types").Update} update Incoming Telegram update.
+   * @returns {Promise<void>} Handler completion.
+   */
   async function handleUpdate(update) {
     me ??= await api("getMe");
     if (update.callback_query) await handleCallback(update.callback_query);
@@ -191,6 +252,11 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
   }
   return {
     handleUpdate,
+    /**
+     * Initialize bot identity and run concurrent long polling.
+     * @returns {Promise<void>} Resolves after polling has stopped.
+     * @throws {Error} On duplicate starts or unrecoverable startup/polling failure.
+     */
     async start() {
       if (running || stopped) throw new Error("Telegram bot already started or stopped");
       running = true;
@@ -212,6 +278,10 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
       });
       await runner.task();
     },
+    /**
+     * Stop polling and request cancellation of every active/queued generation.
+     * @returns {Promise<void>|undefined} Runner shutdown when polling has started.
+     */
     stop() {
       stopped = true;
       for (const generation of active.values()) generation.stop();

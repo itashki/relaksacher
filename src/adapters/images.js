@@ -1,5 +1,15 @@
+/** @file Implementation of adapters/images. */
 const MAX_BYTES = 10 * 1024 * 1024;
 
+/**
+ * Download a trusted-host image with timeout, byte limit and signature validation.
+ * @param {string} url HTTPS image address.
+ * @param {object} options Download policy.
+ * @param {typeof fetch} [options.fetchImpl] Injectable HTTP transport.
+ * @param {string[]} options.allowedHosts Exact allowed hostnames; redirects are rejected.
+ * @returns {Promise<string>} JPEG/PNG/WebP bytes encoded as base64.
+ * @throws {Error} When downloading or validation fails.
+ */
 export async function downloadImage(url, { fetchImpl = fetch, allowedHosts }) {
   const parsed = new URL(url);
   if (parsed.protocol !== "https:" || !allowedHosts.includes(parsed.hostname)) throw new Error("Invalid image host");
@@ -24,6 +34,13 @@ export async function downloadImage(url, { fetchImpl = fetch, allowedHosts }) {
   return data.toString("base64");
 }
 
+/**
+ * Attach at most four images, newest messages first; annotate omissions/failures.
+ * @param {import("../types.js").ChatMessage[]} conversation Messages mutated in place.
+ * @param {string[][]} sources Image URLs or file ids aligned with message indexes.
+ * @param {function(string): Promise<string>} loadImage Resolve a source to base64.
+ * @returns {Promise<import("../types.js").ChatMessage[]>} The same conversation array.
+ */
 export async function attachImages(conversation, sources, loadImage) {
   let remaining = 4;
   // Prefer the current request, then the newest referenced pictures.

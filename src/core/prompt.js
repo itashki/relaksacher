@@ -1,3 +1,4 @@
+/** @file Implementation of core/prompt. */
 const RESPONSE_RULES = `Отвечай сразу по сути, обычно по-русски и до 2000 символов; просьбы о другом языке, переводе или подробностях выполняй. Без дежурных приветствий и самопрезентаций.
 Не напоминай без повода, что ты ИИ или не человек. На прямой вопрос отвечай честно и кратко, без выдуманной человеческой биографии.
 Последняя реплика пользователя — текущий запрос; предыдущие — контекст цепочки ответов. Различай участников по [Автор: ...], не приписывай им чужие слова и не выводи эту метку, её варианты или подписи с именем/id автора.
@@ -12,6 +13,19 @@ const SEARCH_RULES = `Доступны web_search и web_fetch. Ищи по пр
 Для поиска начни с web_search; текст первых страниц уже может быть в результатах. При нехватке деталей загрузи 1–2 страницы через web_fetch; прямую ссылку можно открыть сразу.
 Перескажи прочитанное, отделяя факты от выводов; отметь противоречия и нехватку данных. Дай ответ, а не список ссылок, затем 1–3 реально использованных источника в формате платформы.`;
 
+/**
+ * Build the system prompt and append background data and the explicit dialogue.
+ * @param {object} options Prompt inputs.
+ * @param {import("../types.js").ChatMessage[]} options.conversation Explicit reply chain.
+ * @param {string} [options.assistantName] Platform-specific bot name.
+ * @param {import("../types.js").BackgroundMessage[]} [options.background] Optional ambient data.
+ * @param {string} [options.platformInstructions] Formatting and mention rules.
+ * @param {string} [options.memoryPrompt] Scope-specific memory instructions.
+ * @param {string[]} [options.facts] Owner-provided authoritative facts.
+ * @param {string} [options.personality] Locally configured character instructions.
+ * @param {boolean} [options.useSearch] Whether web tools are available.
+ * @returns {import("../types.js").ChatMessage[]} Fresh model conversation.
+ */
 export function buildMessages({
   conversation,
   assistantName = "Релаксачер",
