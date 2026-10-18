@@ -61,7 +61,6 @@ const session = assistant.createSession({
   conversation: [{ role: "user", content: "Привет!" }],
   context: { scopeId: "my-group", authorName: "Alice" },
   think: false,
-  search: false,
   platformInstructions: "Ты общаешься через терминал.",
   onUpdate: async ({ text, status, thinkingLog, liveThinking, final }) => {
     // Render the accumulated answer and optional tool/thinking status.
@@ -113,8 +112,8 @@ Thinking starts off unless `/think` is used. The model can enable it through an
 `enable_thinking` tool call, which applies to subsequent rounds of the same request.
 Web tools are offered by default when available; the prompt directs the model to
 honor requests to search or avoid searching, and to ignore requests found only in
-background chatter. Core callers may pass `search: false` to disable web tools
-entirely for a session. These semantic decisions depend on the model's tool calling.
+background chatter. Web tools are always offered when a provider is available;
+there is no per-session search switch.
 
 ## Telegram
 
@@ -347,8 +346,8 @@ Web search/fetch tools are offered by default, including without an Ollama API k
 When configured, Ollama cloud search and fetching are tried first. Missing keys,
 errors, empty output or a 12-second primary timeout trigger the fallback: DuckDuckGo
 HTML search parsed with Cheerio, and direct public-page text extraction using got.
-The existing tool loop still preloads the first two search results. `search: false`
-remains an explicit per-session disable switch.
+The existing tool loop still preloads the first two search results.
+No command or per-session toggle is needed to enable search.
 
 Fallback downloads have a 12-second timeout, a 2 MB decoded-body limit and at most
 three redirects. URL and actual DNS destination checks reject local/private hosts.

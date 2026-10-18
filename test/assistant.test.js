@@ -61,12 +61,12 @@ test("streams plain snapshots and carries memory/tools into the next model round
   assert.equal(env.aborted, 1);
 });
 
-test("unscoped requests have no memory tools and disabled search is reported", async () => {
+test("unscoped requests have no memory tools", async () => {
   const env = setup([[{ message: { content: "answer" } }]]);
-  const result = await env.assistant.createSession({ ...env.options, search: true }).run();
+  const result = await env.assistant.createSession(env.options).run();
   assert.deepEqual(env.requests[0].tools.map((t) => t.function.name), ["enable_thinking"]);
   assert.doesNotMatch(env.requests[0].messages[0].content, /shared fact|Discord/);
-  assert.match(result.text, /Поиск недоступен/);
+  assert.equal(result.text, "answer");
 });
 
 test("stop before running avoids a model request and finalizes the session", async () => {
@@ -145,7 +145,7 @@ test("web search fetches top results and falls back to snippets for failed pages
       return { content: "full page" };
     },
   } });
-  assert.equal(service.definitions({ search: false }).length, 0);
+  assert.deepEqual(service.definitions({}).map((tool) => tool.function.name), ["web_search", "web_fetch"]);
   assert.deepEqual(service.definitions({ search: true }).map((tool) => tool.function.name), ["web_search", "web_fetch"]);
   const result = JSON.parse(await service.runTool({ function: {
     name: "web_search", arguments: { query: "question", max_results: 99 },
@@ -196,10 +196,10 @@ test("model can enable thinking in response to a natural-language request", asyn
   assert.match(env.requests[1].messages.at(-1).content, /включён/);
 });
 
-test("search tools are available automatically and may be explicitly disabled", async () => {
+test("search tools are always available, including with a legacy disable flag", async () => {
   const toolService = {
     searchEnabled: true,
-    definitions: ({ search }) => search ? [{ type: "function", function: { name: "web_search" } }] : [],
+    definitions: () => [{ type: "function", function: { name: "web_search" } }],
   };
   const env = setup([
     [{ message: { content: "answer" } }], [{ message: { content: "offline answer" } }],
@@ -207,7 +207,7 @@ test("search tools are available automatically and may be explicitly disabled", 
   await env.assistant.createSession(env.options).run();
   await env.assistant.createSession({ ...env.options, search: false }).run();
   assert.ok(env.requests[0].tools.some((t) => t.function.name === "web_search"));
-  assert.ok(!env.requests[1].tools.some((t) => t.function.name === "web_search"));
+  assert.ok(env.requests[1].tools.some((t) => t.function.name === "web_search"));
 });
 
 test("generation limit is marked in the final text and snapshot", async () => {

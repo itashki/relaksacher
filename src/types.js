@@ -60,7 +60,6 @@
  * @property {BackgroundMessage[]} [background] Optional ambient context; adapters leave it empty.
  * @property {RequestContext} [context] Request attribution and memory scope.
  * @property {boolean} [think] Enable thinking from the first model round.
- * @property {boolean} [search] False disables web tools; omitted enables automatic choice.
  * @property {string} [assistantName] Platform-specific bot name.
  * @property {string} [platformInstructions] Platform-specific prompt instructions.
  * @property {function(GenerationUpdate): (void|Promise<void>)} [onUpdate] Awaited delivery callback.

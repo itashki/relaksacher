@@ -121,7 +121,7 @@ const TOOLS = [
  * @param {function(string): Promise<Array<object>>|null} [options.gifSearch] Optional GIF search provider.
  * @param {object|null} [options.fallbackClient] Credential-free scraper; null disables it for tests.
  * @param {import("../types.js").MemoryStore} options.memory Persistent fact operations.
- * @returns {{runTool: function(import("../types.js").ToolCall, import("../types.js").RequestContext): Promise<string>, searchEnabled: boolean, definitions: function({scopeId: string=, search: boolean=, history: boolean=, images: boolean=}): import("../types.js").ToolDefinition[]}} Tool service.
+ * @returns {{runTool: function(import("../types.js").ToolCall, import("../types.js").RequestContext): Promise<string>, searchEnabled: boolean, definitions: function({scopeId: string=, history: boolean=, images: boolean=}): import("../types.js").ToolDefinition[]}} Tool service.
  */
 export function createToolService({ searchClient: primarySearchClient = null, fallbackClient = createWebFallback(), imageSearch = createImageSearch(), gifSearch = null, memory }) {
   const searchClient = createWebClient(primarySearchClient, fallbackClient);
@@ -234,12 +234,12 @@ export function createToolService({ searchClient: primarySearchClient = null, fa
   return {
     runTool,
     searchEnabled: Boolean(searchClient),
-    definitions: ({ scopeId, search, history, images }) => [
+    definitions: ({ scopeId, history, images }) => [
       ...(images ? IMAGE_TOOLS : []),
       ...(images && gifSearch ? GIF_TOOLS : []),
       ...(history ? [HISTORY_TOOL] : []),
       ...(scopeId ? MEMORY_TOOLS : []),
-      ...(search && searchClient ? TOOLS : []),
+      ...(searchClient ? TOOLS : []),
     ],
   };
 }

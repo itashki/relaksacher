@@ -150,7 +150,7 @@ export function createAssistant({
      * @returns {import("../types.js").Session} Single-use cancellable session.
      */
     createSession({
-      conversation, background = [], context = {}, think = false, search,
+      conversation, background = [], context = {}, think = false,
       assistantName = "Релаксачер", platformInstructions = "", onUpdate = async () => {},
       onQueued = async () => {},
     }) {
@@ -193,9 +193,8 @@ export function createAssistant({
             pendingRequests.delete(requestId);
             currentRequest = { ...request, startedAt: Date.now(), status: "Подготовка" };
             publishTerminal();
-            const useSearch = search !== false && toolService.searchEnabled;
             let useThinking = think;
-            let text = search && !toolService.searchEnabled ? "⚠️ Поиск недоступен.\n\n" : "";
+            let text = "";
             let status = "";
             let thinkingLog = "";
             /**
@@ -233,8 +232,8 @@ export function createAssistant({
               }
               const memoryFacts = context.scopeId ? await memory.loadMemory(context.scopeId) : [];
               const messages = buildMessages({ conversation, background, assistantName, platformInstructions, facts, personality,
-                memoryPrompt: memory.buildMemoryPrompt(memoryFacts, Boolean(context.scopeId)), useSearch });
-              const definitions = toolService.definitions({ scopeId: context.scopeId, search: useSearch, history: typeof context.readHistory === "function", images: typeof context.sendImage === "function" });
+                memoryPrompt: memory.buildMemoryPrompt(memoryFacts, Boolean(context.scopeId)) });
+              const definitions = toolService.definitions({ scopeId: context.scopeId, history: typeof context.readHistory === "function", images: typeof context.sendImage === "function" });
               /**
                * List currently available tools, omitting the thinking switch once enabled.
                * @returns {import("../types.js").ToolDefinition[]|undefined} Available schemas.
