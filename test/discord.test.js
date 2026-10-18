@@ -196,3 +196,103 @@ test("Discord media-only replies have no caption and remove the placeholder", as
   assert.equal(media.content, undefined);
   assert.equal(deleted, 1);
 });
+
+test("Discord thread history includes its parent channel and tolerates missing access", async (t) => {
+  let input;
+  let parentError = false;
+  const calls = [];
+  const entry = (id, content) => ({ id, content, author: { id: "user", username: "Alice", bot: false } });
+  const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
+    input = options;
+    return { stop() {}, async run() {} };
+  } } });
+  t.after(() => bot.client.destroy());
+  bot.client.user = { id: "bot" };
+  const parent = { id: "channel", name: "general", messages: { async fetch(options) {
+    calls.push(options);
+    if (parentError) throw new Error("Missing access");
+    return new Map([["30", entry("30", "parent discussion")],
+      ["20", { id: "20", content: "other bot", author: { id: "other-bot", bot: true } }]]);
+  } } };
+  await bot.client.listeners(Events.MessageCreate)[0]({
+    ...entry("40", "read channel history"), mentions: { has: () => true },
+    channel: { id: "thread", name: "topic", isThread: () => true, parent,
+      messages: { async fetch(options) {
+        calls.push(options);
+        return new Map([["35", entry("35", "thread discussion")]]);
+      } },
+    },
+  });
+  assert.equal(calls.length, 0);
+  const history = await input.context.readHistory(5);
+  assert.deepEqual(calls, [{ limit: 5, before: "40" }, { limit: 5, before: "40" }]);
+  assert.deepEqual(history.messages.map(({ content, channelId }) => ({ content, channelId })), [
+    { content: "parent discussion", channelId: "channel" },
+    { content: "thread discussion", channelId: "thread" },
+  ]);
+  parentError = true;
+  const limited = await input.context.readHistory(5);
+  assert.equal(limited.limited, true);
+  assert.equal(limited.messages[0].content, "thread discussion");
+  assert.match(limited.note, /родительский канал/);
+});
+
+test("Discord keeps parent history within the tool's total message limit", async (t) => {
+  const { createToolService } = await import("../src/core/tools.js");
+  let input;
+  const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
+    input = options;
+    return { stop() {}, async run() {} };
+  } } });
+  t.after(() => bot.client.destroy());
+  bot.client.user = { id: "bot" };
+  const channel = (id) => ({ id, messages: { async fetch({ limit }) {
+    return new Map(Array.from({ length: limit }, (_, i) => [String(i), {
+      id: String(i), content: `${id}-${i}`, author: { id: "user", username: "Alice" },
+    }]));
+  } } });
+  await bot.client.listeners(Events.MessageCreate)[0]({
+    id: "40", content: "history", author: { id: "user", username: "Alice" },
+    mentions: { has: () => true },
+    channel: { ...channel("thread"), isThread: () => true, parent: channel("parent") },
+  });
+  const tools = createToolService({ memory: {}, fallbackClient: null });
+  for (const limit of [1, 2, 5, 20]) {
+    const result = JSON.parse(await tools.runTool({ function: {
+      name: "read_history", arguments: { limit },
+    } }, input.context));
+    assert.equal(result.messages.length, limit);
+    assert.ok(result.messages.some((entry) => entry.channelId === "parent"));
+    if (limit > 1) assert.ok(result.messages.some((entry) => entry.channelId === "thread"));
+  }
+});
+
+test("Discord removes the extra message when a temporary status disappears", async (t) => {
+  const replies = [];
+  let deleted = 0;
+  const send = async (payload) => {
+    const reply = { payload, reply: send,
+      async edit(next) { this.payload = next; },
+      async delete() { deleted++; },
+    };
+    replies.push(reply);
+    return reply;
+  };
+  const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
+    return { stop() {}, async run() {
+      await options.onUpdate({ text: "x".repeat(1990), final: false,
+        status: { function: { name: "read_history" } } });
+      assert.equal(replies.length, 2);
+      await options.onUpdate({ text: "x".repeat(1990), final: true });
+    } };
+  } } });
+  t.after(() => bot.client.destroy());
+  bot.client.user = { id: "bot" };
+  await bot.client.listeners(Events.MessageCreate)[0]({
+    id: "40", content: "hello", author: { id: "user", username: "Alice" },
+    mentions: { has: () => true }, channel: { isThread: () => false }, reply: send,
+  });
+  assert.equal(deleted, 1);
+  assert.equal(replies[0].payload.content, "x".repeat(1990));
+  assert.deepEqual(replies[0].payload.components, []);
+});

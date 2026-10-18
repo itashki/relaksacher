@@ -301,6 +301,12 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
         displayed = displayed ? `${displayed}\n\n-# ${state.modelAlias}` : `…\n\n-# ${state.modelAlias}`;
       }
       const chunks = splitMessage(displayed);
+      // A temporary tool status can spill into an extra message.
+      while (replies.length > chunks.length) {
+        await replies.at(-1).delete();
+        replies.pop();
+        sent.pop();
+      }
       for (let i = 0; i < chunks.length; i++) {
         const isLast = i === chunks.length - 1;
         const content = chunks[i].trim() ? chunks[i] : "…";
@@ -351,9 +357,32 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
         },
         readHistory: async (limit) => {
           const entries = await message.channel.messages.fetch({ limit, before: message.id });
-          return { source: "discord", messages: [...entries.values()].reverse()
+          const formatEntries = (entries, channel) => [...entries.values()].reverse()
             .filter((entry) => entry.content && (!entry.author.bot || entry.author.id === client.user.id))
-            .map((entry) => ({ id: entry.id, author: describeAuthor(entry), content: entry.content })) };
+            .map((entry) => ({ id: entry.id, author: describeAuthor(entry), content: entry.content,
+              channelId: channel.id, channelName: channel.name }));
+          const history = { source: "discord", messages: formatEntries(entries, message.channel) };
+          if (message.channel.isThread()) {
+            try {
+              const parent = message.channel.parent ?? await client.channels.fetch(message.channel.parentId);
+              if (!parent?.messages) throw new Error("Parent channel history is unavailable");
+              const parentEntries = await parent.messages.fetch({ limit, before: message.id });
+              const parentMessages = formatEntries(parentEntries, parent);
+              // Reserve space for both sources before the tool applies its total limit.
+              const parentCount = Math.min(parentMessages.length,
+                Math.max(Math.ceil(limit / 2), limit - history.messages.length));
+              const threadCount = limit - parentCount;
+              history.messages = [
+                ...(parentCount > 0 ? parentMessages.slice(-parentCount) : []),
+                ...(threadCount > 0 ? history.messages.slice(-threadCount) : []),
+              ];
+              history.note = "История родительского канала и ветки до текущего запроса, в пределах общего лимита. Источники обозначены channelId и channelName.";
+            } catch {
+              history.limited = true;
+              history.note = "Доступна только история ветки: не удалось прочитать родительский канал.";
+            }
+          }
+          return history;
         },
       },
       think: flags.think,
