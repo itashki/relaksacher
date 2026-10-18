@@ -29,10 +29,9 @@ export function createAssistant({
   logger = console,
   supervisor,
   autoMemory = true,
-  autoMemoryCooldownMs = 900000,
+  autoMemoryCooldownMs = 120000,
   autoMemoryCheckIntervalMs = 60000,
   spontaneous = {},
-  selectModel = () => ({ name: model }),
 }) {
   const enqueue = createRequestQueue();
   const observations = new Map();
@@ -121,7 +120,7 @@ export function createAssistant({
       observationController.abort();
     },
     /**
-     * Capture one request and select its model; execution starts only with run().
+     * Capture one request; execution with the configured model starts only with run().
      * @param {import("../types.js").SessionOptions} options Conversation and delivery hooks.
      * @returns {import("../types.js").Session} Single-use cancellable session.
      */
@@ -130,7 +129,6 @@ export function createAssistant({
       assistantName = "Релаксачер", platformInstructions = "", onUpdate = async () => {},
       onQueued = async () => {},
     }) {
-      const selectedModel = selectModel();
       const toolContext = { ...context, imageState: { candidates: new Map(), sent: false } };
       const generation = {
         stream: null,
@@ -169,7 +167,7 @@ export function createAssistant({
              * @param {boolean} final Whether generation is complete.
              * @returns {void|Promise<void>} Adapter delivery result.
              */
-            const flush = (final) => onUpdate({ text, status, final, modelAlias: selectedModel.alias });
+            const flush = (final) => onUpdate({ text, status, final });
             const timeoutTimer = setTimeout(() => {
               generation.timedOut = true;
               generation.stop();
@@ -181,7 +179,7 @@ export function createAssistant({
               if (supervisor && !think && !generation.stopped) {
                 try {
                   useThinking = await supervisor.decideThinking(conversation, generation.controller.signal);
-                  logger.info("[router]", { think: useThinking, model: selectedModel.name });
+                  logger.info("[router]", { think: useThinking, model });
                 } catch (error) {
                   if (!generation.stopped) console.warn("Thinking router failed; using non-thinking mode:", error.message);
                 }
@@ -204,15 +202,15 @@ export function createAssistant({
                 if (generation.stopped) break;
 
                 const roundTools = round < MAX_TOOL_ROUNDS ? toolsForRound() : undefined;
-                const guard = guardContext(messages, roundTools, selectedModel.numCtx ?? numCtx);
+                const guard = guardContext(messages, roundTools, numCtx);
                 if (guard.trimmed) {
                   console.log("Context guard: removed older history to fit the input budget");
                 }
                 const stream = await modelClient.chat({
-                  model: selectedModel.name,
+                  model,
                   think: useThinking,
                   stream: true,
-                  options: { num_ctx: selectedModel.numCtx ?? numCtx },
+                  options: { num_ctx: numCtx },
                   // В последнем раунде инструменты отключаем, чтобы модель точно ответила.
                   tools: roundTools,
                   messages,
@@ -338,7 +336,7 @@ export function createAssistant({
               status = "";
               generation.stream?.abort();
               if (thinkingLog.trim()) logger.info("[thinking]", {
-                model: selectedModel.name,
+                model,
                 scopeId: context.scopeId,
                 authorName: context.authorName,
                 text: thinkingLog,
@@ -370,7 +368,7 @@ export function createAssistant({
             }
 
             await flush(true);
-            return { text, thinkingLog, model: selectedModel.name, modelAlias: selectedModel.alias, incompleteReason, failed, stopped: generation.stopped, timedOut: generation.timedOut };
+            return { text, thinkingLog, model, incompleteReason, failed, stopped: generation.stopped, timedOut: generation.timedOut };
           }, onQueued);
         },
       };

@@ -156,7 +156,7 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
   client.once(Events.ClientReady, () => {
     client.user.setPresence({ status: "online" });
     console.log(`Logged in as ${client.user.tag}`);
-    console.log("Ollama models:", config.OLLAMA_MODELS);
+    console.log("Ollama model:", config.OLLAMA_MODEL);
     console.log("Ollama URL:", config.OLLAMA_URL);
     console.log("Memory dir:", memoryDirectory);
   });

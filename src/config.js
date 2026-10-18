@@ -7,28 +7,6 @@ import { fileURLToPath } from "node:url";
 const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
 
 /**
- * Load the model pool from local JSON5 or legacy environment settings.
- * @param {NodeJS.ProcessEnv} env Configuration environment.
- * @returns {import("./types.js").ModelConfig[]} Parsed model entries.
- * @throws {Error} When the configured file cannot be read or parsed.
- */
-function loadModelPool(env) {
-  const filename = env.OLLAMA_MODELS_FILE ||
-    (!env.OLLAMA_MODELS && !env.OLLAMA_MODEL ? "models.json5" : null);
-  if (filename) {
-    const file = path.resolve(projectDirectory, filename);
-    try {
-      return JSON5.parse(readFileSync(file, "utf8"));
-    } catch (error) {
-      throw new Error(`Cannot read model list from ${file}: ${error.message}`, { cause: error });
-    }
-  }
-  return env.OLLAMA_MODELS
-    ? JSON.parse(env.OLLAMA_MODELS)
-    : [{ name: env.OLLAMA_MODEL, alias: "р" }];
-}
-
-/**
  * Read and validate owner-provided facts relative to the project directory.
  * @param {string} [filename] JSON5 fact-list path.
  * @returns {string[]} Trimmed facts.
@@ -71,7 +49,7 @@ export function loadConfig(env = process.env) {
   const supervisorTimeoutMs = Number(env.OLLAMA_SUPERVISOR_TIMEOUT_MS ?? 30000);
   if (!Number.isSafeInteger(supervisorTimeoutMs) || supervisorTimeoutMs <= 0) throw new Error("Invalid OLLAMA_SUPERVISOR_TIMEOUT_MS");
   const autoMemory = env.AUTO_MEMORY !== "false";
-  const autoMemoryCooldownMs = Number(env.AUTO_MEMORY_COOLDOWN_MS ?? 900000);
+  const autoMemoryCooldownMs = Number(env.AUTO_MEMORY_COOLDOWN_MS ?? 120000);
   const autoMemoryCheckIntervalMs = Number(env.AUTO_MEMORY_CHECK_INTERVAL_MS ?? 60000);
   if (![autoMemoryCooldownMs, autoMemoryCheckIntervalMs].every((value) => Number.isSafeInteger(value) && value >= 1000)) {
     throw new Error("Automatic memory intervals must be integers of at least 1000 ms");
@@ -106,21 +84,17 @@ export function loadConfig(env = process.env) {
   const applicantId = env.APPLICANT_ID;
   const publicKey = env.PUBLIC_KEY;
   const OLLAMA_URL = env.OLLAMA_URL;
-  const OLLAMA_MODEL = env.OLLAMA_MODEL;
-  const OLLAMA_MODELS = loadModelPool(env);
-  if (!Array.isArray(OLLAMA_MODELS) || !OLLAMA_MODELS.length ||
-      OLLAMA_MODELS.some((entry) =>
-        typeof entry?.name !== "string" || !entry.name.trim() ||
-        typeof entry.alias !== "string" || !/^[\p{L}\p{N}_-]{1,16}$/u.test(entry.alias) ||
-        (entry.numCtx !== undefined && (!Number.isSafeInteger(entry.numCtx) || entry.numCtx <= 0)))) {
-    throw new Error("Model list (OLLAMA_MODELS / OLLAMA_MODELS_FILE) must be a non-empty JSON array of { name, alias }; aliases must be 1–16 letters, digits, underscores or hyphens; optional numCtx must be a positive integer.");
-  }
+  const OLLAMA_MODEL = env.OLLAMA_MODEL?.trim();
+  if (!OLLAMA_MODEL) throw new Error("OLLAMA_MODEL is required; set it in .env.");
   const OLLAMA_TIMEOUT = parseInt(env.OLLAMA_TIMEOUT, 10);
-  // Необязателен: без ключа веб-поиск просто отключён.
+  // Необязателен: без ключа используется резервный веб-поиск.
   const OLLAMA_API_KEY = env.OLLAMA_API_KEY || null;
   // Размер контекстного окна. По умолчанию Ollama часто даёт всего 2-4k токенов,
   // и результаты поиска просто обрезаются.
-  const OLLAMA_NUM_CTX = parseInt(env.OLLAMA_NUM_CTX, 10) || 16384;
+  const OLLAMA_NUM_CTX = Number(env.OLLAMA_NUM_CTX ?? 16384);
+  if (!Number.isSafeInteger(OLLAMA_NUM_CTX) || OLLAMA_NUM_CTX <= 0) {
+    throw new Error("OLLAMA_NUM_CTX must be a positive integer.");
+  }
   if (adapters.includes("discord") && !token) {
     throw new Error("BOT_TOKEN is not defined in the environment variables.");
   }
@@ -156,7 +130,6 @@ export function loadConfig(env = process.env) {
     publicKey,
     OLLAMA_URL,
     OLLAMA_MODEL,
-    OLLAMA_MODELS,
     OLLAMA_TIMEOUT,
     OLLAMA_API_KEY,
     OLLAMA_NUM_CTX,

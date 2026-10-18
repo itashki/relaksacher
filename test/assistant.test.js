@@ -154,20 +154,19 @@ test("web search fetches top results and falls back to snippets for failed pages
   assert.deepEqual(result.map((item) => item.content), ["full page", "snippet two", "snippet three"]);
 });
 
-test("selects once per session and keeps the model across tool rounds", async () => {
-  let selections = 0;
+test("uses the same configured model across sessions and tool rounds", async () => {
   const call = { function: { name: "remember", arguments: { fact: "fact" } } };
   const env = setup([
     [{ message: { tool_calls: [call] } }],
     [{ message: { content: "answer" } }],
     [{ message: { content: "next answer" } }],
-  ], { selectModel: () => ({ name: `model-${++selections}`, alias: `tag-${selections}`, ...(selections === 1 ? { numCtx: 131072 } : {}) }) });
+  ], { model: "fixed-model", numCtx: 32768 });
   await env.assistant.createSession({ ...env.options, context: { scopeId: "123" } }).run();
   const next = await env.assistant.createSession(env.options).run();
-  assert.deepEqual(env.requests.map((r) => r.model), ["model-1", "model-1", "model-2"]);
-  assert.deepEqual(env.requests.map((r) => r.options.num_ctx), [131072, 131072, 16384]);
-  assert.equal(next.modelAlias, "tag-2");
-  assert.equal(env.updates.at(-1).modelAlias, "tag-2");
+  assert.deepEqual(env.requests.map((r) => r.model), ["fixed-model", "fixed-model", "fixed-model"]);
+  assert.deepEqual(env.requests.map((r) => r.options.num_ctx), [32768, 32768, 32768]);
+  assert.equal(next.modelAlias, undefined);
+  assert.equal(env.updates.at(-1).modelAlias, undefined);
   assert.equal(next.text, "next answer");
 });
 
@@ -352,7 +351,7 @@ test("automatic saves are limited to one per group per cooldown across all rooms
   observe("other-group");
   await env.assistant.flushObservations();
   assert.equal(saved.length, 2);
-  now += 900000;
+  now += 59000;
   observe();
   await env.assistant.flushObservations();
   assert.equal(saved.length, 3);

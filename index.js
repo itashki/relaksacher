@@ -6,7 +6,6 @@ import { Ollama } from "ollama";
 import { loadConfig } from "./src/config.js";
 import { createMemoryStore } from "./src/core/memory.js";
 import { createToolService } from "./src/core/tools.js";
-import { createModelSelector } from "./src/core/models.js";
 import { createSupervisor } from "./src/core/supervisor.js";
 import { createAssistant } from "./src/core/assistant.js";
 import { createTelegramBot } from "./src/adapters/telegram.js";
@@ -29,7 +28,7 @@ const assistant = createAssistant({
   memory, toolService,
   facts: config.facts,
   personality: config.personality,
-  selectModel: createModelSelector(config.OLLAMA_MODELS),
+  model: config.OLLAMA_MODEL,
   numCtx: config.OLLAMA_NUM_CTX,
   timeoutMs: config.OLLAMA_TIMEOUT,
   updateIntervalMs: 1200, // Discord message edit interval.

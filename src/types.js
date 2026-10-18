@@ -9,13 +9,6 @@
 /** @typedef {import("ollama").ToolCall} ToolCall */
 
 /**
- * @typedef {object} ModelConfig
- * @property {string} name Exact Ollama model identifier.
- * @property {string} [alias] Public signature; omitted for single-model pools.
- * @property {number} [numCtx] Per-model context window override.
- */
-
-/**
  * @typedef {object} RequestContext
  * @property {string} [scopeId] Storage namespace; absent when memory is disabled.
  * @property {string} [authorName] Display name used for memory attribution and logs.
@@ -97,7 +90,7 @@
  * @property {Pick<import("ollama").Ollama, "chat">} modelClient Streaming model client.
  * @property {MemoryStore} memory Persistent fact storage.
  * @property {ToolService} toolService Tool definitions and execution.
- * @property {string} [model] Legacy fallback model name.
+ * @property {string} model Fixed main model identifier.
  * @property {number} numCtx Default context window size.
  * @property {number} timeoutMs Generation deadline, excluding queue waiting.
  * @property {number} [updateIntervalMs] Minimum interval between ordinary text updates.
@@ -109,7 +102,6 @@
  * @property {number} [autoMemoryCooldownMs] Minimum interval between automatic saves per group.
  * @property {number} [autoMemoryCheckIntervalMs] Minimum interval between background checks per group.
  * @property {Pick<Console, "info">} [logger] Destination for reasoning logs.
- * @property {function(): ModelConfig} [selectModel] Called once per session.
  */
 
 /**
@@ -122,8 +114,7 @@
  * @property {string|undefined} applicantId Discord application identifier.
  * @property {string|undefined} publicKey Discord application public key.
  * @property {string} OLLAMA_URL Ollama server address.
- * @property {string|undefined} OLLAMA_MODEL Legacy model identifier.
- * @property {ModelConfig[]} OLLAMA_MODELS Available model pool.
+ * @property {string} OLLAMA_MODEL Fixed main model identifier.
  * @property {number} OLLAMA_TIMEOUT Generation timeout in milliseconds.
  * @property {string|null} OLLAMA_API_KEY Optional cloud search credential.
  * @property {number} OLLAMA_NUM_CTX Default context window size.

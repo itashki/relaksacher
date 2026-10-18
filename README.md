@@ -3,9 +3,23 @@
 A Discord assistant backed by Ollama, with streamed replies, optional web search,
 and persistent shared memory.
 
-Use Node.js 22 or newer. Run `npm install`, configure `.env`, then run `npm start`.
-Required settings: `BOT_TOKEN`, `APPLICANT_ID`, `PUBLIC_KEY`, `OLLAMA_URL`,
-and `OLLAMA_TIMEOUT` (milliseconds). Edit `models.json5` to configure the model pool.
+Use Node.js 22 or newer. Install dependencies and copy the commented configuration template:
+
+```sh
+npm install
+cp .env.example .env
+```
+
+Edit `.env`: select `BOT_ADAPTERS` and fill in the credentials for the enabled
+platforms. Discord needs `BOT_TOKEN`, `APPLICANT_ID`, and `PUBLIC_KEY`; Telegram
+needs `TELEGRAM_BOT_TOKEN`. Set `OLLAMA_URL`, `OLLAMA_MODEL`, and
+`OLLAMA_TIMEOUT` (milliseconds). Install the main and supervisor models on your
+Ollama server; the names in the template are examples.
+
+Before the first start, create `facts.json5` and `personality.json5`, each containing
+`[]` (an empty array), or your own JSON5 array of strings. These local files and
+`.env` are ignored by Git. Then run `npm start`.
+
 Optional: `OLLAMA_API_KEY` enables the primary Ollama web provider, `OLLAMA_NUM_CTX` sets the context
 window (default 16384), and `MEMORY_DIR` overrides the memory directory.
 Relative memory paths resolve from the repository root.
@@ -64,47 +78,21 @@ Run `npm test`. Tests use fake model streams and temporary memory directories;
 they require no credentials or external services. Live Discord/Ollama connectivity
 is separate from these tests.
 
-## Model pool
+## Model configuration
 
-Edit `models.json5`: each model is a separate object, using JSON5 syntax, with no shell quoting needed.
+Configure one fixed response model in `.env`:
 
-```json
-[
-  {
-    "name": "model-one:latest",
-    "alias": "терн",
-    "numCtx": 131072
-  },
-  {
-    "name": "model-two:latest",
-    "alias": "шип",
-    "numCtx": 262144
-  }
-]
+```dotenv
+OLLAMA_MODEL=qwen3:8b
+OLLAMA_NUM_CTX=16384
+OLLAMA_SUPERVISOR_MODEL=qwen3:0.6b
 ```
 
-Copy or remove a whole object to add or remove a model. `name` is the exact Ollama
-model name, `alias` is its short display signature, and optional `numCtx` overrides
-`OLLAMA_NUM_CTX`. JSON5 supports `// line comments`, `/* block comments */`, single-quoted
-strings, unquoted keys, and trailing commas. Restart the bot after editing.
-
-`.env` contains `OLLAMA_MODELS_FILE=models.json5`. Relative paths resolve from the
-repository root, regardless of the working directory. An explicit file takes
-precedence over legacy `OLLAMA_MODELS` / `OLLAMA_MODEL` settings. Without any of
-these settings, `models.json5` is loaded by default. Invalid or empty lists fail
-at startup with a configuration error.
-
-Each request independently picks one model uniformly at random (repeats are
-possible), keeping it for all tool rounds. Discord shows the alias as a small
-footer from the initial placeholder through the final reply. All listed models
-should support chat; tool and thinking support depend on the chosen model.
-
-The installed models report maximum context lengths of 131072 for Gemma and
-262144 for both Qwen models; the local pool uses these limits. Qwen's packaged
-`num_ctx` default is 32768, which the application explicitly overrides. Maximum
-context is a capacity limit, not a minimum requirement or a measured optimal
-setting; larger windows can increase memory usage. Lower the per-model values
-if needed for the available hardware.
+`OLLAMA_MODEL` is required and is used for every response and tool round.
+`OLLAMA_NUM_CTX` is a positive integer (default 16384); larger context windows
+increase memory use. The separate supervisor model routes thinking and handles
+background decisions. All model settings live in `.env`; restart after editing.
+Responses have no model signature.
 
 Both adapters pass only the current message and its explicit reply chain to the
 model. Nearby channel messages, thread starters and other thread history are not
@@ -127,7 +115,7 @@ BOT_ADAPTERS=telegram
 TELEGRAM_BOT_TOKEN=your_botfather_token
 ```
 
-Use `BOT_ADAPTERS=discord,telegram` to run both adapters with the same model pool
+Use `BOT_ADAPTERS=discord,telegram` to run both adapters with the same main model
 and core. Discord credentials are required only when Discord is enabled. Existing
 Discord setups keep their default behavior. Do not reuse the Discord token for
 Telegram. The adapter uses the [Telegram Bot API](https://core.telegram.org/bots/api)
@@ -138,8 +126,7 @@ process should run per Telegram token.
 The bot answers text messages in private chats. In groups it responds to its
 @username, replies to its messages, and `/think` commands (including
 `/think@botname`). Natural-language requests to think/search use the same core as
-Discord. It converts Markdown to Telegram-compatible HTML while streaming, displays the model alias from the first
-placeholder, splits long answers and provides a stop button
+Discord. It converts Markdown to Telegram-compatible HTML while streaming, splits long answers and provides a stop button
 for the requester or a group administrator. Photos, voice messages and files are
 not processed.
 
@@ -247,8 +234,7 @@ a redundant request to remove already-removed stop buttons. Discord timing is un
 Telegram answers over 600 visible characters or 8 estimated lines use expandable
 blockquotes. Blank lines count; soft wrapping is estimated at 60 characters per
 line. Actual wrapping depends on the client, screen width and font.
-Each split message has balanced quote tags and the model signature stays outside
-the collapsible content. Inline/code blocks remain outside quotes to avoid nested
+Each split message has balanced quote tags. Inline/code blocks remain outside quotes to avoid nested
 entity compatibility issues. Short answers keep their regular appearance.
 
 Telegram partial replies pass `message.quote` separately as quoted-fragment metadata
@@ -370,8 +356,8 @@ useful facts; explicit memory tools remain available for intentional requests.
 
 Automatic memory is rate-limited per group across all its rooms/topics:
 `AUTO_MEMORY_CHECK_INTERVAL_MS=60000` limits background checks to once per minute,
-and `AUTO_MEMORY_COOLDOWN_MS=900000` allows at most one automatic save attempt every
-15 minutes after an accepted candidate. Messages arriving during either pause
+and `AUTO_MEMORY_COOLDOWN_MS=120000` allows at most one automatic save attempt every
+2 minutes after an accepted candidate. Messages arriving during either pause
 are discarded from auto-memory buffers rather than saved later. Main-model
 `remember` instructions now require an explicit user request; intentional memory
 operations bypass the automatic cooldown. Limits reset on process restart.
