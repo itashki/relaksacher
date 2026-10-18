@@ -1,26 +1,12 @@
 /** @file Dependency-free ANSI operator dashboard. */
 import { emitKeypressEvents } from "node:readline";
-import { format, stripVTControlCharacters } from "node:util";
 
 // Remove terminal commands from model output, prompts and logs.
-const clean = (value: unknown) => stripVTControlCharacters(String(value ?? ""))
+const clean = (value: unknown) => Bun.stripANSI(String(value ?? ""))
   .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
-const cellWidth = (char: string) => /\p{Mark}/u.test(char) ? 0
-  : /[\u1100-\u115f\u2329\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe19\ufe30-\ufe6f\uff01-\uff60\uffe0-\uffe6\u{1f000}-\u{1faff}\u{20000}-\u{3ffff}]/u.test(char) ? 2 : 1;
-function wrapLine(line: string, width: number) {
-  const result = [];
-  let row = "";
-  let cells = 0;
-  for (const char of line) {
-    const size = cellWidth(char);
-    if (size > width) continue;
-    if (cells + size > width) { result.push(row); row = ""; cells = 0; }
-    row += char;
-    cells += size;
-  }
-  result.push(row);
-  return result;
-}
+const wrapLine = (line: string, width: number) => Bun.wrapAnsi(line, width, {
+  hard: true, wordWrap: false, trim: false,
+}).split("\n").map((row) => Bun.sliceAnsi(row, 0, width));
 
 /** Render a bounded screen; long streams show their most recent lines. */
 export function renderDashboard(state: import("../types.ts").TerminalState, { columns = 100, rows = 30, logs = [], notice = "", color = false }: {columns?: number; rows?: number; logs?: string[]; notice?: string; color?: boolean} = {}) {
@@ -28,8 +14,8 @@ export function renderDashboard(state: import("../types.ts").TerminalState, { co
   const height = Math.max(1, Math.floor(rows) - 1);
   const lines: string[] = [];
   const paint = (text: string, code: string) => color ? `\x1b[${code}m${text}\x1b[0m` : text;
-  const fit = (value: unknown, size = width) => wrapLine(clean(value).replace(/\n/g, " "), Math.max(1, size))[0] ?? "";
-  const cells = (value: string) => [...value].reduce((sum, char) => sum + cellWidth(char), 0);
+  const fit = (value: unknown, size = width) => Bun.sliceAnsi(clean(value).replace(/\n/g, " "), 0, Math.max(1, size));
+  const cells = Bun.stringWidth;
   const add = (value = "", code = "0") => lines.push(paint(fit(value), code));
   const current = state.current ?? state.last;
   const footer = " S стоп   H помощь   Ctrl+C выход";
@@ -106,7 +92,7 @@ export function createTui({ assistant, input = process.stdin, output = process.s
     consoleTarget[level] = (...args) => {
       // Reasoning already has its own panel; avoid duplicating the entire stream.
       if (args[0] === "[thinking]") return;
-      logs.push(clean(format(...args)).replace(/\n/g, " ").slice(0, 1000));
+      logs.push(clean(args.map((value) => typeof value === "string" ? value : Bun.inspect(value, { colors: false, compact: true })).join(" ")).replace(/\n/g, " ").slice(0, 1000));
       if (logs.length > 50) logs.shift();
       dirty = true;
     };

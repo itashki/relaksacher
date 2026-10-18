@@ -220,7 +220,7 @@ startup error. Restart the bot after editing. Facts count toward the context bud
 | Bounded retries for idempotent Telegram edits | [p-retry](https://github.com/sindresorhus/p-retry) |
 | Single-concurrency FIFO generation queue | [p-queue](https://github.com/sindresorhus/p-queue) |
 | Markdown parsing | `marked` |
-| Commented configuration | `json5` |
+| Commented configuration | `Bun.JSON5` |
 | Model API | `ollama` |
 
 `src/adapters/telegram-api.ts` is a small compatibility layer around grammY so

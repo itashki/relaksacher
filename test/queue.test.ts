@@ -1,5 +1,4 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { spyOn, expect, test, onTestFinished } from "bun:test";
 import { createRequestQueue } from "../src/core/queue.ts";
 
 test("requests run one at a time in arrival order and report waiting positions", async () => {
@@ -11,20 +10,21 @@ test("requests run one at a time in arrival order and report waiting positions",
   const second = queue(async () => events.push("second"), async (position) => { events.push(`Bob:${position}`); });
   const third = queue(async () => events.push("third"), async (position) => { events.push(`Alice:${position}`); });
   await Promise.resolve();
-  assert.ok(events.includes("Bob:1"));
-  assert.ok(events.includes("Alice:2"));
-  assert.ok(!events.includes("second"));
+  expect(events.includes("Bob:1")).toBeTruthy();
+  expect(events.includes("Alice:2")).toBeTruthy();
+  expect(!events.includes("second")).toBeTruthy();
   release();
   await Promise.all([first, second, third]);
-  assert.deepEqual(events.filter((value) => !value.includes(":")), ["first", "second", "third"]);
+  expect(events.filter((value) => !value.includes(":"))).toStrictEqual(["first", "second", "third"]);
 });
 
-test("failed requests and failed notifications do not block the queue", async (t) => {
-  t.mock.method(console, "error", () => {});
+test("failed requests and failed notifications do not block the queue", async () => {
+  const spy = spyOn(console, "error").mockImplementation(() => {});
+  onTestFinished(() => spy.mockRestore());
   const queue = createRequestQueue();
   const first = queue(async () => { throw new Error("generation failed"); });
   const second = queue(async () => "completed", async () => { throw new Error("delivery failed"); });
-  await assert.rejects(first, /generation failed/);
-  assert.equal(await second, "completed");
-  assert.equal(await queue(async () => "next"), "next");
+  await expect(first).rejects.toThrow(/generation failed/);
+  expect(await second).toBe("completed");
+  expect(await queue(async () => "next")).toBe("next");
 });

@@ -1,12 +1,11 @@
 import { fixture } from "./fixtures.ts";
 import type { TestSessionOptions } from "./fixtures.ts";
 import type { ClientUser, MessageCreateOptions } from "discord.js";
-import test from "node:test";
-import assert from "node:assert/strict";
+import { expect, test, onTestFinished } from "bun:test";
 import { Events } from "discord.js";
 import { createDiscordBot } from "./fixtures.ts";
 
-test("Discord maps messages to plain input and renders core updates", async (t) => {
+test("Discord maps messages to plain input and renders core updates", async () => {
   let input: TestSessionOptions;
   const payloads: MessageCreateOptions[] = [];
   const bot = createDiscordBot({ config: {}, assistant: {
@@ -20,7 +19,7 @@ test("Discord maps messages to plain input and renders core updates", async (t) 
       }};
     },
   }});
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   const reply = { async edit(payload: MessageCreateOptions) { payloads.push(payload); } };
   const message = {
@@ -31,19 +30,19 @@ test("Discord maps messages to plain input and renders core updates", async (t) 
   };
   // Await the registered async listener directly so assertions include all edits.
   await bot.client.listeners(Events.MessageCreate)[0](message);
-  assert.deepEqual(input.conversation, [{ role: "user", content: "[Автор: Alice (username: Alice, id: user)]\nquestion" }]);
-  assert.equal(input.think, true);
-  assert.equal(input.search, undefined);
-  assert.match(input.platformInstructions, /Discord/);
-  assert.equal(payloads[0].content, "…\n\n-# терн");
-  assert.ok(payloads.every((payload: MessageCreateOptions) => payload.content.endsWith("\n\n-# терн")));
-  assert.equal(payloads[0].components.length, 1);
-  assert.deepEqual(payloads.at(-1).components, []);
-  assert.ok(payloads.every((payload: MessageCreateOptions) => !payload.files && !payload.content.includes("reasoning")));
-  assert.equal(payloads.at(-1).content, "hello\n\n-# терн");
+  expect(input.conversation).toStrictEqual([{ role: "user", content: "[Автор: Alice (username: Alice, id: user)]\nquestion" }]);
+  expect(input.think).toBe(true);
+  expect(input.search).toBe(undefined);
+  expect(input.platformInstructions).toMatch(/Discord/);
+  expect(payloads[0].content).toBe("…\n\n-# терн");
+  expect(payloads.every((payload: MessageCreateOptions) => payload.content.endsWith("\n\n-# терн"))).toBeTruthy();
+  expect(payloads[0].components.length).toBe(1);
+  expect(payloads.at(-1).components).toStrictEqual([]);
+  expect(payloads.every((payload: MessageCreateOptions) => !payload.files && !payload.content.includes("reasoning"))).toBeTruthy();
+  expect(payloads.at(-1).content).toBe("hello\n\n-# терн");
 });
 
-test("Discord uses only the reply chain and never fetches nearby channel messages", async (t) => {
+test("Discord uses only the reply chain and never fetches nearby channel messages", async () => {
   let input: TestSessionOptions;
   const entry = (id: string, content: string, author = { id: "other", username: "Bob", bot: false }) => ({
     id, content, author, type: 0,
@@ -52,59 +51,59 @@ test("Discord uses only the reply chain and never fetches nearby channel message
   const bot = createDiscordBot({ config: {}, assistant: {
     createSession(options) { input = options; return { stop() {}, async run() {} }; },
   } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   const message = {
     ...entry("40", "explain that"), mentions: { has: () => false },
     reference: { messageId: "20" }, fetchReference: async () => referenced,
-    channel: { isThread: () => false, messages: { fetch() { assert.fail("must not fetch channel history"); } } },
+    channel: { isThread: () => false, messages: { fetch() { throw new Error("must not fetch channel history"); } } },
   };
   await bot.client.listeners(Events.MessageCreate)[0](message);
-  assert.deepEqual(input.background, []);
-  assert.equal(input.conversation.length, 2);
-  assert.equal(input.conversation[0].role, "assistant");
-  assert.match(input.conversation.at(-1).content, /explain that/);
-  assert.equal(input.search, undefined);
+  expect(input.background).toStrictEqual([]);
+  expect(input.conversation.length).toBe(2);
+  expect(input.conversation[0].role).toBe("assistant");
+  expect(input.conversation.at(-1).content).toMatch(/explain that/);
+  expect(input.search).toBe(undefined);
 });
 
-test("unaddressed channel messages do not trigger history fetching or generation", async (t) => {
+test("unaddressed channel messages do not trigger history fetching or generation", async () => {
   const bot = createDiscordBot({ config: {}, assistant: {
-    createSession() { assert.fail("should not generate"); },
+    createSession() { throw new Error("should not generate"); },
   } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   await bot.client.listeners(Events.MessageCreate)[0]({
     author: { bot: false }, mentions: { has: () => false },
-    channel: { isThread: () => false, messages: { fetch() { assert.fail("should not fetch"); } } },
+    channel: { isThread: () => false, messages: { fetch() { throw new Error("should not fetch"); } } },
   });
 });
 
-test("history permission errors do not prevent answering the current request", async (t) => {
+test("history permission errors do not prevent answering the current request", async () => {
   let input: TestSessionOptions;
   const bot = createDiscordBot({ config: {}, assistant: {
     createSession(options) { input = options; return { stop() {}, async run() {} }; },
   } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   await bot.client.listeners(Events.MessageCreate)[0]({
     id: "40", content: "question", author: { id: "user", username: "Alice", bot: false },
     mentions: { has: () => true },
     channel: { isThread: () => false, messages: { async fetch() { throw new Error("Missing access"); } } },
   });
-  assert.deepEqual(input.background, []);
-  assert.match(input.conversation.at(-1).content, /question/);
+  expect(input.background).toStrictEqual([]);
+  expect(input.conversation.at(-1).content).toMatch(/question/);
 });
 
-test("Discord image attachments reach the core alongside their caption", async (t) => {
+test("Discord image attachments reach the core alongside their caption", async () => {
   let input: TestSessionOptions;
   const bot = createDiscordBot({ config: {}, loadImage: async (url) => {
-    assert.equal(url, "https://cdn.discordapp.com/photo.png");
+    expect(url).toBe("https://cdn.discordapp.com/photo.png");
     return "base64-image";
   }, assistant: { createSession(options) {
     input = options;
     return { stop() {}, async run() {} };
   } } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   await bot.client.listeners(Events.MessageCreate)[0]({
     id: "10", content: "describe", author: { id: "user", username: "Alice", bot: false },
@@ -112,69 +111,69 @@ test("Discord image attachments reach the core alongside their caption", async (
       contentType: "image/png", url: "https://cdn.discordapp.com/photo.png",
     }]]), channel: { isThread: () => false, messages: { fetch: async () => new Map() } },
   });
-  assert.deepEqual(input.conversation[0].images, ["base64-image"]);
-  assert.match(input.conversation[0].content, /describe/);
+  expect(input.conversation[0].images).toStrictEqual(["base64-image"]);
+  expect(input.conversation[0].content).toMatch(/describe/);
 });
 
-test("bot-owned threads do not inject starter or thread history without a reply", async (t) => {
+test("bot-owned threads do not inject starter or thread history without a reply", async () => {
   let input: TestSessionOptions;
   const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
     input = options;
     return { stop() {}, async run() {} };
   } } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   await bot.client.listeners(Events.MessageCreate)[0]({
     id: "40", content: "new question", author: { id: "user", username: "Alice", bot: false },
     mentions: { has: () => false }, channel: {
       isThread: () => true, ownerId: "bot",
-      fetchStarterMessage() { assert.fail("must not fetch starter"); },
-      messages: { fetch() { assert.fail("must not fetch thread history"); } },
+      fetchStarterMessage() { throw new Error("must not fetch starter"); },
+      messages: { fetch() { throw new Error("must not fetch thread history"); } },
     },
   });
-  assert.equal(input.conversation.length, 1);
-  assert.deepEqual(input.background, []);
+  expect(input.conversation.length).toBe(1);
+  expect(input.background).toStrictEqual([]);
 });
 
-test("history is fetched only when the scoped Discord reader is called", async (t) => {
+test("history is fetched only when the scoped Discord reader is called", async () => {
   let input: TestSessionOptions;
   let calls = 0;
   const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
     input = options;
     return { stop() {}, async run() {} };
   } } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   await bot.client.listeners(Events.MessageCreate)[0]({
     id: "40", content: "history?", author: { id: "user", username: "Alice", bot: false },
     mentions: { has: () => true }, channel: { isThread: () => false, messages: { async fetch(options: {limit: number; before?: string}) {
       calls++;
-      assert.deepEqual(options, { limit: 5, before: "40" });
+      expect(options).toStrictEqual({ limit: 5, before: "40" });
       return new Map<string, {id: string; content: string; author: {id: string; username?: string; bot: boolean}}>([["30", { id: "30", content: "older", author: { id: "user", username: "Alice", bot: false } }]]);
     } } },
   });
-  assert.equal(calls, 0);
-  assert.equal((await input.context.readHistory(5)).messages[0].content, "older");
-  assert.equal(calls, 1);
+  expect(calls).toBe(0);
+  expect((await input.context.readHistory(5)).messages[0].content).toBe("older");
+  expect(calls).toBe(1);
 });
 
-test("ordinary Discord group messages are observed without triggering a reply", async (t) => {
+test("ordinary Discord group messages are observed without triggering a reply", async () => {
   const observed: import("../src/types.ts").ObservedMessage[] = [];
   const bot = createDiscordBot({ config: {}, assistant: {
     observeMessage(entry) { observed.push(entry); },
-    createSession() { assert.fail("ordinary message must not trigger generation"); },
+    createSession() { throw new Error("ordinary message must not trigger generation"); },
   } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   await bot.client.listeners(Events.MessageCreate)[0]({ id: "10", content: "Releases are on Friday", guildId: "123",
     author: { id: "user", username: "Alice", bot: false }, mentions: { has: () => false },
     channel: { id: "channel-1", isThread: () => false },
   });
-  assert.equal(observed[0].scopeId, "123");
-  assert.equal(observed[0].text, "Releases are on Friday");
+  expect(observed[0].scopeId).toBe("123");
+  expect(observed[0].text).toBe("Releases are on Friday");
 });
 
-test("Discord media-only replies have no caption and remove the placeholder", async (t) => {
+test("Discord media-only replies have no caption and remove the placeholder", async () => {
   const payloads: MessageCreateOptions[] = [];
   let deleted = 0;
   const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
@@ -185,7 +184,7 @@ test("Discord media-only replies have no caption and remove the placeholder", as
       return { text: "" };
     } };
   } } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   const message = { id: "media-request", author: { id: "user", username: "Alice", bot: false },
     content: "cat gif", mentions: { has: () => true },
@@ -194,12 +193,12 @@ test("Discord media-only replies have no caption and remove the placeholder", as
   };
   await bot.client.listeners(Events.MessageCreate)[0](message);
   const media = payloads.find((payload: MessageCreateOptions) => payload.embeds);
-  assert.deepEqual(media.embeds, [{ image: { url: "https://example.org/cat.gif" } }]);
-  assert.equal(media.content, undefined);
-  assert.equal(deleted, 1);
+  expect(media.embeds).toStrictEqual([{ image: { url: "https://example.org/cat.gif" } }]);
+  expect(media.content).toBe(undefined);
+  expect(deleted).toBe(1);
 });
 
-test("Discord thread history includes its parent channel and tolerates missing access", async (t) => {
+test("Discord thread history includes its parent channel and tolerates missing access", async () => {
   let input: TestSessionOptions;
   let parentError = false;
   const calls: {limit: number; before?: string}[] = [];
@@ -208,7 +207,7 @@ test("Discord thread history includes its parent channel and tolerates missing a
     input = options;
     return { stop() {}, async run() {} };
   } } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   const parent = { id: "channel", name: "general", messages: { async fetch(options: {limit: number; before?: string}) {
     calls.push(options);
@@ -225,28 +224,28 @@ test("Discord thread history includes its parent channel and tolerates missing a
       } },
     },
   });
-  assert.equal(calls.length, 0);
+  expect(calls.length).toBe(0);
   const history = await input.context.readHistory(5);
-  assert.deepEqual(calls, [{ limit: 5, before: "40" }, { limit: 5, before: "40" }]);
-  assert.deepEqual(history.messages.map(({ content, channelId }) => ({ content, channelId })), [
+  expect(calls).toStrictEqual([{ limit: 5, before: "40" }, { limit: 5, before: "40" }]);
+  expect(history.messages.map(({ content, channelId }) => ({ content, channelId }))).toStrictEqual([
     { content: "parent discussion", channelId: "channel" },
     { content: "thread discussion", channelId: "thread" },
   ]);
   parentError = true;
   const limited = await input.context.readHistory(5);
-  assert.equal(limited.limited, true);
-  assert.equal(limited.messages[0].content, "thread discussion");
-  assert.match(limited.note, /родительский канал/);
+  expect(limited.limited).toBe(true);
+  expect(limited.messages[0].content).toBe("thread discussion");
+  expect(limited.note).toMatch(/родительский канал/);
 });
 
-test("Discord keeps parent history within the tool's total message limit", async (t) => {
+test("Discord keeps parent history within the tool's total message limit", async () => {
   const { createToolService } = await import("./fixtures.ts");
   let input: TestSessionOptions;
   const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
     input = options;
     return { stop() {}, async run() {} };
   } } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   const channel = (id: string) => ({ id, messages: { async fetch({ limit }: {limit: number}) {
     return new Map(Array.from({ length: limit }, (_, i) => [String(i), {
@@ -263,13 +262,13 @@ test("Discord keeps parent history within the tool's total message limit", async
     const result = JSON.parse(await tools.runTool({ function: {
       name: "read_history", arguments: { limit },
     } }, input.context));
-    assert.equal(result.messages.length, limit);
-    assert.ok(result.messages.some((entry: {channelId: string}) => entry.channelId === "parent"));
-    if (limit > 1) assert.ok(result.messages.some((entry: {channelId: string}) => entry.channelId === "thread"));
+    expect(result.messages.length).toBe(limit);
+    expect(result.messages.some((entry: {channelId: string}) => entry.channelId === "parent")).toBeTruthy();
+    if (limit > 1) expect(result.messages.some((entry: {channelId: string}) => entry.channelId === "thread")).toBeTruthy();
   }
 });
 
-test("Discord removes the extra message when a temporary status disappears", async (t) => {
+test("Discord removes the extra message when a temporary status disappears", async () => {
   const replies: {payload: MessageCreateOptions}[] = [];
   let deleted = 0;
   const send = async (payload: MessageCreateOptions) => {
@@ -284,17 +283,17 @@ test("Discord removes the extra message when a temporary status disappears", asy
     return { stop() {}, async run() {
       await options.onUpdate({ text: "x".repeat(1990), final: false,
         status: { function: { name: "read_history", arguments: {} } } });
-      assert.equal(replies.length, 2);
+      expect(replies.length).toBe(2);
       await options.onUpdate({ text: "x".repeat(1990), final: true });
     } };
   } } });
-  t.after(() => bot.client.destroy());
+  onTestFinished(() => bot.client.destroy());
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   await bot.client.listeners(Events.MessageCreate)[0]({
     id: "40", content: "hello", author: { id: "user", username: "Alice" },
     mentions: { has: () => true }, channel: { isThread: () => false }, reply: send,
   });
-  assert.equal(deleted, 1);
-  assert.equal(replies[0].payload.content, "x".repeat(1990));
-  assert.deepEqual(replies[0].payload.components, []);
+  expect(deleted).toBe(1);
+  expect(replies[0].payload.content).toBe("x".repeat(1990));
+  expect(replies[0].payload.components).toStrictEqual([]);
 });

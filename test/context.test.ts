@@ -1,5 +1,4 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { expect, test } from "bun:test";
 import { guardContext, ContextLimitError } from "../src/core/context.ts";
 
 test("drops background first, preserves recent dialogue and complete tool rounds", () => {
@@ -13,17 +12,17 @@ test("drops background first, preserves recent dialogue and complete tool rounds
     { role: "assistant", content: "older answer" },
     current, toolCall, result,
   ];
-  assert.equal(guardContext(messages, [], 2048).trimmed, true);
-  assert.equal(messages[1].content, "older question");
-  assert.deepEqual(messages.slice(-3), [current, toolCall, result]);
-  assert.match(messages[0].content, /Часть старой истории удалена/);
+  expect(guardContext(messages, [], 2048).trimmed).toBe(true);
+  expect(messages[1].content).toBe("older question");
+  expect(messages.slice(-3)).toStrictEqual([current, toolCall, result]);
+  expect(messages[0].content).toMatch(/Часть старой истории удалена/);
 });
 
 test("oversized current request fails rather than silently discarding it", () => {
   const current = { role: "user", content: "x".repeat(20000) };
   const messages = [{ role: "system", content: "rules" }, current];
-  assert.throws(() => guardContext(messages, [], 2048), ContextLimitError);
-  assert.equal(messages[1], current);
+  expect(() => guardContext(messages, [], 2048)).toThrow(ContextLimitError);
+  expect(messages[1]).toBe(current);
 });
 
 test("old user/assistant turns are removed together and schemas count toward budget", () => {
@@ -31,6 +30,6 @@ test("old user/assistant turns are removed together and schemas count toward bud
     { role: "user", content: "x".repeat(5000) }, { role: "assistant", content: "old answer" },
     { role: "user", content: "current" }];
   guardContext(messages, [], 2048);
-  assert.deepEqual(messages.slice(1), [{ role: "user", content: "current" }]);
-  assert.throws(() => guardContext(messages, [{ type: "function", function: {name: "large", description: "x".repeat(20000)} }], 2048), ContextLimitError);
+  expect(messages.slice(1)).toStrictEqual([{ role: "user", content: "current" }]);
+  expect(() => guardContext(messages, [{ type: "function", function: {name: "large", description: "x".repeat(20000)} }], 2048)).toThrow(ContextLimitError);
 });

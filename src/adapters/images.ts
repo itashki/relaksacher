@@ -23,12 +23,14 @@ export async function downloadImage(url: string, { fetchImpl = fetch, allowedHos
     if (size > MAX_BYTES) throw new Error("Image exceeds 10 MB");
     chunks.push(chunk);
   }
-  const data = Buffer.concat(chunks);
-  const valid = data.subarray(0, 3).equals(Buffer.from([255, 216, 255])) ||
-    data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
-    (data.toString("ascii", 0, 4) === "RIFF" && data.toString("ascii", 8, 12) === "WEBP");
+  const data = new Uint8Array(Bun.concatArrayBuffers(chunks));
+  const startsWith = (signature: number[]) => signature.every((byte, index) => data[index] === byte);
+  const decoder = new TextDecoder();
+  const valid = startsWith([255, 216, 255]) ||
+    startsWith([137, 80, 78, 71, 13, 10, 26, 10]) ||
+    (decoder.decode(data.subarray(0, 4)) === "RIFF" && decoder.decode(data.subarray(8, 12)) === "WEBP");
   if (!valid) throw new Error("Expected JPEG, PNG or WebP");
-  return data.toString("base64");
+  return data.toBase64();
 }
 
 /**

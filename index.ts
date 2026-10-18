@@ -1,7 +1,5 @@
 /** @file Application composition and adapter lifecycle entry point. */
-import "dotenv/config";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolvePath } from "./src/core/paths.ts";
 import { Ollama } from "ollama";
 import { loadConfig } from "./src/config.ts";
 import { createMemoryStore } from "./src/core/memory.ts";
@@ -13,8 +11,8 @@ import { createTelegramBot } from "./src/adapters/telegram.ts";
 import { createDiscordBot } from "./src/adapters/discord.ts";
 import { createCliControls } from "./src/adapters/cli.ts";
 
-const config = loadConfig();
-const memoryDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), process.env.MEMORY_DIR || "memory");
+const config = await loadConfig();
+const memoryDirectory = resolvePath(Bun.env.MEMORY_DIR || "memory", import.meta.dir);
 const memory = createMemoryStore(memoryDirectory);
 const searchClient = config.OLLAMA_API_KEY ? new Ollama({
   host: "https://ollama.com",

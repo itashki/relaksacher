@@ -1,8 +1,7 @@
 import type { ChatRequest, ChatResponse, Message } from "ollama";
 import type { AssistantOptions, SessionOptions, Session, MemoryStore, GenerationUpdate, TerminalState, ToolDefinition } from "../src/types.ts";
 import type { Fixture } from "./fixtures.ts";
-import test from "node:test";
-import assert from "node:assert/strict";
+import { spyOn, expect, test, onTestFinished } from "bun:test";
 import { createAssistant } from "./fixtures.ts";
 import { createToolService } from "./fixtures.ts";
 
@@ -50,25 +49,25 @@ test("streams plain snapshots and carries memory/tools into the next model round
     context: { scopeId: "123", authorName: "Alice" }, think: true,
     platformInstructions: "CLI conversation",
   }).run();
-  assert.equal(result.text, "answer");
-  assert.equal(result.thinkingLog, "considering\n\n---\n\ndone thinking");
-  assert.match(env.requests[0].messages[0].content, /shared fact/);
-  assert.match(env.requests[0].messages[0].content, /CLI conversation/);
-  assert.equal(env.requests[0].think, true);
-  assert.deepEqual(env.requests[0].tools.map((tool) => tool.function.name), ["remember", "forget"]);
-  assert.equal(env.requests[1].messages.at(-1).content, "saved");
-  assert.ok(env.updates.some((state) => state.status === call));
-  assert.equal(env.updates.at(-1).final, true);
-  assert.equal(env.updates.at(-1).liveThinking, undefined);
-  assert.equal(env.aborted, 1);
+  expect(result.text).toBe("answer");
+  expect(result.thinkingLog).toBe("considering\n\n---\n\ndone thinking");
+  expect(env.requests[0].messages[0].content).toMatch(/shared fact/);
+  expect(env.requests[0].messages[0].content).toMatch(/CLI conversation/);
+  expect(env.requests[0].think).toBe(true);
+  expect(env.requests[0].tools.map((tool) => tool.function.name)).toStrictEqual(["remember", "forget"]);
+  expect(env.requests[1].messages.at(-1).content).toBe("saved");
+  expect(env.updates.some((state) => state.status === call)).toBeTruthy();
+  expect(env.updates.at(-1).final).toBe(true);
+  expect(env.updates.at(-1).liveThinking).toBe(undefined);
+  expect(env.aborted).toBe(1);
 });
 
 test("unscoped requests have no memory tools", async () => {
   const env = setup([[{ message: { content: "answer" } }]]);
   const result = await env.assistant.createSession(env.options).run();
-  assert.deepEqual(env.requests[0].tools.map((t) => t.function.name), ["enable_thinking"]);
-  assert.doesNotMatch(env.requests[0].messages[0].content, /shared fact|Discord/);
-  assert.equal(result.text, "answer");
+  expect(env.requests[0].tools.map((t) => t.function.name)).toStrictEqual(["enable_thinking"]);
+  expect(env.requests[0].messages[0].content).not.toMatch(/shared fact|Discord/);
+  expect(result.text).toBe("answer");
 });
 
 test("stop before running avoids a model request and finalizes the session", async () => {
@@ -76,10 +75,10 @@ test("stop before running avoids a model request and finalizes the session", asy
   const session = env.assistant.createSession(env.options);
   session.stop();
   const result = await session.run();
-  assert.equal(env.requests.length, 0);
-  assert.equal(result.stopped, true);
-  assert.equal(env.updates.at(-1).final, true);
-  await assert.rejects(session.run(), /already started/);
+  expect(env.requests.length).toBe(0);
+  expect(result.stopped).toBe(true);
+  expect(env.updates.at(-1).final).toBe(true);
+  await expect(session.run()).rejects.toThrow(/already started/);
 });
 
 test("stop while awaiting the stream aborts it before consuming output", async () => {
@@ -91,9 +90,9 @@ test("stop while awaiting the stream aborts it before consuming output", async (
   } } });
   session = env.assistant.createSession(env.options);
   const result = await session.run();
-  assert.equal(aborted, true);
-  assert.equal(result.stopped, true);
-  assert.equal(result.failed, false);
+  expect(aborted).toBe(true);
+  expect(result.stopped).toBe(true);
+  expect(result.failed).toBe(false);
 });
 
 test("timeout aborts a live stream and reports timeout", async () => {
@@ -103,21 +102,22 @@ test("timeout aborts a live stream and reports timeout", async () => {
     return { abort() { finish(); }, async *[Symbol.asyncIterator]() { await waiting; } };
   } } });
   const result = await env.assistant.createSession(env.options).run();
-  assert.equal(result.timedOut, true);
-  assert.equal(result.failed, false);
-  assert.match(result.text, /Превышено время/);
+  expect(result.timedOut).toBe(true);
+  expect(result.failed).toBe(false);
+  expect(result.text).toMatch(/Превышено время/);
 });
 
 test("tool rounds are bounded and the final model request disables tools", async () => {
   const call = { function: { name: "remember", arguments: { fact: "fact" } } };
   const env = setup(Array.from({ length: 6 }, () => [{ message: { tool_calls: [call] } }]));
   await env.assistant.createSession({ ...env.options, context: { scopeId: "123" } }).run();
-  assert.equal(env.requests.length, 6);
-  assert.equal(env.requests.at(-1).tools, undefined);
+  expect(env.requests.length).toBe(6);
+  expect(env.requests.at(-1).tools).toBe(undefined);
 });
 
-test("model errors preserve partial output and finalize with an error", async (t) => {
-  t.mock.method(console, "error", () => {});
+test("model errors preserve partial output and finalize with an error", async () => {
+  const spy = spyOn(console, "error").mockImplementation(() => {});
+  onTestFinished(() => spy.mockRestore());
   const env = setup([], { modelClient: { async chat() {
     return { abort() {}, async *[Symbol.asyncIterator]() {
       yield { message: { content: "partial" } };
@@ -125,16 +125,16 @@ test("model errors preserve partial output and finalize with an error", async (t
     }};
   } } });
   const result = await env.assistant.createSession(env.options).run();
-  assert.equal(result.failed, true);
-  assert.match(result.text, /^partial\n\n⚠️/);
-  assert.equal(env.updates.at(-1).final, true);
+  expect(result.failed).toBe(true);
+  expect(result.text).toMatch(/^partial\n\n⚠️/);
+  expect(env.updates.at(-1).final).toBe(true);
 });
 
 test("web search fetches top results and falls back to snippets for failed pages", async () => {
   const fetched = [];
   const service = createToolService({ memory: {}, searchClient: {
     async webSearch({ max_results }) {
-      assert.equal(max_results, 8);
+      expect(max_results).toBe(8);
       return { results: [
         { title: "first", url: "https://first.example", content: "snippet one" },
         { title: "second", url: "https://second.example", content: "snippet two" },
@@ -147,13 +147,13 @@ test("web search fetches top results and falls back to snippets for failed pages
       return { content: "full page" };
     },
   } });
-  assert.deepEqual(service.definitions({}).map((tool) => tool.function.name), ["web_search", "web_fetch"]);
-  assert.deepEqual(service.definitions({ search: true } as Parameters<typeof service.definitions>[0]).map((tool) => tool.function.name), ["web_search", "web_fetch"]);
+  expect(service.definitions({}).map((tool) => tool.function.name)).toStrictEqual(["web_search", "web_fetch"]);
+  expect(service.definitions({ search: true } as Parameters<typeof service.definitions>[0]).map((tool) => tool.function.name)).toStrictEqual(["web_search", "web_fetch"]);
   const result = JSON.parse(await service.runTool({ function: {
     name: "web_search", arguments: { query: "question", max_results: 99 },
   } }, {}));
-  assert.equal(fetched.length, 2);
-  assert.deepEqual(result.map((item: {content: string}) => item.content), ["full page", "snippet two", "snippet three"]);
+  expect(fetched.length).toBe(2);
+  expect(result.map((item: {content: string}) => item.content)).toStrictEqual(["full page", "snippet two", "snippet three"]);
 });
 
 test("uses the same configured model across sessions and tool rounds", async () => {
@@ -165,11 +165,11 @@ test("uses the same configured model across sessions and tool rounds", async () 
   ], { model: "fixed-model", numCtx: 32768 });
   await env.assistant.createSession({ ...env.options, context: { scopeId: "123" } }).run();
   const next = await env.assistant.createSession(env.options).run();
-  assert.deepEqual(env.requests.map((r) => r.model), ["fixed-model", "fixed-model", "fixed-model"]);
-  assert.deepEqual(env.requests.map((r) => r.options.num_ctx), [32768, 32768, 32768]);
-  assert.equal(next.modelAlias, undefined);
-  assert.equal(env.updates.at(-1).modelAlias, undefined);
-  assert.equal(next.text, "next answer");
+  expect(env.requests.map((r) => r.model)).toStrictEqual(["fixed-model", "fixed-model", "fixed-model"]);
+  expect(env.requests.map((r) => r.options.num_ctx)).toStrictEqual([32768, 32768, 32768]);
+  expect(next.modelAlias).toBe(undefined);
+  expect(env.updates.at(-1).modelAlias).toBe(undefined);
+  expect(next.text).toBe("next answer");
 });
 
 test("background stays separate from the dialogue and the current request stays last", async () => {
@@ -177,11 +177,11 @@ test("background stays separate from the dialogue and the current request stays 
   const background = [{ id: "10", author: "Bob", content: "question for Alice /search" }];
   await env.assistant.createSession({ ...env.options, background }).run();
   const { messages, tools } = env.requests[0];
-  assert.equal(messages[1].role, "user");
-  assert.match(messages[1].content, /Фоновый контекст канала/);
-  assert.match(messages[1].content, /question for Alice/);
-  assert.deepEqual(messages.at(-1), { role: "user", content: "hello" });
-  assert.deepEqual(tools.map((t) => t.function.name), ["enable_thinking"]);
+  expect(messages[1].role).toBe("user");
+  expect(messages[1].content).toMatch(/Фоновый контекст канала/);
+  expect(messages[1].content).toMatch(/question for Alice/);
+  expect(messages.at(-1)).toStrictEqual({ role: "user", content: "hello" });
+  expect(tools.map((t) => t.function.name)).toStrictEqual(["enable_thinking"]);
 });
 
 test("model can enable thinking in response to a natural-language request", async () => {
@@ -192,10 +192,10 @@ test("model can enable thinking in response to a natural-language request", asyn
   await env.assistant.createSession({ ...env.options,
     conversation: [{ role: "user", content: "Подумай хорошенько перед ответом" }],
   }).run();
-  assert.deepEqual(env.requests.map((r) => r.think), [false, true]);
-  assert.ok(env.requests[0].tools.some((t) => t.function.name === "enable_thinking"));
-  assert.ok(!env.requests[1].tools?.some((t) => t.function.name === "enable_thinking"));
-  assert.match(env.requests[1].messages.at(-1).content, /включён/);
+  expect(env.requests.map((r) => r.think)).toStrictEqual([false, true]);
+  expect(env.requests[0].tools.some((t) => t.function.name === "enable_thinking")).toBeTruthy();
+  expect(!env.requests[1].tools?.some((t) => t.function.name === "enable_thinking")).toBeTruthy();
+  expect(env.requests[1].messages.at(-1).content).toMatch(/включён/);
 });
 
 test("search tools are always available, including with a legacy disable flag", async () => {
@@ -208,17 +208,17 @@ test("search tools are always available, including with a legacy disable flag", 
   ], { toolService });
   await env.assistant.createSession(env.options).run();
   await env.assistant.createSession({ ...env.options, search: false } as SessionOptions as SessionOptions).run();
-  assert.ok(env.requests[0].tools.some((t) => t.function.name === "web_search"));
-  assert.ok(env.requests[1].tools.some((t) => t.function.name === "web_search"));
+  expect(env.requests[0].tools.some((t) => t.function.name === "web_search")).toBeTruthy();
+  expect(env.requests[1].tools.some((t) => t.function.name === "web_search")).toBeTruthy();
 });
 
 test("generation limit is marked in the final text and snapshot", async () => {
   const env = setup([[{ message: { content: "unfinished" } },
     { done: true, done_reason: "length", message: {} }]]);
   const result = await env.assistant.createSession(env.options).run();
-  assert.equal(result.incompleteReason, "length");
-  assert.match(result.text, /^unfinished\n\n⚠️ Ответ не завершён: достигнут лимит генерации/);
-  assert.equal(env.updates.at(-1).text, result.text);
+  expect(result.incompleteReason).toBe("length");
+  expect(result.text).toMatch(/^unfinished\n\n⚠️ Ответ не завершён: достигнут лимит генерации/);
+  expect(env.updates.at(-1).text).toBe(result.text);
 });
 
 test("a stream without a terminal done event is marked as interrupted", async () => {
@@ -226,15 +226,15 @@ test("a stream without a terminal done event is marked as interrupted", async ()
     return { abort() {}, async *[Symbol.asyncIterator]() { yield { message: { content: "partial" } }; } };
   } } });
   const result = await env.assistant.createSession(env.options).run();
-  assert.equal(result.incompleteReason, "stream_interrupted");
-  assert.match(result.text, /⚠️ Ответ не завершён/);
+  expect(result.incompleteReason).toBe("stream_interrupted");
+  expect(result.text).toMatch(/⚠️ Ответ не завершён/);
 });
 
 test("normal completion has no incomplete marker", async () => {
   const env = setup([[{ message: { content: "complete answer" } }]]);
   const result = await env.assistant.createSession(env.options).run();
-  assert.equal(result.incompleteReason, null);
-  assert.equal(result.text, "complete answer");
+  expect(result.incompleteReason).toBe(null);
+  expect(result.text).toBe("complete answer");
 });
 
 test("assistant sessions share a queue and waiting does not start a model request", async () => {
@@ -254,31 +254,31 @@ test("assistant sessions share a queue and waiting does not start a model reques
   } } });
   const first = env.assistant.createSession(env.options).run();
   await ready;
-  let position;
+  let position: number | undefined;
   const second = env.assistant.createSession({ ...env.options, onQueued: async (value) => { position = value; } }).run();
   await Promise.resolve();
-  assert.equal(position, 1);
-  assert.equal(calls, 1);
+  expect(position).toBe(1);
+  expect(calls).toBe(1);
   release();
   await Promise.all([first, second]);
-  assert.equal(calls, 2);
+  expect(calls).toBe(2);
 });
 
 test("oversized required context is reported without starting model generation", async () => {
   const env = setup([], { numCtx: 1024 });
   const result = await env.assistant.createSession(env.options).run();
-  assert.equal(env.requests.length, 0);
-  assert.equal(result.incompleteReason, "context_limit");
-  assert.match(result.text, /контекст слишком велики/);
+  expect(env.requests.length).toBe(0);
+  expect(result.incompleteReason).toBe("context_limit");
+  expect(result.text).toMatch(/контекст слишком велики/);
 });
 
 test("owner facts reach the system prompt independently of shared memory", async () => {
   const env = setup([[{ message: { content: "answer" } }]], { facts: ["Game night is Friday."] });
   await env.assistant.createSession(env.options).run();
   const system = env.requests[0].messages[0].content;
-  assert.match(system, /Game night is Friday\./);
-  assert.match(system, /Не перечисляй их без повода/);
-  assert.equal(env.requests[0].messages.at(-1).content, "hello");
+  expect(system).toMatch(/Game night is Friday\./);
+  expect(system).toMatch(/Не перечисляй их без повода/);
+  expect(env.requests[0].messages.at(-1).content).toBe("hello");
 });
 
 test("thinking is logged server-side and never included in streamed updates", async () => {
@@ -287,16 +287,16 @@ test("thinking is logged server-side and never included in streamed updates", as
     logger: { info: (...args: unknown[]) => logs.push(args) },
   });
   await env.assistant.createSession(env.options).run();
-  assert.equal(logs.length, 1);
-  assert.equal(logs[0][0], "[thinking]");
-  assert.equal((logs[0][1] as {text: string}).text, "private reasoning");
-  assert.ok(env.updates.every((state) => !JSON.stringify(state).includes("private reasoning")));
+  expect(logs.length).toBe(1);
+  expect(logs[0][0]).toBe("[thinking]");
+  expect((logs[0][1] as {text: string}).text).toBe("private reasoning");
+  expect(env.updates.every((state) => !JSON.stringify(state).includes("private reasoning"))).toBeTruthy();
 });
 
 test("personality is injected into the system prompt independently of platform", async () => {
   const env = setup([[{ message: { content: "answer" } }]], { personality: "Custom local personality" });
   await env.assistant.createSession(env.options).run();
-  assert.match(env.requests[0].messages[0].content, /Custom local personality/);
+  expect(env.requests[0].messages[0].content).toMatch(/Custom local personality/);
 });
 
 test("supervisor chooses thinking before the main round and explicit think bypasses it", async () => {
@@ -306,9 +306,9 @@ test("supervisor chooses thinking before the main round and explicit think bypas
   });
   await env.assistant.createSession(env.options).run();
   await env.assistant.createSession({ ...env.options, think: true }).run();
-  assert.equal(routed, 1);
-  assert.ok(env.requests.every((request) => request.think));
-  assert.ok(!env.requests[0].tools?.some((tool) => tool.function.name === "enable_thinking"));
+  expect(routed).toBe(1);
+  expect(env.requests.every((request) => request.think)).toBeTruthy();
+  expect(!env.requests[0].tools?.some((tool) => tool.function.name === "enable_thinking")).toBeTruthy();
   env.assistant.stopObserving();
 });
 
@@ -325,18 +325,19 @@ test("ordinary messages are batched by group/room and saved with source attribut
   env.assistant.observeMessage({ scopeId: "telegram_-1", roomId: "topic-1", id: "10", text: "Release day is Friday", authorName: "Alice" });
   env.assistant.observeMessage({ scopeId: "telegram_-2", roomId: "topic-1", id: "11", text: "Other group", authorName: "Bob" });
   env.assistant.observeMessage({ roomId: "private", id: "12", text: "private info", authorName: "Carol" });
-  assert.equal(extracted.length, 0);
+  expect(extracted.length).toBe(0);
   await env.assistant.flushObservations();
-  assert.deepEqual(saved[0], ["telegram_-1", "Release day is Friday", "Alice"]);
+  expect(saved[0]).toStrictEqual(["telegram_-1", "Release day is Friday", "Alice"]);
   await env.assistant.flushObservations();
-  assert.equal(extracted[1][0].text, "Other group");
-  assert.equal(extracted.length, 2);
+  expect(extracted[1][0].text).toBe("Other group");
+  expect(extracted.length).toBe(2);
   env.assistant.stopObserving();
 });
 
-test("automatic saves are limited to one per group per cooldown across all rooms", async (t) => {
+test("automatic saves are limited to one per group per cooldown across all rooms", async () => {
   let now = 100000;
-  t.mock.method(Date, "now", () => now);
+  const spy = spyOn(Date, "now").mockImplementation(() => now);
+  onTestFinished(() => spy.mockRestore());
   let checks = 0;
   const saved: unknown[][] = [];
   const env = setup([], { logger: { info() {} },
@@ -349,14 +350,14 @@ test("automatic saves are limited to one per group per cooldown across all rooms
   now += 61000;
   observe("group", "another-room");
   await env.assistant.flushObservations();
-  assert.equal(checks, 1);
+  expect(checks).toBe(1);
   observe("other-group");
   await env.assistant.flushObservations();
-  assert.equal(saved.length, 2);
+  expect(saved.length).toBe(2);
   now += 59000;
   observe();
   await env.assistant.flushObservations();
-  assert.equal(saved.length, 3);
+  expect(saved.length).toBe(3);
   env.assistant.stopObserving();
 });
 
@@ -369,10 +370,10 @@ test("successful media delivery permits an empty final answer without markers", 
     } },
   });
   const result = await env.assistant.createSession(env.options).run();
-  assert.equal(result.text, "");
-  assert.equal(result.incompleteReason, null);
-  assert.equal(env.updates.at(-1).text, "");
-  assert.equal(env.updates.at(-1).final, true);
+  expect(result.text).toBe("");
+  expect(result.incompleteReason).toBe(null);
+  expect(env.updates.at(-1).text).toBe("");
+  expect(env.updates.at(-1).final).toBe(true);
 });
 
 test("operator cancellation stops only the active reply and preserves queued work", async () => {
@@ -389,24 +390,24 @@ test("operator cancellation stops only the active reply and preserves queued wor
       yield { done: true, done_reason: "stop", message: {} };
     } };
   } } });
-  assert.equal(env.assistant.stopCurrentGeneration(), false);
+  expect(env.assistant.stopCurrentGeneration()).toBe(false);
   const first = env.assistant.createSession(env.options).run();
   await started;
   const second = env.assistant.createSession(env.options).run();
-  assert.equal(env.assistant.stopCurrentGeneration(), true);
-  assert.equal(env.assistant.stopCurrentGeneration(), false);
-  assert.equal((await first).stopped, true);
-  assert.equal((await second).text, "answer");
-  assert.equal(calls, 2);
-  assert.equal(env.assistant.stopCurrentGeneration(), false);
+  expect(env.assistant.stopCurrentGeneration()).toBe(true);
+  expect(env.assistant.stopCurrentGeneration()).toBe(false);
+  expect((await first).stopped).toBe(true);
+  expect((await second).text).toBe("answer");
+  expect(calls).toBe(2);
+  expect(env.assistant.stopCurrentGeneration()).toBe(false);
 });
 
 test("active generation is cleared even if final delivery fails", async () => {
   const env = setup([[{ message: { content: "answer" } }]]);
-  await assert.rejects(env.assistant.createSession({ ...env.options,
+  await expect(env.assistant.createSession({ ...env.options,
     onUpdate(state) { if (state.final) throw new Error("delivery failed"); },
-  }).run(), /delivery failed/);
-  assert.equal(env.assistant.stopCurrentGeneration(), false);
+  }).run()).rejects.toThrow(/delivery failed/);
+  expect(env.assistant.stopCurrentGeneration()).toBe(false);
 });
 
 test("terminal receives live reasoning and queued requests without exposing thoughts to adapters", async () => {
@@ -433,16 +434,16 @@ test("terminal receives live reasoning and queued requests without exposing thou
   await started;
   const second = env.assistant.createSession({ ...env.options, context: { authorName: "Bob" } }).run();
   const queued = snapshots.at(-1);
-  assert.equal(queued.current.author, "Alice");
-  assert.equal(queued.current.thinking, "local thoughts");
-  assert.equal(queued.queue[0].author, "Bob");
+  expect(queued.current.author).toBe("Alice");
+  expect(queued.current.thinking).toBe("local thoughts");
+  expect(queued.queue[0].author).toBe("Bob");
   // Subscribers cannot mutate live state.
   queued.current.thinking = "changed";
   release();
   await Promise.all([first, second]);
-  assert.ok(snapshots.some((state) => state.last?.thinking === "local thoughts"));
-  assert.equal(snapshots.at(-1).current, null);
-  assert.deepEqual(snapshots.at(-1).queue, []);
-  assert.ok(env.updates.every((state) => !JSON.stringify(state).includes("local thoughts")));
+  expect(snapshots.some((state) => state.last?.thinking === "local thoughts")).toBeTruthy();
+  expect(snapshots.at(-1).current).toBe(null);
+  expect(snapshots.at(-1).queue).toStrictEqual([]);
+  expect(env.updates.every((state) => !JSON.stringify(state).includes("local thoughts"))).toBeTruthy();
   unsubscribe();
 });

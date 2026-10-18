@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { rename } from "node:fs/promises";
+import { resolvePath } from "./paths.ts";
 
 /**
  * Create isolated file-backed fact storage with atomic writes and per-scope locks.
@@ -20,7 +20,7 @@ export function createMemoryStore(directory: string) {
     if (typeof scopeId !== "string" || !/^[a-zA-Z0-9_-]+$/.test(scopeId)) {
       throw new Error("Invalid memory scope id");
     }
-    return path.join(directory, `${scopeId}.json`);
+    return resolvePath(`${scopeId}.json`, directory);
   }
 
   /**
@@ -31,7 +31,7 @@ export function createMemoryStore(directory: string) {
   async function loadMemory(scopeId: string) {
     const file = memoryPath(scopeId);
     try {
-      const data = JSON.parse(await readFile(file, "utf8"));
+      const data = await Bun.file(file).json();
       return Array.isArray(data) ? data : [];
     } catch (error) {
       if (error.code !== "ENOENT") {
@@ -48,10 +48,9 @@ export function createMemoryStore(directory: string) {
    * @returns Resolves after the rename.
    */
   async function saveMemory(scopeId: string, facts: import("../types.ts").MemoryFact[]) {
-    await mkdir(directory, { recursive: true });
     const file = memoryPath(scopeId);
     const tmp = `${file}.tmp`;
-    await writeFile(tmp, JSON.stringify(facts, null, 2), "utf8");
+    await Bun.write(tmp, JSON.stringify(facts, null, 2));
     await rename(tmp, file); // атомарная запись, чтобы файл не побился при сбое
   }
 

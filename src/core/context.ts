@@ -13,7 +13,7 @@ export class ContextLimitError extends Error {}
 const estimateTokens = ({ messages, tools }: { messages: import("../types.ts").ChatMessage[]; tools: import("../types.ts").ToolDefinition[] | undefined; }) => {
   const text = messages.map(({ images, ...entry }) => entry);
   const images = messages.reduce((sum, entry) => sum + (entry.images?.length ?? 0), 0);
-  return Math.ceil(Buffer.byteLength(JSON.stringify({ messages: text, tools }), "utf8") / 3) + images * 4096;
+  return Math.ceil(new TextEncoder().encode(JSON.stringify({ messages: text, tools })).byteLength / 3) + images * 4096;
 };
 
 /**

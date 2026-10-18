@@ -1,19 +1,18 @@
-import test from "node:test";
-import assert from "node:assert/strict";
+import { expect, test } from "bun:test";
 import { attachImages, downloadImage } from "../src/adapters/images.ts";
 import { guardContext } from "../src/core/context.ts";
 
 test("downloads valid image bytes as base64 and rejects non-images and untrusted hosts", async () => {
-  const jpeg = Buffer.from([255, 216, 255, 0]);
+  const jpeg = new Uint8Array([255, 216, 255, 0]);
   const options = { allowedHosts: ["cdn.discordapp.com"], fetchImpl: async () => new Response(jpeg) };
-  assert.equal(await downloadImage("https://cdn.discordapp.com/image", options), jpeg.toString("base64"));
-  await assert.rejects(downloadImage("https://localhost/image", options), /host/);
-  await assert.rejects(downloadImage("https://cdn.discordapp.com/image", {
+  expect(await downloadImage("https://cdn.discordapp.com/image", options)).toBe(jpeg.toBase64());
+  await expect(downloadImage("https://localhost/image", options)).rejects.toThrow(/host/);
+  await expect(downloadImage("https://cdn.discordapp.com/image", {
     ...options, fetchImpl: async () => new Response("not an image"),
-  }), /Expected/);
-  await assert.rejects(downloadImage("https://cdn.discordapp.com/image", {
+  })).rejects.toThrow(/Expected/);
+  await expect(downloadImage("https://cdn.discordapp.com/image", {
     ...options, fetchImpl: async () => new Response(jpeg, { headers: { "content-length": String(11 * 1024 * 1024) } }),
-  }), /10 MB/);
+  })).rejects.toThrow(/10 MB/);
 });
 
 test("limits images, prioritizes current request and reports download failures", async () => {
@@ -22,16 +21,16 @@ test("limits images, prioritizes current request and reports download failures",
     if (id === "b") throw new Error("secret URL");
     return id;
   });
-  assert.deepEqual(conversation[1].images, ["a", "c", "d"]);
-  assert.match(conversation[1].content, /не загружено/);
-  assert.match(conversation[1].content, /лимит 4/);
-  assert.doesNotMatch(conversation[1].content, /secret/);
-  assert.equal(conversation[0].images, undefined);
+  expect(conversation[1].images).toStrictEqual(["a", "c", "d"]);
+  expect(conversation[1].content).toMatch(/не загружено/);
+  expect(conversation[1].content).toMatch(/лимит 4/);
+  expect(conversation[1].content).not.toMatch(/secret/);
+  expect(conversation[0].images).toBe(undefined);
 });
 
 test("context budgeting does not count base64 as text tokens", () => {
   const messages: import("ollama").Message[] = [{ role: "system", content: "rules" },
     { role: "user", content: "describe", images: ["A".repeat(1000000)] }];
-  assert.equal(guardContext(messages, [], 16384).trimmed, false);
-  assert.equal(messages[1].images[0].length, 1000000);
+  expect(guardContext(messages, [], 16384).trimmed).toBe(false);
+  expect(messages[1].images[0].length).toBe(1000000);
 });

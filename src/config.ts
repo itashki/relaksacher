@@ -1,9 +1,9 @@
-import JSON5 from "json5";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+const projectDirectory = Bun.fileURLToPath(new URL("../", import.meta.url));
 
-const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
+async function readConfigFile(filename: string) {
+  const file = Bun.resolveSync(filename.startsWith("/") ? filename : `./${filename}`, projectDirectory);
+  return Bun.JSON5.parse(await Bun.file(file).text());
+}
 
 /**
  * Read and validate owner-provided facts relative to the project directory.
@@ -11,13 +11,12 @@ const projectDirectory = fileURLToPath(new URL("../", import.meta.url));
  * @returns Trimmed facts.
  * @throws {Error} When the file is missing, malformed, or contains invalid entries.
  */
-function loadFacts(filename: string = "facts.json5") {
-  const file = path.resolve(projectDirectory, filename);
+async function loadFacts(filename: string = "facts.json5") {
   let facts;
   try {
-    facts = JSON5.parse(readFileSync(file, "utf8"));
+    facts = await readConfigFile(filename);
   } catch (error) {
-    throw new Error(`Cannot read facts from ${file}: ${error.message}`, { cause: error });
+    throw new Error(`Cannot read facts from ${filename}: ${error.message}`, { cause: error });
   }
   if (!Array.isArray(facts) || facts.some((fact) => typeof fact !== "string" || !fact.trim())) {
     throw new Error("Facts file must contain an array of non-empty strings");
@@ -31,12 +30,12 @@ function loadFacts(filename: string = "facts.json5") {
  * @returns Validated application configuration.
  * @throws {Error} When required credentials or configuration values are invalid.
  */
-export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
-  const facts = loadFacts(env.FACTS_FILE);
-  const personalityFile = path.resolve(projectDirectory, env.PERSONALITY_FILE || "personality.json5");
+export async function loadConfig(env: Record<string, string | undefined> = Bun.env) {
+  const facts = await loadFacts(env.FACTS_FILE);
+  const personalityFile = env.PERSONALITY_FILE || "personality.json5";
   let personality;
   try {
-    const rules = JSON5.parse(readFileSync(personalityFile, "utf8"));
+    const rules = await readConfigFile(personalityFile);
     if (!Array.isArray(rules) || rules.some((rule) => typeof rule !== "string" || !rule.trim())) {
       throw new Error("Personality must be an array of non-empty strings");
     }

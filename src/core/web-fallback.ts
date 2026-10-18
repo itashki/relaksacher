@@ -1,6 +1,5 @@
 /** @file Public-page fetching and DuckDuckGo HTML fallback, without API credentials. */
 import got from "got";
-import { lookup } from "node:dns";
 import ipaddr from "ipaddr.js";
 import { load } from "cheerio";
 
@@ -26,12 +25,12 @@ const http = got.extend({
   hooks: { beforeRequest: [(options) => { validatePublicUrl(options.url); }],
     beforeRedirect: [(options) => { validatePublicUrl(options.url); }] },
   dnsLookup(hostname, options, callback) {
-    lookup(hostname, { ...options, all: true }, (error, addresses) => {
-      if (error) return callback(error, []);
+    const family = options.family === 4 || options.family === 6 ? options.family : 0;
+    Bun.dns.lookup(hostname, { family, flags: options.hints, backend: "system" }).then((addresses) => {
       if (!addresses.length || addresses.some((entry) => !publicIp(entry.address))) return callback(new Error("Non-public address blocked"), []);
       if (options.all) callback(null, addresses);
       else callback(null, addresses[0].address, addresses[0].family);
-    });
+    }, (error) => callback(error, []));
   },
 });
 
@@ -47,7 +46,7 @@ export async function fetchText(url: string) {
       if (size > 2 * 1024 * 1024) throw new Error("Page exceeds 2 MB");
       chunks.push(chunk);
     }
-    return Buffer.concat(chunks).toString("utf8");
+    return new TextDecoder().decode(Bun.concatArrayBuffers(chunks));
   } finally { stream.destroy(); }
 }
 
