@@ -11,6 +11,7 @@ import { createSupervisor } from "./src/core/supervisor.js";
 import { createAssistant } from "./src/core/assistant.js";
 import { createTelegramBot } from "./src/adapters/telegram.js";
 import { createDiscordBot } from "./src/adapters/discord.js";
+import { createCliControls } from "./src/adapters/cli.js";
 
 const config = loadConfig();
 const memoryDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), process.env.MEMORY_DIR || "memory");
@@ -37,8 +38,10 @@ const assistant = createAssistant({
 const bots = config.adapters.map((adapter) => adapter === "telegram"
   ? createTelegramBot({ config, assistant })
   : createDiscordBot({ config, assistant, memoryDirectory }));
-for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { assistant.stopObserving(); bots.forEach((bot) => bot.stop()); });
+const cli = process.stdin.isTTY ? createCliControls({ assistant }) : null;
+for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { cli?.close(); assistant.stopObserving(); bots.forEach((bot) => bot.stop()); });
 Promise.all(bots.map((bot) => bot.start())).catch((error) => {
+  cli?.close();
   assistant.stopObserving();
   bots.forEach((bot) => bot.stop());
   console.error("Failed to login:", error);

@@ -372,3 +372,75 @@ test("successful media delivery permits an empty final answer without markers", 
   assert.equal(env.updates.at(-1).text, "");
   assert.equal(env.updates.at(-1).final, true);
 });
+
+test("operator cancellation stops only the active reply and preserves queued work", async () => {
+  let ready;
+  const started = new Promise((resolve) => { ready = resolve; });
+  let calls = 0;
+  const env = setup([], { modelClient: { async chat() {
+    const first = ++calls === 1;
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    return { abort() { release(); }, async *[Symbol.asyncIterator]() {
+      if (first) { ready(); await gate; }
+      yield { message: { content: "answer" } };
+      yield { done: true, done_reason: "stop", message: {} };
+    } };
+  } } });
+  assert.equal(env.assistant.stopCurrentGeneration(), false);
+  const first = env.assistant.createSession(env.options).run();
+  await started;
+  const second = env.assistant.createSession(env.options).run();
+  assert.equal(env.assistant.stopCurrentGeneration(), true);
+  assert.equal(env.assistant.stopCurrentGeneration(), false);
+  assert.equal((await first).stopped, true);
+  assert.equal((await second).text, "answer");
+  assert.equal(calls, 2);
+  assert.equal(env.assistant.stopCurrentGeneration(), false);
+});
+
+test("active generation is cleared even if final delivery fails", async () => {
+  const env = setup([[{ message: { content: "answer" } }]]);
+  await assert.rejects(env.assistant.createSession({ ...env.options,
+    onUpdate(state) { if (state.final) throw new Error("delivery failed"); },
+  }).run(), /delivery failed/);
+  assert.equal(env.assistant.stopCurrentGeneration(), false);
+});
+
+test("terminal receives live reasoning and queued requests without exposing thoughts to adapters", async () => {
+  let release;
+  let ready;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const started = new Promise((resolve) => { ready = resolve; });
+  let calls = 0;
+  const env = setup([], { logger: { info() {} }, modelClient: { async chat() {
+    const first = ++calls === 1;
+    return { abort() { release(); }, async *[Symbol.asyncIterator]() {
+      if (first) {
+        yield { message: { thinking: "local thoughts" } };
+        ready();
+        await gate;
+      }
+      yield { message: { content: "answer" } };
+      yield { done: true, done_reason: "stop", message: {} };
+    } };
+  } } });
+  const snapshots = [];
+  const unsubscribe = env.assistant.subscribeTerminal((state) => snapshots.push(state));
+  const first = env.assistant.createSession({ ...env.options, context: { authorName: "Alice" } }).run();
+  await started;
+  const second = env.assistant.createSession({ ...env.options, context: { authorName: "Bob" } }).run();
+  const queued = snapshots.at(-1);
+  assert.equal(queued.current.author, "Alice");
+  assert.equal(queued.current.thinking, "local thoughts");
+  assert.equal(queued.queue[0].author, "Bob");
+  // Subscribers cannot mutate live state.
+  queued.current.thinking = "changed";
+  release();
+  await Promise.all([first, second]);
+  assert.ok(snapshots.some((state) => state.last?.thinking === "local thoughts"));
+  assert.equal(snapshots.at(-1).current, null);
+  assert.deepEqual(snapshots.at(-1).queue, []);
+  assert.ok(env.updates.every((state) => !JSON.stringify(state).includes("local thoughts")));
+  unsubscribe();
+});

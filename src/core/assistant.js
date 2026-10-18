@@ -34,6 +34,19 @@ export function createAssistant({
   spontaneous = {},
 }) {
   const enqueue = createRequestQueue();
+  let activeGeneration;
+  const terminalListeners = new Set();
+  const pendingRequests = new Map();
+  let nextRequestId = 0;
+  let currentRequest = null;
+  let lastRequest = null;
+  const terminalState = () => ({ current: currentRequest, last: lastRequest,
+    queue: [...pendingRequests.values()] });
+  function publishTerminal() {
+    for (const listener of terminalListeners) {
+      try { listener(structuredClone(terminalState())); } catch { /* UI cannot interrupt generation. */ }
+    }
+  }
   const observations = new Map();
   const memoryTiming = new Map();
   /** @param {string} scopeId Group namespace. @returns {boolean} Whether background memory is eligible now. */
@@ -92,6 +105,18 @@ export function createAssistant({
     decide: supervisor?.decideReply ? (message) => supervisor.decideReply(message, observationController.signal) : undefined,
   });
   return {
+    /** Subscribe to local operator state, including reasoning; never sent to messenger callbacks. */
+    subscribeTerminal(listener) {
+      terminalListeners.add(listener);
+      listener(structuredClone(terminalState()));
+      return () => terminalListeners.delete(listener);
+    },
+    /** Cancel the running reply without cancelling queued requests. @returns {boolean} Whether cancellation was requested. */
+    stopCurrentGeneration() {
+      if (!activeGeneration || activeGeneration.stopped) return false;
+      activeGeneration.stop();
+      return true;
+    },
     /** @param {object} message Scoped group message. @returns {Promise<{angle: string}|null>} Optional contribution angle. */
     considerMessage(message) { return observerClosed ? Promise.resolve(null) : consider(message); },
     /**
@@ -156,7 +181,18 @@ export function createAssistant({
         async run() {
           if (started) throw new Error("Session already started");
           started = true;
+          const requestId = ++nextRequestId;
+          const request = { id: requestId, author: context.authorName ?? "Неизвестный автор",
+            scope: context.scopeId ?? "Личный чат", model,
+            prompt: conversation.at(-1)?.content ?? "", text: "", thinking: "",
+            status: "В очереди", queuedAt: Date.now() };
+          pendingRequests.set(requestId, request);
+          publishTerminal();
           return enqueue(async () => {
+            activeGeneration = generation;
+            pendingRequests.delete(requestId);
+            currentRequest = { ...request, startedAt: Date.now(), status: "Подготовка" };
+            publishTerminal();
             const useSearch = search !== false && toolService.searchEnabled;
             let useThinking = think;
             let text = search && !toolService.searchEnabled ? "⚠️ Поиск недоступен.\n\n" : "";
@@ -167,7 +203,18 @@ export function createAssistant({
              * @param {boolean} final Whether generation is complete.
              * @returns {void|Promise<void>} Adapter delivery result.
              */
-            const flush = (final) => onUpdate({ text, status, final });
+            const updateTerminal = (final = false) => {
+              if (currentRequest?.id !== requestId) return;
+              currentRequest = { ...currentRequest, text, thinking: thinkingLog,
+                status: final ? (generation.stopped ? "Остановлена" : failed ? "Ошибка" : incompleteReason ? "Не завершена" : "Завершена")
+                  : generation.stopped ? "Остановка" : status ? `Инструмент: ${status.function.name}` : "Генерация" };
+              if (final) lastRequest = currentRequest;
+              publishTerminal();
+            };
+            const flush = (final) => {
+              updateTerminal(final);
+              return onUpdate({ text, status, final });
+            };
             const timeoutTimer = setTimeout(() => {
               generation.timedOut = true;
               generation.stop();
@@ -262,6 +309,7 @@ export function createAssistant({
                   if (part.message?.tool_calls?.length) {
                     toolCalls.push(...part.message.tool_calls);
                   }
+                  if (thinkingDelta || delta) updateTerminal();
 
                   if (delta && Date.now() - lastUpdate >= updateIntervalMs) {
                     lastUpdate = Date.now();
@@ -368,7 +416,15 @@ export function createAssistant({
 
             await flush(true);
             return { text, thinkingLog, model, incompleteReason, failed, stopped: generation.stopped, timedOut: generation.timedOut };
-          }, onQueued);
+          }, onQueued).finally(() => {
+            pendingRequests.delete(requestId);
+            if (currentRequest?.id === requestId) {
+              lastRequest = currentRequest;
+              currentRequest = null;
+            }
+            if (activeGeneration === generation) activeGeneration = undefined;
+            publishTerminal();
+          });
         },
       };
     },

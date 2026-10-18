@@ -30,6 +30,16 @@ Natural-language requests also work: the model can call `enable_thinking` before
 answering and use web tools automatically when an API key is configured. Replies include a
 stop button available to the requester and moderators.
 
+When started in an interactive terminal with `npm start`, a full-screen TUI shows
+the current author and request, streaming thoughts and answer, queued requests,
+and recent logs. Long streams show their latest lines. Press `S` to cancel the
+current reply from either messenger while keeping the bot running. Queued
+requests continue in order. Press `H` for help. Thoughts are shown locally only,
+and are never included in messenger updates. Cancellation uses the same mechanism as the messenger stop button;
+an in-flight tool operation may need to finish before the reply is finalized.
+Terminal controls are disabled when standard input is not a TTY (for example,
+when running as a service). Ctrl+C shuts down the bot.
+
 ## Structure
 
 - `index.js` wires configuration, Ollama clients, storage, and the Discord adapter.

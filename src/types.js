@@ -75,6 +75,8 @@
 
 /**
  * @typedef {object} Assistant
+ * @property {function(function(object): void): function(): void} subscribeTerminal Observe local request, queue, answer and reasoning snapshots; returns unsubscribe.
+ * @property {function(): boolean} stopCurrentGeneration Cancel the running reply; queued requests remain queued.
  * @property {function(SessionOptions): Session} createSession Create an unstarted request.
  * @property {function({scopeId: string, roomId: string, id: string, text: string, authorName: string}): void} observeMessage Buffer an ordinary group statement.
  * @property {function(object): Promise<{angle: string}|null>} considerMessage Occasionally classify a group message for spontaneous intervention.

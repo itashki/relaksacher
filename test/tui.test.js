@@ -1,0 +1,46 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
+import { createTui, renderDashboard } from "../src/adapters/tui.js";
+
+test("dashboard shows current streams and queue and strips terminal commands", () => {
+  const screen = renderDashboard({ current: { id: 1, author: "Alice", scope: "Discord",
+    model: "model", status: "Генерация", prompt: "question", thinking: "thinking\x1b[2J", text: "answer" },
+    queue: [{ id: 2, author: "Bob", prompt: "next" }] });
+  for (const value of ["Alice", "thinking", "answer", "Bob", "Очередь: 1"]) assert.ok(screen.includes(value));
+  assert.ok(!screen.includes("\x1b"));
+});
+
+test("TUI stops generation, captures logs and restores terminal on close", () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let rendered = "";
+  output.on("data", (chunk) => { rendered += chunk; });
+  const modes = [];
+  input.setRawMode = (value) => modes.push(value);
+  let stops = 0;
+  let unsubscribed = false;
+  const target = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
+  const log = target.log;
+  const ui = createTui({ input, output, consoleTarget: target, assistant: {
+    subscribeTerminal(listener) {
+      listener({ current: null, queue: [] });
+      return () => { unsubscribed = true; };
+    },
+    stopCurrentGeneration() { stops++; return true; },
+  } });
+  input.emit("keypress", "s", { name: "s" });
+  assert.equal(stops, 1);
+  target.log("test log");
+  ui.close();
+  ui.close();
+  assert.equal(unsubscribed, true);
+  assert.equal(target.log, log);
+  assert.deepEqual(modes, [true, false]);
+  assert.ok(rendered.includes("\x1b[?1049h"));
+  assert.ok(rendered.endsWith("\x1b[?25h\x1b[?1049l"));
+  input.emit("keypress", "s", { name: "s" });
+  assert.equal(stops, 1);
+  input.end();
+  output.end();
+});
