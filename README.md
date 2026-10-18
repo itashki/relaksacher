@@ -6,12 +6,12 @@ and persistent shared memory.
 Use Node.js 22 or newer. Run `npm install`, configure `.env`, then run `npm start`.
 Required settings: `BOT_TOKEN`, `APPLICANT_ID`, `PUBLIC_KEY`, `OLLAMA_URL`,
 and `OLLAMA_TIMEOUT` (milliseconds). Edit `models.json5` to configure the model pool.
-Optional: `OLLAMA_API_KEY` enables web search, `OLLAMA_NUM_CTX` sets the context
+Optional: `OLLAMA_API_KEY` enables the primary Ollama web provider, `OLLAMA_NUM_CTX` sets the context
 window (default 16384), and `MEMORY_DIR` overrides the memory directory.
 Relative memory paths resolve from the repository root.
 
 Mention the bot, reply to it, or write in a thread it owns. `/think` enables
-thinking immediately; `/search` explicitly requests web tools for that request.
+thinking immediately. Web tools are available automatically.
 Natural-language requests also work: the model can call `enable_thinking` before
 answering and use web tools automatically when an API key is configured. Replies include a
 stop button available to the requester and moderators.
@@ -136,7 +136,7 @@ An existing webhook must be removed before using long polling; only one polling
 process should run per Telegram token.
 
 The bot answers text messages in private chats. In groups it responds to its
-@username, replies to its messages, and `/think` or `/search` commands (including
+@username, replies to its messages, and `/think` commands (including
 `/think@botname`). Natural-language requests to think/search use the same core as
 Discord. It converts Markdown to Telegram-compatible HTML while streaming, displays the model alias from the first
 placeholder, splits long answers and provides a stop button
@@ -273,3 +273,116 @@ injection, without reading configuration files itself.
 `personality.json5` and `facts.json5` are ignored by Git. Create these local files
 on a fresh checkout (`facts.json5` may contain `[]`; `personality.json5` may contain `[]`
 for a neutral style). Restart after changes.
+
+## On-demand history tool
+
+`read_history` is available when an adapter supplies a scoped reader. The model may
+request it when asked to inspect earlier messages or when reply-chain context is
+insufficient. History is never fetched or injected automatically. The tool reads
+up to 20 messages (default 10), truncating each to 800 characters, from the current
+chat/topic only and before the current request. Results are contextual data, not
+additional instructions or requests.
+
+Discord fetches through channel permissions. Telegram reads the bounded cache of
+messages received since startup, including only the same chat/topic; deleted
+messages may remain cached and unavailable updates cannot be recovered. Tool calls
+remain subject to the normal round limit and context guard.
+
+## Small supervisor model
+
+The application uses `qwen3:0.6b` as a separate, non-thinking JSON classifier.
+Install it with `ollama pull qwen3:0.6b`. Settings:
+
+```dotenv
+OLLAMA_SUPERVISOR_MODEL=qwen3:0.6b
+OLLAMA_SUPERVISOR_TIMEOUT_MS=30000
+AUTO_MEMORY=true
+```
+
+Before each normal response the supervisor chooses whether the main model should
+think. `/think` bypasses classification and forces thinking. With a supervisor,
+`enable_thinking` is no longer offered to the main model. Routing failures fall
+back to non-thinking mode and are logged. Only a bounded portion of the reply
+chain is classified; images and large local prompts are not sent to the router.
+
+Group messages also enter bounded per-room buffers, even without mentioning the
+bot. After a five-second batch delay, the supervisor extracts at most one explicit,
+stable, high-confidence fact; validated results go into that group's usual memory
+file. It cannot change owner facts or personality. Private messages and bot
+messages are excluded. Telegram must actually receive group messages for this to
+work; privacy mode/permissions still apply. Set `AUTO_MEMORY=false` to disable it.
+
+Background extraction and normal responses share the same inference queue, with
+background jobs at lower priority; model calls do not overlap. Each extraction
+reads at most four recent buffered statements, with truncation, and uses a 4096
+context window (routing uses 2048). Pending buffers are bounded and may discard
+old messages under load. The extractor is instructed to reject sensitive data,
+commands, questions, quotes and insults; additional code checks reject uncertain,
+unattributed or obvious contact/secret-like output. Semantic extraction remains
+model-dependent and is not a perfect filter. Changes are silent in chats; accepted
+facts are logged by count and saved with source-author attribution.
+
+## Occasional spontaneous replies
+
+The supervisor may propose a short humorous or interesting contribution to an
+unaddressed group message. It does not intervene in private chats, commands, or
+replies between other participants. Explicit mentions and replies to the bot still
+work normally. Discord spontaneous replies stay in the existing channel instead of
+creating a thread. Settings:
+
+```dotenv
+SPONTANEOUS_REPLIES=true
+SPONTANEOUS_CHANCE=0.05
+SPONTANEOUS_COOLDOWN_MS=300000
+```
+
+The chance controls sampling for evaluation, not guaranteed responses. Eligible
+messages are evaluated at most once per room per 30 seconds, with only one global
+spontaneous decision pending. The model must provide a concrete angle and confidence
+of at least 0.95. Successful decisions impose a five-minute room cooldown. Decisions
+older than one minute are discarded. Classification runs at low priority in the
+shared inference queue, and failure means silence. The prompt requests a single
+short, non-aggressive contribution. Disabling `SPONTANEOUS_REPLIES` restores only
+explicit triggering (including the pre-existing bot-owned Discord thread behavior).
+
+## Always-available web tools
+
+Web search/fetch tools are offered by default, including without an Ollama API key.
+When configured, Ollama cloud search and fetching are tried first. Missing keys,
+errors, empty output or a 12-second primary timeout trigger the fallback: DuckDuckGo
+HTML search parsed with Cheerio, and direct public-page text extraction using got.
+The existing tool loop still preloads the first two search results. `search: false`
+remains an explicit per-session disable switch.
+
+Fallback downloads have a 12-second timeout, a 2 MB decoded-body limit and at most
+three redirects. URL and actual DNS destination checks reject local/private hosts.
+DuckDuckGo CAPTCHA or unexpected markup is reported as a tool error, never a fake
+result; this is a best-effort scraper and cannot guarantee search uptime. No attempt
+is made to bypass challenges.
+
+Automatic memory uses conservative lexical prefiltering for durable rules,
+schedules and project statements. A batch can save at most one fact with confidence
+at least 0.99 and an allowed category. Saved text must be a verbatim substring of
+the actual source supplied to the model; invented dates, extra conclusions and
+paraphrases are rejected. Casual reactions without durable-fact cues are not sent
+to the extractor. These checks reduce false memories at the cost of missing some
+useful facts; explicit memory tools remain available for intentional requests.
+
+Automatic memory is rate-limited per group across all its rooms/topics:
+`AUTO_MEMORY_CHECK_INTERVAL_MS=60000` limits background checks to once per minute,
+and `AUTO_MEMORY_COOLDOWN_MS=900000` allows at most one automatic save attempt every
+15 minutes after an accepted candidate. Messages arriving during either pause
+are discarded from auto-memory buffers rather than saved later. Main-model
+`remember` instructions now require an explicit user request; intentional memory
+operations bypass the automatic cooldown. Limits reset on process restart.
+
+## Image replies
+
+Adapters expose `search_images` and `send_image`. The model can search Wikimedia
+Commons photos/illustrations and select a returned id to send one image per session.
+Telegram sends a photo with attribution; Discord sends an image embed. Source-page,
+author and license metadata accompany the result. Model-supplied arbitrary image
+URLs are rejected; candidates belong only to the current session. The model sees
+search metadata, not downloaded pixels, and is instructed not to claim otherwise.
+Search can be used on explicit requests or occasionally when a picture suits the
+answer. This provider is Commons, not a general meme-image index.

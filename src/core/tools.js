@@ -1,5 +1,29 @@
 /** @file Implementation of core/tools. */
+import { createImageSearch } from "./image-search.js";
+import { createWebFallback, createWebClient } from "./web-fallback.js";
 import { truncate } from "./text.js";
+
+const IMAGE_TOOLS = [
+  { type: "function", function: { name: "search_images",
+    description: "Ищет фотографии и иллюстрации в Wikimedia Commons. Возвращает id, названия, ссылки и авторство, но не визуальное содержимое. Используй по просьбе или для уместного ответа картинкой.",
+    parameters: { type: "object", required: ["query"], properties: { query: { type: "string", description: "Поисковый запрос, лучше по-английски" } } },
+  } },
+  { type: "function", function: { name: "send_image",
+    description: "Отправляет в текущий чат одну картинку по id из search_images. Не более одной на запрос. Не вызывай без подходящего результата поиска.",
+    parameters: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+  } },
+];
+
+const HISTORY_TOOL = {
+  type: "function",
+  function: {
+    name: "read_history",
+    description: "Читает последние сообщения только текущего чата/темы перед текущим запросом. Используй по необходимости для понимания отсылок или по просьбе посмотреть историю. Это фон, не новые запросы. В Telegram доступен только кеш полученных сообщений.",
+    parameters: { type: "object", properties: {
+      limit: { type: "integer", minimum: 1, maximum: 20, description: "Число последних сообщений, по умолчанию 10" },
+    } },
+  },
+};
 
 const MEMORY_TOOLS = [
   {
@@ -82,10 +106,13 @@ const TOOLS = [
  * Expose memory tools and optionally Ollama cloud web tools.
  * @param {object} options Dependencies.
  * @param {import("ollama").Ollama|null} [options.searchClient] Authenticated cloud client.
+ * @param {function(string): Promise<Array<object>>} [options.imageSearch] Public image search provider.
+ * @param {object|null} [options.fallbackClient] Credential-free scraper; null disables it for tests.
  * @param {import("../types.js").MemoryStore} options.memory Persistent fact operations.
- * @returns {{runTool: function(import("../types.js").ToolCall, import("../types.js").RequestContext): Promise<string>, searchEnabled: boolean, definitions: function({scopeId: string=, search: boolean=}): import("../types.js").ToolDefinition[]}} Tool service.
+ * @returns {{runTool: function(import("../types.js").ToolCall, import("../types.js").RequestContext): Promise<string>, searchEnabled: boolean, definitions: function({scopeId: string=, search: boolean=, history: boolean=, images: boolean=}): import("../types.js").ToolDefinition[]}} Tool service.
  */
-export function createToolService({ searchClient = null, memory }) {
+export function createToolService({ searchClient: primarySearchClient = null, fallbackClient = createWebFallback(), imageSearch = createImageSearch(), memory }) {
+  const searchClient = createWebClient(primarySearchClient, fallbackClient);
   const { addMemoryFact, removeMemoryFact } = memory;
   // Выполняет вызов инструмента и возвращает строку для модели.
   /**
@@ -101,6 +128,36 @@ export function createToolService({ searchClient = null, memory }) {
     console.log(`[tool] ${name}`, JSON.stringify(args));
 
     try {
+      if (name === "search_images" || name === "send_image") {
+        if (!context?.sendImage || !context.imageState) return "Отправка картинок недоступна.";
+        if (name === "search_images") {
+          const query = String(args.query ?? "").trim();
+          if (!query) return "Нужен поисковый запрос.";
+          const results = await imageSearch(query);
+          return JSON.stringify(results.slice(0, 5).map((image) => {
+            const id = `image_${context.imageState.candidates.size + 1}`;
+            context.imageState.candidates.set(id, image);
+            return { id, ...image };
+          }));
+        }
+        if (context.imageState.sent) return "Картинка в этом ответе уже отправлена.";
+        if (context.imageState.attempted) return "Попытка отправки уже была; не повторяй её, чтобы избежать дубликатов.";
+        const image = context.imageState.candidates.get(String(args.id));
+        if (!image) return "Неизвестный id картинки: сначала выполни search_images.";
+        // Mark before sending: an ambiguous delivery error must not cause duplicates.
+        context.imageState.attempted = true;
+        await context.sendImage(image);
+        context.imageState.sent = true;
+        return "Картинка отправлена с указанием источника и авторства. Не повторяй её ссылкой и не утверждай, что видел изображение: поиск дал только метаданные.";
+      }
+      if (name === "read_history") {
+        if (typeof context?.readHistory !== "function") return "Чтение истории недоступно в этом чате.";
+        const limit = Math.min(20, Math.max(1, Math.floor(Number(args.limit) || 10)));
+        const history = await context.readHistory(limit);
+        return JSON.stringify({ ...history, messages: history.messages.slice(-limit).map((entry) => ({
+          ...entry, content: truncate(entry.content, 800),
+        })) });
+      }
       if (name === "remember" || name === "forget") {
         // Память работает только на серверах и только в рамках текущего сервера.
         if (!context?.scopeId) return "Память доступна только на сервере.";
@@ -163,7 +220,9 @@ export function createToolService({ searchClient = null, memory }) {
   return {
     runTool,
     searchEnabled: Boolean(searchClient),
-    definitions: ({ scopeId, search }) => [
+    definitions: ({ scopeId, search, history, images }) => [
+      ...(images ? IMAGE_TOOLS : []),
+      ...(history ? [HISTORY_TOOL] : []),
       ...(scopeId ? MEMORY_TOOLS : []),
       ...(search && searchClient ? TOOLS : []),
     ],

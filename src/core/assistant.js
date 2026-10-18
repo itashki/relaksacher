@@ -1,3 +1,4 @@
+import { createSpontaneousPolicy } from "./spontaneous.js";
 /** @file Implementation of core/assistant. */
 import { guardContext, ContextLimitError } from "./context.js";
 import { createRequestQueue } from "./queue.js";
@@ -26,10 +27,99 @@ export function createAssistant({
   facts = [],
   personality = "",
   logger = console,
+  supervisor,
+  autoMemory = true,
+  autoMemoryCooldownMs = 900000,
+  autoMemoryCheckIntervalMs = 60000,
+  spontaneous = {},
   selectModel = () => ({ name: model }),
 }) {
   const enqueue = createRequestQueue();
+  const observations = new Map();
+  const memoryTiming = new Map();
+  /** @param {string} scopeId Group namespace. @returns {boolean} Whether background memory is eligible now. */
+  function canObserve(scopeId) {
+    const state = memoryTiming.get(scopeId);
+    return !state || (Date.now() - state.checked >= autoMemoryCheckIntervalMs && Date.now() - state.saved >= autoMemoryCooldownMs);
+  }
+  const observationController = new AbortController();
+  let observationTimer;
+  let observationJob;
+  let observerClosed = false;
+  /** Schedule one bounded batch; background inference shares the generation queue. */
+  function scheduleObservation() {
+    if (!observationTimer && !observerClosed) {
+      observationTimer = setTimeout(() => {
+        observationTimer = undefined;
+        void flushObservations();
+      }, 5000);
+      observationTimer.unref?.();
+    }
+  }
+  /** @returns {Promise<void>} Process one room batch without overlapping user generation. */
+  function flushObservations() {
+    clearTimeout(observationTimer);
+    observationTimer = undefined;
+    if (observationJob) return observationJob;
+    if (!observations.size || observerClosed) return Promise.resolve();
+    const [key, entry] = observations.entries().next().value;
+    observations.delete(key);
+    observationJob = enqueue(async () => {
+      if (observerClosed || !canObserve(entry.scopeId)) return;
+      const timing = memoryTiming.get(entry.scopeId) ?? { checked: -Infinity, saved: -Infinity };
+      timing.checked = Date.now();
+      memoryTiming.delete(entry.scopeId);
+      memoryTiming.set(entry.scopeId, timing);
+      if (memoryTiming.size > 500) memoryTiming.delete(memoryTiming.keys().next().value);
+      try {
+        const extracted = await supervisor.extractFacts(entry.messages.slice(-8), observationController.signal);
+        for (const fact of extracted.slice(0, 1)) {
+          if (observerClosed) break;
+          await memory.addMemoryFact(entry.scopeId, fact.text, fact.authorName);
+          timing.saved = Date.now();
+        }
+        if (extracted.length) logger.info("[auto-memory]", { scopeId: entry.scopeId, count: extracted.length });
+      } catch (error) {
+        if (!observerClosed) console.warn("Automatic memory extraction failed:", error.message);
+      }
+    }, undefined, { priority: -1 }).finally(() => {
+      observationJob = undefined;
+      if (observations.size) scheduleObservation();
+    });
+    return observationJob;
+  }
+  const consider = createSpontaneousPolicy({
+    ...spontaneous, enqueue,
+    decide: supervisor?.decideReply ? (message) => supervisor.decideReply(message, observationController.signal) : undefined,
+  });
   return {
+    /** @param {object} message Scoped group message. @returns {Promise<{angle: string}|null>} Optional contribution angle. */
+    considerMessage(message) { return observerClosed ? Promise.resolve(null) : consider(message); },
+    /**
+     * Buffer an ordinary group statement for conservative, silent fact extraction.
+     * @param {{scopeId: string, roomId: string, id: string, text: string, authorName: string}} message Scoped statement.
+     * @returns {void}
+     */
+    observeMessage(message) {
+      if (!supervisor || !autoMemory || observerClosed || !message.scopeId || !message.text?.trim() || !canObserve(message.scopeId)) return;
+      const key = `${message.scopeId}:${message.roomId}`;
+      if (!observations.has(key) && observations.size >= 50) return;
+      const entry = observations.get(key) ?? { scopeId: message.scopeId, messages: [] };
+      if (!entry.messages.some((item) => item.id === message.id)) entry.messages.push({
+        id: message.id, text: message.text.slice(0, 900), authorName: message.authorName,
+      });
+      entry.messages = entry.messages.slice(-8);
+      observations.set(key, entry);
+      scheduleObservation();
+    },
+    flushObservations,
+    /** Stop background extraction and discard unprocessed messages. @returns {void} */
+    stopObserving() {
+      observerClosed = true;
+      clearTimeout(observationTimer);
+      observations.clear();
+      observationController.abort();
+    },
     /**
      * Capture one request and select its model; execution starts only with run().
      * @param {import("../types.js").SessionOptions} options Conversation and delivery hooks.
@@ -41,8 +131,10 @@ export function createAssistant({
       onQueued = async () => {},
     }) {
       const selectedModel = selectModel();
+      const toolContext = { ...context, imageState: { candidates: new Map(), sent: false } };
       const generation = {
         stream: null,
+        controller: new AbortController(),
         stopped: false,
         timedOut: false,
         /**
@@ -51,6 +143,7 @@ export function createAssistant({
          */
         stop() {
           this.stopped = true;
+          this.controller.abort();
           this.stream?.abort();
         },
       };
@@ -68,7 +161,7 @@ export function createAssistant({
           return enqueue(async () => {
             const useSearch = search !== false && toolService.searchEnabled;
             let useThinking = think;
-            let text = search && !toolService.searchEnabled ? "⚠️ Поиск недоступен: не задан OLLAMA_API_KEY.\n\n" : "";
+            let text = search && !toolService.searchEnabled ? "⚠️ Поиск недоступен.\n\n" : "";
             let status = "";
             let thinkingLog = "";
             /**
@@ -85,16 +178,24 @@ export function createAssistant({
             let incompleteReason = null;
             try {
               await flush(false);
+              if (supervisor && !think && !generation.stopped) {
+                try {
+                  useThinking = await supervisor.decideThinking(conversation, generation.controller.signal);
+                  logger.info("[router]", { think: useThinking, model: selectedModel.name });
+                } catch (error) {
+                  if (!generation.stopped) console.warn("Thinking router failed; using non-thinking mode:", error.message);
+                }
+              }
               const memoryFacts = context.scopeId ? await memory.loadMemory(context.scopeId) : [];
               const messages = buildMessages({ conversation, background, assistantName, platformInstructions, facts, personality,
                 memoryPrompt: memory.buildMemoryPrompt(memoryFacts, Boolean(context.scopeId)), useSearch });
-              const definitions = toolService.definitions({ scopeId: context.scopeId, search: useSearch });
+              const definitions = toolService.definitions({ scopeId: context.scopeId, search: useSearch, history: typeof context.readHistory === "function", images: typeof context.sendImage === "function" });
               /**
                * List currently available tools, omitting the thinking switch once enabled.
                * @returns {import("../types.js").ToolDefinition[]|undefined} Available schemas.
                */
               const toolsForRound = () => {
-                const available = [...definitions, ...(!useThinking ? [THINK_TOOL] : [])];
+                const available = [...definitions, ...(!supervisor && !useThinking ? [THINK_TOOL] : [])];
                 return available.length ? available : undefined;
               };
               let lastUpdate = 0;
@@ -185,7 +286,7 @@ export function createAssistant({
                   break;
                 }
                 if (toolCalls.length === 0) {
-                  if (!roundContent.trim()) incompleteReason = "empty_answer";
+                  if (!roundContent.trim() && !toolContext.imageState.sent) incompleteReason = "empty_answer";
                   break;
                 }
                 if (round === MAX_TOOL_ROUNDS) {
@@ -213,7 +314,7 @@ export function createAssistant({
                     useThinking = true;
                     result = "Режим размышлений включён. Продолжи выполнение текущего запроса.";
                   } else {
-                    result = await toolService.runTool(call, context);
+                    result = await toolService.runTool(call, toolContext);
                   }
                   messages.push({
                     role: "tool",
@@ -244,6 +345,7 @@ export function createAssistant({
               });
             }
 
+            if (!text.trim() && toolContext.imageState.sent) text = "🖼";
             if (failed) {
               text += text
                 ? "\n\n⚠️ Ошибка при генерации ответа."

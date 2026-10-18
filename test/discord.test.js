@@ -133,3 +133,41 @@ test("bot-owned threads do not inject starter or thread history without a reply"
   assert.equal(input.conversation.length, 1);
   assert.deepEqual(input.background, []);
 });
+
+test("history is fetched only when the scoped Discord reader is called", async (t) => {
+  let input;
+  let calls = 0;
+  const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
+    input = options;
+    return { stop() {}, async run() {} };
+  } } });
+  t.after(() => bot.client.destroy());
+  bot.client.user = { id: "bot" };
+  await bot.client.listeners(Events.MessageCreate)[0]({
+    id: "40", content: "history?", author: { id: "user", username: "Alice", bot: false },
+    mentions: { has: () => true }, channel: { isThread: () => false, messages: { async fetch(options) {
+      calls++;
+      assert.deepEqual(options, { limit: 5, before: "40" });
+      return new Map([["30", { id: "30", content: "older", author: { id: "user", username: "Alice", bot: false } }]]);
+    } } },
+  });
+  assert.equal(calls, 0);
+  assert.equal((await input.context.readHistory(5)).messages[0].content, "older");
+  assert.equal(calls, 1);
+});
+
+test("ordinary Discord group messages are observed without triggering a reply", async (t) => {
+  const observed = [];
+  const bot = createDiscordBot({ config: {}, assistant: {
+    observeMessage(entry) { observed.push(entry); },
+    createSession() { assert.fail("ordinary message must not trigger generation"); },
+  } });
+  t.after(() => bot.client.destroy());
+  bot.client.user = { id: "bot" };
+  await bot.client.listeners(Events.MessageCreate)[0]({ id: "10", content: "Releases are on Friday", guildId: "123",
+    author: { id: "user", username: "Alice", bot: false }, mentions: { has: () => false },
+    channel: { id: "channel-1", isThread: () => false },
+  });
+  assert.equal(observed[0].scopeId, "123");
+  assert.equal(observed[0].text, "Releases are on Friday");
+});

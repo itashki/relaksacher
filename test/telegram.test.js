@@ -360,3 +360,66 @@ test("quoted fragment is retained even when the original message is inaccessible
   assert.match(inputs[0].conversation[0].content, /fragment from another chat/);
   assert.match(inputs[0].conversation[0].content, /"manuallySelected":false/);
 });
+
+test("history tool reads only cached prior messages in the current topic", async () => {
+  const { bot, inputs } = setup();
+  const chat = { id: -123, type: "supergroup" };
+  await bot.handleUpdate({ message: { ...message(1, "same topic", chat), message_thread_id: 2 } });
+  await bot.handleUpdate({ message: { ...message(2, "other topic", chat), message_thread_id: 3 } });
+  await bot.handleUpdate({ message: { ...message(3, "@testbot history?", chat), message_thread_id: 2,
+    entities: [{ type: "mention", offset: 0, length: 8 }] } });
+  assert.equal(inputs[0].conversation.length, 1);
+  const history = await inputs[0].context.readHistory(10);
+  assert.deepEqual(history.messages.map((entry) => entry.content), ["same topic"]);
+  assert.equal(history.limited, true);
+});
+
+test("ordinary Telegram group messages are observed without replying", async () => {
+  const observed = [];
+  const bot = createTelegramBot({ config: {}, api: async () => ({ id: 99, username: "testbot" }), assistant: {
+    observeMessage(entry) { observed.push(entry); },
+    createSession() { assert.fail("ordinary message must not trigger generation"); },
+  } });
+  await bot.handleUpdate({ message: message(1, "Releases are on Friday", { id: -123, type: "supergroup" }) });
+  assert.equal(observed[0].scopeId, "telegram_-123");
+  assert.equal(observed[0].authorName.includes("Alice"), true);
+});
+
+test("a selected spontaneous group reply reaches the assistant with a short-response hint", async () => {
+  let input;
+  const bot = createTelegramBot({ config: {}, api: async () => ({ id: 99, username: "testbot" }), assistant: {
+    async considerMessage() { return { angle: "light joke" }; },
+    createSession(options) { input = options; return { stop() {}, async run() { return { text: "joke" }; } }; },
+  } });
+  await bot.handleUpdate({ message: message(1, "a funny statement", { id: -123, type: "supergroup" }) });
+  assert.match(input.platformInstructions, /без пинга/);
+  assert.match(input.platformInstructions, /light joke/);
+});
+
+test("captionless media does not send placeholder text or author names to auto-memory", async () => {
+  const observed = [];
+  const bot = createTelegramBot({ config: {}, api: async () => ({ id: 99, username: "testbot" }), assistant: {
+    observeMessage(entry) { observed.push(entry); },
+    createSession() { assert.fail("unaddressed media"); },
+  } });
+  await bot.handleUpdate({ message: { ...message(1, undefined, { id: -123, type: "supergroup" }), photo: [{ file_id: "photo" }] } });
+  await bot.handleUpdate({ message: { ...message(2, undefined, { id: -123, type: "supergroup" }), animation: { file_id: "gif" } } });
+  assert.deepEqual(observed, []);
+});
+
+test("searched images are sent to Telegram with source attribution", async () => {
+  const calls = [];
+  const bot = createTelegramBot({ config: {}, api: async (method, payload) => {
+    calls.push({ method, payload });
+    return method === "getMe" ? { id: 99, username: "testbot" } : true;
+  }, assistant: { createSession({ context }) { return { stop() {}, async run() {
+    await context.sendImage({ title: "Elephant", url: "https://upload.wikimedia.org/elephant.jpg",
+      sourceUrl: "https://commons.wikimedia.org/wiki/File:Elephant.jpg", author: "Artist", license: "CC BY-SA" });
+    return { text: "image" };
+  } }; } } });
+  await bot.handleUpdate({ message: message(1, "show an elephant") });
+  const photo = calls.find((call) => call.method === "sendPhoto");
+  assert.equal(photo.payload.chat_id, 1);
+  assert.match(photo.payload.caption, /Artist · CC BY-SA/);
+  assert.equal(photo.payload.photo, "https://upload.wikimedia.org/elephant.jpg");
+});

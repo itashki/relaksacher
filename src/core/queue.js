@@ -4,7 +4,7 @@ import PQueue from "p-queue";
 // One FIFO queue per assistant instance, shared by all connected adapters.
 /**
  * Create a single-concurrency FIFO queue shared by all assistant adapters.
- * @returns {<T>(task: () => Promise<T>, onQueued?: (position: number) => void|Promise<void>) => Promise<T>} Enqueue function; position 1 means next.
+ * @returns {<T>(task: () => Promise<T>, onQueued?: (position: number) => void|Promise<void>, options?: {priority?: number}) => Promise<T>} Enqueue function; position 1 means next.
  */
 export function createRequestQueue() {
   const queue = new PQueue({ concurrency: 1 });
@@ -13,9 +13,10 @@ export function createRequestQueue() {
    * @template T
    * @param {function(): Promise<T>} task Task to execute when its slot opens.
    * @param {function(number): (void|Promise<void>)} [onQueued] Waiting notification hook.
+   * @param {{priority?: number}} [options] Negative priorities defer background work.
    * @returns {Promise<T>} Task result; task failures do not block subsequent requests.
    */
-  return function enqueue(task, onQueued = async () => {}) {
+  return function enqueue(task, onQueued = async () => {}, { priority = 0 } = {}) {
     const position = queue.pending + queue.size;
     // Notify immediately, but reserve the queue position synchronously.
     const notification = position > 0
@@ -25,6 +26,6 @@ export function createRequestQueue() {
     return queue.add(async () => {
       await notification;
       return task();
-    });
+    }, { priority });
   };
 }

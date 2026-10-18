@@ -19,6 +19,9 @@
  * @typedef {object} RequestContext
  * @property {string} [scopeId] Storage namespace; absent when memory is disabled.
  * @property {string} [authorName] Display name used for memory attribution and logs.
+ * @property {function(ImageCandidate): Promise<void>} [sendImage] Deliver a searched image to the current chat.
+ * @property {{candidates: Map<string, ImageCandidate>, sent: boolean, attempted?: boolean}} [imageState] Per-session image selection state.
+ * @property {function(number): Promise<{source: string, messages: BackgroundMessage[], limited?: boolean, note?: string}>} [readHistory] Scoped history capability; no arbitrary chat ids.
  */
 
 /**
@@ -80,6 +83,10 @@
 /**
  * @typedef {object} Assistant
  * @property {function(SessionOptions): Session} createSession Create an unstarted request.
+ * @property {function({scopeId: string, roomId: string, id: string, text: string, authorName: string}): void} observeMessage Buffer an ordinary group statement.
+ * @property {function(object): Promise<{angle: string}|null>} considerMessage Occasionally classify a group message for spontaneous intervention.
+ * @property {function(): Promise<void>} flushObservations Process one buffered room batch.
+ * @property {function(): void} stopObserving Cancel background inference and discard buffers.
  */
 
 /** @typedef {ReturnType<import("./core/memory.js").createMemoryStore>} MemoryStore */
@@ -96,6 +103,11 @@
  * @property {number} [updateIntervalMs] Minimum interval between ordinary text updates.
  * @property {string[]} [facts] Owner-provided facts.
  * @property {string} [personality] Local personality instructions.
+ * @property {ReturnType<import("./core/supervisor.js").createSupervisor>} [supervisor] Small routing/extraction model.
+ * @property {{enabled?: boolean, chance?: number, cooldownMs?: number}} [spontaneous] Unsolicited group reply policy.
+ * @property {boolean} [autoMemory] Whether to extract facts from ordinary group messages.
+ * @property {number} [autoMemoryCooldownMs] Minimum interval between automatic saves per group.
+ * @property {number} [autoMemoryCheckIntervalMs] Minimum interval between background checks per group.
  * @property {Pick<Console, "info">} [logger] Destination for reasoning logs.
  * @property {function(): ModelConfig} [selectModel] Called once per session.
  */
@@ -115,6 +127,12 @@
  * @property {number} OLLAMA_TIMEOUT Generation timeout in milliseconds.
  * @property {string|null} OLLAMA_API_KEY Optional cloud search credential.
  * @property {number} OLLAMA_NUM_CTX Default context window size.
+ * @property {string} supervisorModel Small routing/extraction model identifier.
+ * @property {number} supervisorTimeoutMs Auxiliary model deadline.
+ * @property {boolean} autoMemory Whether background extraction is enabled.
+ * @property {number} autoMemoryCooldownMs Minimum automatic save interval.
+ * @property {number} autoMemoryCheckIntervalMs Minimum background check interval.
+ * @property {{enabled: boolean, chance: number, cooldownMs: number}} spontaneous Unsolicited group reply policy.
  * @property {string[]} facts Owner-provided facts.
  * @property {string} personality Active personality instructions.
  */
@@ -130,6 +148,15 @@
  * @property {function(import("@grammyjs/types").Update): Promise<void>} handleUpdate Handle an incoming update.
  * @property {function(): Promise<void>} start Start polling; resolves when polling stops.
  * @property {function(): (Promise<void>|undefined)} stop Stop polling and active sessions.
+ */
+
+/**
+ * @typedef {object} ImageCandidate
+ * @property {string} title Search result title.
+ * @property {string} url Public image URL.
+ * @property {string} sourceUrl Original source page.
+ * @property {string} [author] Image attribution.
+ * @property {string} [license] License label.
  */
 
 export {};

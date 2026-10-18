@@ -67,6 +67,24 @@ export function loadConfig(env = process.env) {
   } catch (error) {
     throw new Error(`Cannot read personality from ${personalityFile}: ${error.message}`, { cause: error });
   }
+  const supervisorModel = env.OLLAMA_SUPERVISOR_MODEL || "qwen3:0.6b";
+  const supervisorTimeoutMs = Number(env.OLLAMA_SUPERVISOR_TIMEOUT_MS ?? 30000);
+  if (!Number.isSafeInteger(supervisorTimeoutMs) || supervisorTimeoutMs <= 0) throw new Error("Invalid OLLAMA_SUPERVISOR_TIMEOUT_MS");
+  const autoMemory = env.AUTO_MEMORY !== "false";
+  const autoMemoryCooldownMs = Number(env.AUTO_MEMORY_COOLDOWN_MS ?? 900000);
+  const autoMemoryCheckIntervalMs = Number(env.AUTO_MEMORY_CHECK_INTERVAL_MS ?? 60000);
+  if (![autoMemoryCooldownMs, autoMemoryCheckIntervalMs].every((value) => Number.isSafeInteger(value) && value >= 1000)) {
+    throw new Error("Automatic memory intervals must be integers of at least 1000 ms");
+  }
+  const spontaneous = {
+    enabled: env.SPONTANEOUS_REPLIES !== "false",
+    chance: Number(env.SPONTANEOUS_CHANCE ?? 0.05),
+    cooldownMs: Number(env.SPONTANEOUS_COOLDOWN_MS ?? 300000),
+  };
+  if (!Number.isFinite(spontaneous.chance) || spontaneous.chance < 0 || spontaneous.chance > 1 ||
+      !Number.isSafeInteger(spontaneous.cooldownMs) || spontaneous.cooldownMs < 30000) {
+    throw new Error("Invalid spontaneous reply probability or cooldown (minimum 30000 ms)");
+  }
   const token = env.BOT_TOKEN;
   const telegramToken = env.TELEGRAM_BOT_TOKEN;
   const telegramUpdateIntervalMs = Number(env.TELEGRAM_UPDATE_INTERVAL_MS ?? 5000);
@@ -122,6 +140,12 @@ export function loadConfig(env = process.env) {
   }
   return {
     facts,
+    supervisorModel,
+    supervisorTimeoutMs,
+    autoMemory,
+    autoMemoryCooldownMs,
+    autoMemoryCheckIntervalMs,
+    spontaneous,
     personality,
     token,
     telegramToken,

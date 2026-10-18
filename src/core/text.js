@@ -13,16 +13,16 @@ export function truncate(value, maxLength) {
 }
 
 /**
- * Extract standalone /think and /search commands without matching URL paths.
+ * Extract the standalone /think command without matching URL paths.
  * @param {string} content Incoming message text.
- * @returns {{flags: {think: boolean, search: boolean}, content: string}} Flags and cleaned text.
+ * @returns {{flags: {think: boolean}, content: string}} Flags and cleaned text.
  */
 export function parseCommands(content) {
-  const flags = { think: false, search: false };
+  const flags = { think: false };
   let found = false;
 
   let cleaned = content.replace(
-    /(^|\s)\/(think|search)(?=\s|$)/giu,
+    /(^|\s)\/(think)(?=\s|$)/giu,
     (_match, prefix, command) => {
       flags[command.toLowerCase()] = true;
       found = true;

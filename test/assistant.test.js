@@ -32,7 +32,7 @@ function setup(rounds, overrides = {}) {
     };
   }};
   const assistant = createAssistant({ modelClient, memory,
-    toolService: createToolService({ memory }), model: "test", numCtx: 16384,
+    toolService: createToolService({ memory, fallbackClient: null }), model: "test", numCtx: 16384,
     timeoutMs: 1000, updateIntervalMs: 0, ...overrides });
   return { assistant, requests, updates, memory, get aborted() { return aborted; },
     options: { conversation: [{ role: "user", content: "hello" }], onUpdate: (state) => updates.push(state) } };
@@ -296,4 +296,65 @@ test("personality is injected into the system prompt independently of platform",
   const env = setup([[{ message: { content: "answer" } }]], { personality: "Custom local personality" });
   await env.assistant.createSession(env.options).run();
   assert.match(env.requests[0].messages[0].content, /Custom local personality/);
+});
+
+test("supervisor chooses thinking before the main round and explicit think bypasses it", async () => {
+  let routed = 0;
+  const env = setup([[{ message: { content: "answer" } }], [{ message: { content: "second" } }]], {
+    logger: { info() {} }, supervisor: { async decideThinking() { routed++; return true; } },
+  });
+  await env.assistant.createSession(env.options).run();
+  await env.assistant.createSession({ ...env.options, think: true }).run();
+  assert.equal(routed, 1);
+  assert.ok(env.requests.every((request) => request.think));
+  assert.ok(!env.requests[0].tools?.some((tool) => tool.function.name === "enable_thinking"));
+  env.assistant.stopObserving();
+});
+
+test("ordinary messages are batched by group/room and saved with source attribution", async () => {
+  const extracted = [];
+  const saved = [];
+  const env = setup([], { logger: { info() {} },
+    memory: { async addMemoryFact(...args) { saved.push(args); } },
+    supervisor: { async extractFacts(messages) {
+      extracted.push(messages);
+      return [{ text: messages[0].text, authorName: messages[0].authorName }];
+    } },
+  });
+  env.assistant.observeMessage({ scopeId: "telegram_-1", roomId: "topic-1", id: "10", text: "Release day is Friday", authorName: "Alice" });
+  env.assistant.observeMessage({ scopeId: "telegram_-2", roomId: "topic-1", id: "11", text: "Other group", authorName: "Bob" });
+  env.assistant.observeMessage({ roomId: "private", id: "12", text: "private info", authorName: "Carol" });
+  assert.equal(extracted.length, 0);
+  await env.assistant.flushObservations();
+  assert.deepEqual(saved[0], ["telegram_-1", "Release day is Friday", "Alice"]);
+  await env.assistant.flushObservations();
+  assert.equal(extracted[1][0].text, "Other group");
+  assert.equal(extracted.length, 2);
+  env.assistant.stopObserving();
+});
+
+test("automatic saves are limited to one per group per cooldown across all rooms", async (t) => {
+  let now = 100000;
+  t.mock.method(Date, "now", () => now);
+  let checks = 0;
+  const saved = [];
+  const env = setup([], { logger: { info() {} },
+    memory: { async addMemoryFact(...args) { saved.push(args); } },
+    supervisor: { async extractFacts() { checks++; return [{ text: "fact", authorName: "Alice" }]; } },
+  });
+  const observe = (scopeId = "group", roomId = "room") => env.assistant.observeMessage({ scopeId, roomId, id: String(now), text: "Our project releases Friday", authorName: "Alice" });
+  observe();
+  await env.assistant.flushObservations();
+  now += 61000;
+  observe("group", "another-room");
+  await env.assistant.flushObservations();
+  assert.equal(checks, 1);
+  observe("other-group");
+  await env.assistant.flushObservations();
+  assert.equal(saved.length, 2);
+  now += 900000;
+  observe();
+  await env.assistant.flushObservations();
+  assert.equal(saved.length, 3);
+  env.assistant.stopObserving();
 });
