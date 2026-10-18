@@ -5,10 +5,12 @@
   "license": "GPL-3.0-or-later",
   "author": "",
   "type": "module",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
-    "start": "node index.js",
-    "test": "node --test"
+    "start": "bun index.ts",
+    "dev": "bun --watch index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
@@ -27,6 +29,11 @@
     "p-retry": "^8.0.1"
   },
   "engines": {
-    "node": ">=22"
-  }
+    "bun": ">=1.4.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "bun@1.4.2"
 }

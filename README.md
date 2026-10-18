@@ -3,10 +3,10 @@
 A Discord assistant backed by Ollama, with streamed replies, optional web search,
 and persistent shared memory.
 
-Use Node.js 22 or newer. Install dependencies and copy the commented configuration template:
+Use Bun 1.4.2 or newer. Install dependencies and copy the commented configuration template:
 
 ```sh
-npm install
+bun install
 cp .env.example .env
 ```
 
@@ -18,7 +18,7 @@ Ollama server; the names in the template are examples.
 
 Before the first start, create `facts.json5` and `personality.json5`, each containing
 `[]` (an empty array), or your own JSON5 array of strings. These local files and
-`.env` are ignored by Git. Then run `npm start`.
+`.env` are ignored by Git. Then run `bun start`.
 
 Optional: `OLLAMA_API_KEY` enables the primary Ollama web provider, `OLLAMA_NUM_CTX` sets the context
 window (default 16384), and `MEMORY_DIR` overrides the memory directory.
@@ -30,7 +30,7 @@ Natural-language requests also work: the model can call `enable_thinking` before
 answering and use web tools automatically when an API key is configured. Replies include a
 stop button available to the requester and moderators.
 
-When started in an interactive terminal with `npm start`, a full-screen TUI shows
+When started in an interactive terminal with `bun start`, a full-screen TUI shows
 the current author and request, streaming thoughts and answer, queued requests,
 and recent logs. Long streams show their latest lines. Press `S` to cancel the
 current reply from either messenger while keeping the bot running. Queued
@@ -42,16 +42,16 @@ when running as a service). Ctrl+C shuts down the bot.
 
 ## Structure
 
-- `index.js` wires configuration, Ollama clients, storage, and the Discord adapter.
-- `src/adapters/discord.js` owns Discord events, permissions, history retrieval,
+- `index.ts` wires configuration, Ollama clients, storage, and the Discord adapter.
+- `src/adapters/discord.ts` owns Discord events, permissions, history retrieval,
   thread creation, message formatting, attachments, and stop buttons.
-- `src/core/assistant.js` orchestrates streaming, bounded tool rounds,
+- `src/core/assistant.ts` orchestrates streaming, bounded tool rounds,
   cancellation, and timeouts using injected dependencies.
-- `src/core/prompt.js` builds prompts from plain conversation records and
+- `src/core/prompt.ts` builds prompts from plain conversation records and
   optional platform instructions.
-- `src/core/tools.js` exposes memory and web tools using injected services.
-- `src/core/memory.js` stores facts with atomic writes and per-scope write queues.
-- `src/core/text.js` contains command parsing and shared text utilities.
+- `src/core/tools.ts` exposes memory and web tools using injected services.
+- `src/core/memory.ts` stores facts with atomic writes and per-scope write queues.
+- `src/core/text.ts` contains command parsing and shared text utilities.
 
 The core imports neither Discord nor environment configuration, and importing it
 starts no clients. To add another interface, construct an assistant and call:
@@ -83,7 +83,7 @@ schema. Omit `scopeId` to disable memory for a conversation.
 
 ## Verification
 
-Run `npm test`. Tests use fake model streams and temporary memory directories;
+Run `bun run typecheck` to check application and test types with `noImplicitAny`, and `bun test` to run the tests. Tests use fake model streams and temporary memory directories;
 they require no credentials or external services. Live Discord/Ollama connectivity
 is separate from these tests.
 
@@ -117,7 +117,7 @@ there is no per-session search switch.
 
 ## Telegram
 
-Set these variables in `.env` and run `npm start`:
+Set these variables in `.env` and run `bun start`:
 
 ```dotenv
 BOT_ADAPTERS=telegram
@@ -223,7 +223,7 @@ startup error. Restart the bot after editing. Facts count toward the context bud
 | Commented configuration | `json5` |
 | Model API | `ollama` |
 
-`src/adapters/telegram-api.js` is a small compatibility layer around grammY so
+`src/adapters/telegram-api.ts` is a small compatibility layer around grammY so
 platform behavior remains testable with an injected API. It keeps request deadlines,
 sanitized errors and the existing image download policy. The custom HTTP payload
 builder, multipart encoder, retry loops and Telegram polling loop have been removed.
@@ -400,3 +400,5 @@ Images and GIFs share a one-send-attempt limit per request. The model sees
 metadata, not animation frames. The model may finish with an empty text response
 after successful delivery: adapters delete temporary text/status messages so
 only the image or GIF remains. Delivery and generation failures still show errors.
+
+Bun runs TypeScript directly; no build step is required. Use `bun run dev` for watch mode. Application and test type checking is configured in `tsconfig.json`. Tests use typed partial doubles at external API boundaries. Commit `bun.lock` when dependencies change and use `bun install --frozen-lockfile` for reproducible installs.
