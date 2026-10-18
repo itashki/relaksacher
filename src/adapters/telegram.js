@@ -171,6 +171,7 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
     let lastRenderedAt = -Infinity;
     let queued = false;
     let finalized = false;
+    let mediaDelivered = false;
     /**
      * Render the latest snapshot, throttling intermediate edits only.
      * @param {import("../types.js").GenerationUpdate} state Accumulated answer.
@@ -178,6 +179,15 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
      * @returns {Promise<void>} Delivery completion.
      */
     async function render(state, immediate = false) {
+      if (state.final && !state.text.trim() && mediaDelivered) {
+        for (const reply of replies) {
+          await api("deleteMessage", { chat_id: message.chat.id, message_id: reply.message_id });
+        }
+        replies.length = 0;
+        sent.length = 0;
+        finalized = true;
+        return;
+      }
       if (!state.final && !immediate && replies.length &&
           Date.now() - lastRenderedAt < (config.telegramUpdateIntervalMs ?? 5000)) return;
       lastRenderedAt = Date.now();
@@ -220,10 +230,11 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
         scopeId: message.chat.type === "private" ? undefined : `telegram_${message.chat.id}`,
         authorName: author(message.from),
         sendImage: async (image) => {
-          await api("sendPhoto", { ...base, photo: image.url,
-            caption: [image.title, [image.author, image.license].filter(Boolean).join(" · "), image.sourceUrl].filter(Boolean).join("\n").slice(0, 1024),
+          await api(image.kind === "gif" ? "sendAnimation" : "sendPhoto", { ...base,
+            ...(image.kind === "gif" ? { animation: image.url } : { photo: image.url }),
             reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
           });
+          mediaDelivered = true;
         },
         readHistory: async (limit) => ({
           source: "telegram_cache", limited: true,

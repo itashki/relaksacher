@@ -357,3 +357,18 @@ test("automatic saves are limited to one per group per cooldown across all rooms
   assert.equal(saved.length, 3);
   env.assistant.stopObserving();
 });
+
+test("successful media delivery permits an empty final answer without markers", async () => {
+  const call = { function: { name: "send_image", arguments: { id: "image_1" } } };
+  const env = setup([[{ message: { tool_calls: [call] } }], [{ message: { content: "" } }]], {
+    toolService: { searchEnabled: false, definitions: () => [], async runTool(_call, context) {
+      context.imageState.sent = true;
+      return "Медиа отправлено";
+    } },
+  });
+  const result = await env.assistant.createSession(env.options).run();
+  assert.equal(result.text, "");
+  assert.equal(result.incompleteReason, null);
+  assert.equal(env.updates.at(-1).text, "");
+  assert.equal(env.updates.at(-1).final, true);
+});

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Ollama } from "ollama";
 import { loadConfig } from "./src/config.js";
 import { createMemoryStore } from "./src/core/memory.js";
+import { createGifSearch } from "./src/core/gif-search.js";
 import { createToolService } from "./src/core/tools.js";
 import { createSupervisor } from "./src/core/supervisor.js";
 import { createAssistant } from "./src/core/assistant.js";
@@ -18,7 +19,7 @@ const searchClient = config.OLLAMA_API_KEY ? new Ollama({
   host: "https://ollama.com",
   headers: { Authorization: `Bearer ${config.OLLAMA_API_KEY}` },
 }) : null;
-const toolService = createToolService({ searchClient, memory });
+const toolService = createToolService({ searchClient, memory, gifSearch: createGifSearch({ apiKey: config.gifApiKey }) });
 const modelClient = new Ollama({ host: config.OLLAMA_URL });
 const supervisor = createSupervisor({ modelClient, model: config.supervisorModel, timeoutMs: config.supervisorTimeoutMs });
 const assistant = createAssistant({

@@ -343,7 +343,6 @@ export function createAssistant({
               });
             }
 
-            if (!text.trim() && toolContext.imageState.sent) text = "🖼";
             if (failed) {
               text += text
                 ? "\n\n⚠️ Ошибка при генерации ответа."

@@ -273,6 +273,7 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
     const stopRow = buildStopRow(generationId);
 
     let snapshot;
+    let mediaDelivered = false;
     const replies = []; // отправленные сообщения бота
     const sent = []; // что сейчас показано в каждом сообщении
 
@@ -285,6 +286,12 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
     async function flush(state) {
       snapshot = state;
       const { text, final } = state;
+      if (final && !text.trim() && mediaDelivered) {
+        for (const reply of replies) await reply.delete();
+        replies.length = 0;
+        sent.length = 0;
+        return;
+      }
       const status = state.status ? describeToolCall(state.status) : "";
       let displayed = text;
       if (status) {
@@ -336,11 +343,11 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
         scopeId: message.guildId,
         authorName: message.member?.displayName ?? message.author.username,
         sendImage: async (image) => {
-          const payload = { embeds: [{ title: image.title, url: image.sourceUrl, image: { url: image.url },
-            footer: { text: [image.author, image.license].filter(Boolean).join(" · ") || "Wikimedia Commons" } }],
+          const payload = { embeds: [{ image: { url: image.url } }],
             allowedMentions: { parse: [], repliedUser: false } };
           if (newThread) await newThread.send(payload);
           else await message.reply(payload);
+          mediaDelivered = true;
         },
         readHistory: async (limit) => {
           const entries = await message.channel.messages.fetch({ limit, before: message.id });

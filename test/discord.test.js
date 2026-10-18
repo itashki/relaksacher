@@ -171,3 +171,28 @@ test("ordinary Discord group messages are observed without triggering a reply", 
   assert.equal(observed[0].scopeId, "123");
   assert.equal(observed[0].text, "Releases are on Friday");
 });
+
+test("Discord media-only replies have no caption and remove the placeholder", async (t) => {
+  const payloads = [];
+  let deleted = 0;
+  const bot = createDiscordBot({ config: {}, assistant: { createSession(options) {
+    return { stop() {}, async run() {
+      await options.onUpdate({ text: "", final: false });
+      await options.context.sendImage({ url: "https://example.org/cat.gif", title: "Cat", sourceUrl: "https://example.org/", provider: "KLIPY" });
+      await options.onUpdate({ text: "", final: true });
+      return { text: "" };
+    } };
+  } } });
+  t.after(() => bot.client.destroy());
+  bot.client.user = { id: "bot" };
+  const message = { id: "media-request", author: { id: "user", username: "Alice", bot: false },
+    content: "cat gif", mentions: { has: () => true },
+    channel: { isThread: () => false, messages: { fetch: async () => new Map() } },
+    async reply(payload) { payloads.push(payload); return { async delete() { deleted++; }, async edit() {} }; },
+  };
+  await bot.client.listeners(Events.MessageCreate)[0](message);
+  const media = payloads.find((payload) => payload.embeds);
+  assert.deepEqual(media.embeds, [{ image: { url: "https://example.org/cat.gif" } }]);
+  assert.equal(media.content, undefined);
+  assert.equal(deleted, 1);
+});

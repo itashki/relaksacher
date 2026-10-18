@@ -1,31 +1,51 @@
-/** @file Image search with source/author/license metadata from Wikimedia Commons. */
+/** @file DuckDuckGo image search with source-page links. */
+import { searchImages, SafeSearchType } from "duck-duck-scrape";
 import { load } from "cheerio";
-import { fetchText } from "./web-fallback.js";
+import { fetchText, validatePublicUrl } from "./web-fallback.js";
 
 /**
- * Create a public image search operation. This does not download image bytes.
- * @param {function(string): Promise<string>} [getText] Bounded JSON transport.
- * @returns {function(string): Promise<Array<object>>} Up to five image candidates.
+ * Create image search without downloading image bytes or inferring image content.
+ * @param {typeof searchImages} [search=searchImages] Injectable DuckDuckGo client.
+ * @param {typeof fetchText} [getText=fetchText] Bounded fallback HTML transport.
+ * @returns {function(string): Promise<import("../types.js").ImageCandidate[]>} Up to five unique candidates.
  */
-export function createImageSearch(getText = fetchText) {
+export function createImageSearch(search = searchImages, getText = fetchText) {
   return async (query) => {
-    const params = new URLSearchParams({ action: "query", format: "json", generator: "search",
-      gsrsearch: query.slice(0, 300), gsrnamespace: "6", gsrlimit: "5", prop: "imageinfo",
-      iiprop: "url|mime|extmetadata", iiurlwidth: "1280", iiextmetadatafilter: "Artist|LicenseShortName", });
-    const result = JSON.parse(await getText(`https://commons.wikimedia.org/w/api.php?${params}`));
-    if (result.error) throw new Error("Image search provider failed");
-    const plain = (html) => load(String(html ?? "")).text().replace(/\s+/g, " ").trim().slice(0, 180);
-    return Object.values(result.query?.pages ?? {}).sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).flatMap((page) => {
-      const image = page.imageinfo?.[0];
-      if (!image || !["image/jpeg", "image/png", "image/webp"].includes(image.mime)) return [];
-      const url = image.thumburl || image.url;
-      const sourceUrl = image.descriptionurl;
+    const term = String(query ?? "").trim().slice(0, 300);
+    if (!term) return [];
+    let response;
+    try {
+      response = await search(term, { safeSearch: SafeSearchType.MODERATE }, {
+        open_timeout: 12000, response_timeout: 12000, read_timeout: 12000,
+        follow_max: 0,
+        headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/129.0.0.0 Safari/537.36" },
+      });
+      if (!Array.isArray(response?.results) || !response.results.length) throw new Error("No DuckDuckGo image results");
+    } catch {
+      const $ = load(await getText(`https://www.bing.com/images/search?q=${encodeURIComponent(term)}`));
+      const results = [];
+      $("a.iusc[m]").each((_index, element) => {
+        try {
+          const data = JSON.parse($(element).attr("m"));
+          // Bing-hosted previews avoid hotlink blocks on original websites.
+          results.push({ image: data.turl || data.murl, url: data.purl, title: data.t });
+        } catch { /* Skip malformed result metadata. */ }
+      });
+      if (!results.length) throw new Error("Image search unavailable: DuckDuckGo and Bing returned no readable results");
+      response = { results };
+    }
+    const candidates = [];
+    const seen = new Set();
+    for (const image of response.results) {
       try {
-        if (new URL(url).protocol !== "https:" || !["upload.wikimedia.org", "thumb.wikimedia.org"].includes(new URL(url).hostname) ||
-            new URL(sourceUrl).protocol !== "https:" || new URL(sourceUrl).hostname !== "commons.wikimedia.org") return [];
-      } catch { return []; }
-      return [{ title: page.title.replace(/^File:/, "").slice(0, 180), url, sourceUrl,
-        author: plain(image.extmetadata?.Artist?.value), license: plain(image.extmetadata?.LicenseShortName?.value) }];
-    });
+        const url = validatePublicUrl(image.image).href;
+        const sourceUrl = validatePublicUrl(image.url).href;
+        if (seen.has(url)) continue;
+        seen.add(url);
+        candidates.push({ title: String(image.title || "Изображение").replace(/\s+/g, " ").trim().slice(0, 180), url, sourceUrl });
+        if (candidates.length === 5) break;
+      } catch { /* Skip malformed or non-public image/source URLs. */ }
+    }
+    return candidates;
   };
 }

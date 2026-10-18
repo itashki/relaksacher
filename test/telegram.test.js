@@ -407,7 +407,7 @@ test("captionless media does not send placeholder text or author names to auto-m
   assert.deepEqual(observed, []);
 });
 
-test("searched images are sent to Telegram with source attribution", async () => {
+test("searched images are sent to Telegram without captions", async () => {
   const calls = [];
   const bot = createTelegramBot({ config: {}, api: async (method, payload) => {
     calls.push({ method, payload });
@@ -420,6 +420,37 @@ test("searched images are sent to Telegram with source attribution", async () =>
   await bot.handleUpdate({ message: message(1, "show an elephant") });
   const photo = calls.find((call) => call.method === "sendPhoto");
   assert.equal(photo.payload.chat_id, 1);
-  assert.match(photo.payload.caption, /Artist · CC BY-SA/);
+  assert.equal(photo.payload.caption, undefined);
   assert.equal(photo.payload.photo, "https://upload.wikimedia.org/elephant.jpg");
+});
+
+test("GIF results use Telegram sendAnimation without captions", async () => {
+  const { bot, calls } = setup(async ({ context }) => {
+    await context.sendImage({ title: "Cat", kind: "gif", provider: "KLIPY",
+      url: "https://static.klipy.com/cat.gif", sourceUrl: "https://klipy.com/gifs/cat" });
+    return { text: "GIF" };
+  });
+  await bot.handleUpdate({ message: message(1, "send a cat gif") });
+  const animation = calls.find((call) => call.method === "sendAnimation");
+  assert.equal(animation.payload.animation, "https://static.klipy.com/cat.gif");
+  assert.equal(animation.payload.caption, undefined);
+  assert.equal(animation.payload.reply_parameters.message_id, 1);
+  assert.ok(!calls.some((call) => call.method === "sendPhoto"));
+});
+
+test("Telegram media-only replies remove the temporary text message", async () => {
+  const { bot, calls } = setup(async ({ context, onUpdate }) => {
+    await onUpdate({ text: "", final: false });
+    await context.sendImage({ kind: "gif", url: "https://static.klipy.com/cat.gif" });
+    await onUpdate({ text: "", final: true });
+    return { text: "" };
+  });
+  await bot.handleUpdate({ message: message(1, "cat gif") });
+  const placeholder = calls.find((call) => call.method === "sendMessage");
+  const deletion = calls.find((call) => call.method === "deleteMessage");
+  assert.ok(placeholder);
+  assert.ok(deletion);
+  assert.equal(deletion.payload.chat_id, 1);
+  assert.equal(calls.filter((call) => call.method === "sendMessage").length, 1);
+  assert.ok(!calls.some((call) => call.method === "editMessageText"));
 });

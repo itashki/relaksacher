@@ -5,11 +5,22 @@ import { truncate } from "./text.js";
 
 const IMAGE_TOOLS = [
   { type: "function", function: { name: "search_images",
-    description: "Ищет фотографии и иллюстрации в Wikimedia Commons. Возвращает id, названия, ссылки и авторство, но не визуальное содержимое. Используй по просьбе или для уместного ответа картинкой.",
+    description: "Ищет картинки, фотографии и мемы в DuckDuckGo (резерв — Bing Images). Возвращает id, названия и ссылки на источники, но не визуальное содержимое. Автор и лицензия неизвестны. Используй по просьбе или для уместного ответа картинкой.",
     parameters: { type: "object", required: ["query"], properties: { query: { type: "string", description: "Поисковый запрос, лучше по-английски" } } },
   } },
   { type: "function", function: { name: "send_image",
     description: "Отправляет в текущий чат одну картинку по id из search_images. Не более одной на запрос. Не вызывай без подходящего результата поиска.",
+    parameters: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+  } },
+];
+
+const GIF_TOOLS = [
+  { type: "function", function: { name: "search_gifs",
+    description: "Ищет GIF-реакции в KLIPY. Возвращает id и метаданные, не визуальное содержимое. Можно использовать по просьбе или для уместного короткого ответа гифкой.",
+    parameters: { type: "object", required: ["query"], properties: { query: { type: "string" } } },
+  } },
+  { type: "function", function: { name: "send_gif",
+    description: "Отправляет GIF по id из search_gifs. Не более одной картинки или GIF на запрос. Не придумывай id.",
     parameters: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
   } },
 ];
@@ -107,11 +118,12 @@ const TOOLS = [
  * @param {object} options Dependencies.
  * @param {import("ollama").Ollama|null} [options.searchClient] Authenticated cloud client.
  * @param {function(string): Promise<Array<object>>} [options.imageSearch] Public image search provider.
+ * @param {function(string): Promise<Array<object>>|null} [options.gifSearch] Optional GIF search provider.
  * @param {object|null} [options.fallbackClient] Credential-free scraper; null disables it for tests.
  * @param {import("../types.js").MemoryStore} options.memory Persistent fact operations.
  * @returns {{runTool: function(import("../types.js").ToolCall, import("../types.js").RequestContext): Promise<string>, searchEnabled: boolean, definitions: function({scopeId: string=, search: boolean=, history: boolean=, images: boolean=}): import("../types.js").ToolDefinition[]}} Tool service.
  */
-export function createToolService({ searchClient: primarySearchClient = null, fallbackClient = createWebFallback(), imageSearch = createImageSearch(), memory }) {
+export function createToolService({ searchClient: primarySearchClient = null, fallbackClient = createWebFallback(), imageSearch = createImageSearch(), gifSearch = null, memory }) {
   const searchClient = createWebClient(primarySearchClient, fallbackClient);
   const { addMemoryFact, removeMemoryFact } = memory;
   // Выполняет вызов инструмента и возвращает строку для модели.
@@ -128,14 +140,16 @@ export function createToolService({ searchClient: primarySearchClient = null, fa
     console.log(`[tool] ${name}`, JSON.stringify(args));
 
     try {
-      if (name === "search_images" || name === "send_image") {
+      if (["search_images", "send_image", "search_gifs", "send_gif"].includes(name)) {
         if (!context?.sendImage || !context.imageState) return "Отправка картинок недоступна.";
-        if (name === "search_images") {
+        const isGif = name === "search_gifs" || name === "send_gif";
+        if (isGif && !gifSearch) return "Поиск GIF не настроен.";
+        if (name === "search_images" || name === "search_gifs") {
           const query = String(args.query ?? "").trim();
           if (!query) return "Нужен поисковый запрос.";
-          const results = await imageSearch(query);
+          const results = await (isGif ? gifSearch : imageSearch)(query);
           return JSON.stringify(results.slice(0, 5).map((image) => {
-            const id = `image_${context.imageState.candidates.size + 1}`;
+            const id = `${isGif ? "gif" : "image"}_${context.imageState.candidates.size + 1}`;
             context.imageState.candidates.set(id, image);
             return { id, ...image };
           }));
@@ -143,12 +157,12 @@ export function createToolService({ searchClient: primarySearchClient = null, fa
         if (context.imageState.sent) return "Картинка в этом ответе уже отправлена.";
         if (context.imageState.attempted) return "Попытка отправки уже была; не повторяй её, чтобы избежать дубликатов.";
         const image = context.imageState.candidates.get(String(args.id));
-        if (!image) return "Неизвестный id картинки: сначала выполни search_images.";
+        if (!image || (image.kind === "gif") !== isGif) return "Неизвестный id: сначала выполни подходящий поиск search_images или search_gifs.";
         // Mark before sending: an ambiguous delivery error must not cause duplicates.
         context.imageState.attempted = true;
         await context.sendImage(image);
         context.imageState.sent = true;
-        return "Картинка отправлена с указанием источника и авторства. Не повторяй её ссылкой и не утверждай, что видел изображение: поиск дал только метаданные.";
+        return "Медиа отправлено. Если оно само отвечает на запрос, заверши ответ без текста. Не добавляй подпись, ссылку, подтверждение отправки или эмодзи. Если пояснение действительно нужно, ответь коротко. Не утверждай, что видел изображение: поиск дал только метаданные.";
       }
       if (name === "read_history") {
         if (typeof context?.readHistory !== "function") return "Чтение истории недоступно в этом чате.";
@@ -222,6 +236,7 @@ export function createToolService({ searchClient: primarySearchClient = null, fa
     searchEnabled: Boolean(searchClient),
     definitions: ({ scopeId, search, history, images }) => [
       ...(images ? IMAGE_TOOLS : []),
+      ...(images && gifSearch ? GIF_TOOLS : []),
       ...(history ? [HISTORY_TOOL] : []),
       ...(scopeId ? MEMORY_TOOLS : []),
       ...(search && searchClient ? TOOLS : []),

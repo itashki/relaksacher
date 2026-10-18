@@ -116,6 +116,7 @@
  * @property {string} OLLAMA_URL Ollama server address.
  * @property {string} OLLAMA_MODEL Fixed main model identifier.
  * @property {number} OLLAMA_TIMEOUT Generation timeout in milliseconds.
+ * @property {string|null} gifApiKey Optional KLIPY GIF search credential.
  * @property {string|null} OLLAMA_API_KEY Optional cloud search credential.
  * @property {number} OLLAMA_NUM_CTX Default context window size.
  * @property {string} supervisorModel Small routing/extraction model identifier.
@@ -143,6 +144,8 @@
 
 /**
  * @typedef {object} ImageCandidate
+ * @property {"gif"} [kind] Animated GIF candidate; omitted for static images.
+ * @property {string} [provider] Media provider attribution.
  * @property {string} title Search result title.
  * @property {string} url Public image URL.
  * @property {string} sourceUrl Original source page.

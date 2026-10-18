@@ -364,11 +364,30 @@ operations bypass the automatic cooldown. Limits reset on process restart.
 
 ## Image replies
 
-Adapters expose `search_images` and `send_image`. The model can search Wikimedia
-Commons photos/illustrations and select a returned id to send one image per session.
-Telegram sends a photo with attribution; Discord sends an image embed. Source-page,
-author and license metadata accompany the result. Model-supplied arbitrary image
-URLs are rejected; candidates belong only to the current session. The model sees
-search metadata, not downloaded pixels, and is instructed not to claim otherwise.
+Adapters expose `search_images` and `send_image`. Image search uses DuckDuckGo
+through the `duck-duck-scrape` library, with Bing Images as a fallback when
+DuckDuckGo fails or returns no results. Both support photos, illustrations and memes.
+Bing results use hosted previews to avoid hotlink blocking by source websites;
+the source-page link remains available in tool metadata.
+The model selects a returned id to send one image per session. Telegram sends a
+photo; Discord sends an image embed. Media messages have no captions, titles,
+footers or source links. Author and license information are not supplied or inferred. Invalid and non-public URLs
+are filtered, duplicate images removed, and at most five candidates returned.
+Model-supplied arbitrary image URLs are rejected; candidates belong only to the
+current session. The model sees search metadata, not downloaded pixels.
 Search can be used on explicit requests or occasionally when a picture suits the
-answer. This provider is Commons, not a general meme-image index.
+answer. Search providers may rate-limit or block automated searches; failures are
+reported to the model as tool errors.
+
+## GIF replies
+
+Set `KLIPY_API_KEY` in `.env` to enable `search_gifs` and `send_gif`, then restart.
+Get a key from [KLIPY](https://partner.klipy.com). Without a key GIF tools are hidden;
+ordinary image search remains available. The provider uses the
+[Tenor-compatible KLIPY API](https://docs.klipy.com/migrate-from-tenor).
+Telegram sends animations via `sendAnimation`; Discord embeds the animated GIF.
+Source/provider metadata stays in tool results; outgoing media has no caption.
+Images and GIFs share a one-send-attempt limit per request. The model sees
+metadata, not animation frames. The model may finish with an empty text response
+after successful delivery: adapters delete temporary text/status messages so
+only the image or GIF remains. Delivery and generation failures still show errors.

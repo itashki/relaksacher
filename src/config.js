@@ -114,6 +114,7 @@ export function loadConfig(env = process.env) {
   }
   return {
     facts,
+    gifApiKey: env.KLIPY_API_KEY?.trim() || null,
     supervisorModel,
     supervisorTimeoutMs,
     autoMemory,
