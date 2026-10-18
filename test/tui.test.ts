@@ -1,8 +1,29 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { PassThrough } from "node:stream";
+import { stripVTControlCharacters } from "node:util";
 import { renderDashboard } from "../src/adapters/tui.ts";
 import { createTui } from "./fixtures.ts";
+
+test("dashboard fits resized terminals and keeps shortcuts on the last row", () => {
+  for (const [columns, rows] of [[100, 30], [40, 18], [20, 8], [2, 2]]) {
+    const screen = renderDashboard({ current: null, queue: [] }, { columns, rows, color: true });
+    const lines = stripVTControlCharacters(screen).split("\r\n");
+    assert.equal(lines.length, rows! - 1);
+    assert.ok(lines.every((line) => [...line].length < columns!));
+    if (columns! > 20) assert.ok(lines.at(-1)?.includes("Ctrl+C"));
+  }
+});
+
+test("styled panels strip terminal commands from streamed content", () => {
+  const screen = renderDashboard({ current: { id: 1, author: "Alice", scope: "Discord",
+    model: "model", status: "Генерация", prompt: "question", thinking: "thought", text: "answer\x1b[2J" },
+    queue: [] }, { color: true });
+  assert.ok(screen.includes("╭"));
+  assert.ok(screen.includes("\x1b[36m"));
+  assert.ok(!screen.includes("\x1b[2J"));
+  assert.ok(stripVTControlCharacters(screen).includes("answer"));
+});
 
 test("dashboard shows current streams and queue and strips terminal commands", () => {
   const screen = renderDashboard({ current: { id: 1, author: "Alice", scope: "Discord",

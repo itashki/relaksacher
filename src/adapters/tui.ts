@@ -13,6 +13,7 @@ function wrapLine(line: string, width: number) {
   let cells = 0;
   for (const char of line) {
     const size = cellWidth(char);
+    if (size > width) continue;
     if (cells + size > width) { result.push(row); row = ""; cells = 0; }
     row += char;
     cells += size;
@@ -22,38 +23,62 @@ function wrapLine(line: string, width: number) {
 }
 
 /** Render a bounded screen; long streams show their most recent lines. */
-export function renderDashboard(state: import("../types.ts").TerminalState, { columns = 100, rows = 30, logs = [], notice = "" }: {columns?: number; rows?: number; logs?: string[]; notice?: string} = {}) {
-  const width = Math.max(1, columns - 2);
+export function renderDashboard(state: import("../types.ts").TerminalState, { columns = 100, rows = 30, logs = [], notice = "", color = false }: {columns?: number; rows?: number; logs?: string[]; notice?: string; color?: boolean} = {}) {
+  const width = Math.max(1, Math.floor(columns) - 1);
+  const height = Math.max(1, Math.floor(rows) - 1);
   const lines: string[] = [];
-  const add = (value = "") => lines.push(wrapLine(clean(value).replace(/\n/g, " "), width)[0]);
-  const section = (title: string) => add(`── ${title} ${"─".repeat(width)}`);
-  const tail = (value: unknown, count: number) => {
-    const wrapped = clean(value || "…").split("\n").flatMap((line) => wrapLine(line, width));
-    wrapped.slice(-count).forEach(add);
-  };
+  const paint = (text: string, code: string) => color ? `\x1b[${code}m${text}\x1b[0m` : text;
+  const fit = (value: unknown, size = width) => wrapLine(clean(value).replace(/\n/g, " "), Math.max(1, size))[0] ?? "";
+  const cells = (value: string) => [...value].reduce((sum, char) => sum + cellWidth(char), 0);
+  const add = (value = "", code = "0") => lines.push(paint(fit(value), code));
   const current = state.current ?? state.last;
-  add("РЕЛАКСАЧЕР • операторская панель");
-  add(state.current ? `● #${current.id} ${current.status} • ${current.model}` : "○ Ожидание запроса");
+  const footer = " S стоп   H помощь   Ctrl+C выход";
+  add(" РЕЛАКСАЧЕР  /  операторская панель", "1;36");
+  add(state.current ? ` ● ${current?.status}  ·  #${current?.id}  ·  ${current?.model}` : " ○ Ожидание запроса", state.current ? "1;32" : "2");
   if (current) {
-    add(`${current.author} • ${current.scope}`);
-    add(`Запрос: ${current.prompt}`);
-  } else { add(); add(); }
-  const queueRows = Math.min(4, state.queue.length);
-  const streamRows = Math.max(1, Math.floor((rows - 14 - queueRows) / 2));
-  section(state.current ? "Мысли · поток" : "Мысли · последний запрос");
-  tail(current?.thinking, streamRows);
-  section("Ответ · поток");
-  tail(current?.text, streamRows);
-  section(`Очередь: ${state.queue.length}`);
-  state.queue.slice(0, queueRows).forEach((request, index) =>
-    add(`${index + 1}. #${request.id} ${request.author} • ${request.prompt}`));
-  if (state.queue.length > queueRows) add(`… ещё ${state.queue.length - queueRows}`);
-  section("Логи");
-  logs.slice(-2).forEach(add);
-  add(notice);
-  add("[S] остановить генерацию   [H] помощь   [Ctrl+C] завершить бота");
-  const footer = lines.pop();
-  return [...lines.slice(0, Math.max(0, rows - 2)), footer].join("\r\n");
+    add(` ${current.author}  /  ${current.scope}`, "36");
+    add(` › ${current.prompt}`);
+  }
+  const panel = (title: string, content: string[], count: number, code: string) => {
+    if (width < 8) {
+      add(title, code);
+      content.slice(-count).forEach((line) => add(line));
+      return;
+    }
+    const inner = width - 4;
+    const label = fit(` ${title} `, width - 2);
+    add(`╭${label}${"─".repeat(Math.max(0, width - cells(label) - 2))}╮`, code);
+    const wrapped = content.flatMap((line) => clean(line).split("\n").flatMap((part) => wrapLine(part, inner)));
+    const visible = wrapped.slice(-count);
+    while (visible.length < count) visible.push("");
+    for (const line of visible) {
+      const text = fit(line, inner);
+      lines.push(paint("│", code) + " " + text + " ".repeat(Math.max(0, inner - cells(text))) + " " + paint("│", code));
+    }
+    add(`╰${"─".repeat(width - 2)}╯`, code);
+  };
+  const queueRows = Math.min(3, state.queue.length);
+  const logRows = Math.min(2, logs.length);
+  // Reserve panel borders, metadata, notices and the pinned keyboard shortcuts.
+  const budget = height - lines.length - 8 - Math.max(1, queueRows) - logRows - (notice ? 1 : 0) - 1;
+  if (budget >= 2) {
+    panel(state.current ? "Мысли · поток" : "Мысли · последний запрос", [current?.thinking || "Пока нет мыслей…"], Math.max(1, Math.floor(budget / 2)), "2;36");
+    panel("Ответ · поток", [current?.text || "Ответ появится здесь…"], Math.max(1, Math.ceil(budget / 2)), "36");
+    panel(`Очередь: ${state.queue.length}`, state.queue.length ? state.queue.slice(0, queueRows).map((request, index) =>
+      `${index + 1}. #${request.id} ${request.author} · ${request.prompt}` + (index === queueRows - 1 && state.queue.length > queueRows ? `  (+${state.queue.length - queueRows})` : "")) : ["Очередь пуста"], Math.max(1, queueRows), "33");
+    if (logRows) { add(" Логи", "2"); logs.slice(-logRows).forEach((line) => add(` ${line}`, "2")); }
+  } else {
+    add(` Очередь: ${state.queue.length}`, "33");
+    const available = Math.max(0, height - lines.length - 2 - (notice ? 1 : 0));
+    if (available) {
+      add(" Ответ", "36");
+      if (available > 1) clean(current?.text || "Ответ появится здесь…").split("\n").flatMap((line) => wrapLine(line, width)).slice(-(available - 1)).forEach((line) => add(line));
+    }
+  }
+  if (notice) add(` ◆ ${notice}`, "33");
+  const body = lines.slice(0, height - 1);
+  while (body.length < height - 1) body.push("");
+  return [...body, paint(fit(footer), "7")].join("\r\n");
 }
 
 /** Start full-screen terminal monitoring and restore terminal state on close. */
@@ -71,9 +96,8 @@ export function createTui({ assistant, input = process.stdin, output = process.s
     if (closed || !dirty) return;
     dirty = false;
     const screen = renderDashboard(state, {
-      columns: output.columns, rows: output.rows, logs, notice,
-    }).split("\r\n").map((line, index) => index === 0 ? `\x1b[1;36m${line}\x1b[0m`
-      : line.startsWith("──") ? `\x1b[36m${line}\x1b[0m` : line).join("\r\n");
+      columns: output.columns, rows: output.rows, logs, notice, color: true,
+    });
     output.write(`\x1b[H\x1b[2J${screen}`);
   };
   const unsubscribe = assistant.subscribeTerminal((next) => { state = next; dirty = true; });
