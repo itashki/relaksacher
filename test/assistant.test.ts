@@ -1,5 +1,14 @@
+/** @file Regression coverage for assistant behavior and its external boundaries. */
 import type { ChatRequest, ChatResponse, Message } from "ollama";
-import type { AssistantOptions, SessionOptions, Session, MemoryStore, GenerationUpdate, TerminalState, ToolDefinition } from "../src/types.ts";
+import type {
+  AssistantOptions,
+  SessionOptions,
+  Session,
+  MemoryStore,
+  GenerationUpdate,
+  TerminalState,
+  ToolDefinition,
+} from "../src/types.ts";
 import type { Fixture } from "./fixtures.ts";
 import { spyOn, expect, test, onTestFinished } from "bun:test";
 import { createAssistant } from "./fixtures.ts";
@@ -11,32 +20,60 @@ import { createToolService } from "./fixtures.ts";
  * @param overrides Dependency overrides.
  * @returns Assistant fixture and captured events.
  */
-function setup(rounds: (Omit<Partial<ChatResponse>, "message"> & {message?: Partial<Message>})[][], overrides: Fixture<AssistantOptions> = {}) {
+function setup(
+  rounds: (Omit<Partial<ChatResponse>, "message"> & { message?: Partial<Message> })[][],
+  overrides: Fixture<AssistantOptions> = {},
+) {
   const requests: ChatRequest[] = [];
-  const updates: (GenerationUpdate & {liveThinking?: string})[] = [];
+  const updates: (GenerationUpdate & { liveThinking?: string })[] = [];
   let aborted = 0;
   const memory: MemoryStore = {
     loadMemory: async () => [{ id: 1, fact: "shared fact" }],
-    buildMemoryPrompt: (facts, enabled) => enabled ? facts.map((f) => f.fact).join("\n") : "",
+    buildMemoryPrompt: (facts, enabled) => (enabled ? facts.map((f) => f.fact).join("\n") : ""),
     addMemoryFact: async () => "saved",
     removeMemoryFact: async () => "removed",
   };
-  const modelClient = { async chat(request: ChatRequest) {
-    requests.push(structuredClone(request));
-    const parts = rounds.shift();
-    return {
-      abort() { aborted++; },
-      async *[Symbol.asyncIterator]() {
-        yield* parts;
-        if (!parts.some((part) => part.done)) yield { done: true, done_reason: "stop", message: {} };
+  const modelClient = {
+    async chat(request: ChatRequest) {
+      requests.push(structuredClone(request));
+      const parts = rounds.shift();
+      return {
+        abort() {
+          aborted++;
+        },
+        async *[Symbol.asyncIterator]() {
+          yield* parts;
+          if (!parts.some((part) => part.done))
+            yield { done: true, done_reason: "stop", message: {} };
+        },
+      };
+    },
+  };
+  const assistant = createAssistant({
+    modelClient,
+    memory,
+    toolService: createToolService({ memory, fallbackClient: null }),
+    model: "test",
+    numCtx: 16384,
+    timeoutMs: 1000,
+    updateIntervalMs: 0,
+    ...overrides,
+  });
+  return {
+    assistant,
+    requests,
+    updates,
+    memory,
+    get aborted() {
+      return aborted;
+    },
+    options: {
+      conversation: [{ role: "user", content: "hello" }],
+      onUpdate: (state: GenerationUpdate) => {
+        updates.push(state);
       },
-    };
-  }};
-  const assistant = createAssistant({ modelClient, memory,
-    toolService: createToolService({ memory, fallbackClient: null }), model: "test", numCtx: 16384,
-    timeoutMs: 1000, updateIntervalMs: 0, ...overrides });
-  return { assistant, requests, updates, memory, get aborted() { return aborted; },
-    options: { conversation: [{ role: "user", content: "hello" }], onUpdate: (state: GenerationUpdate) => { updates.push(state); } } };
+    },
+  };
 }
 
 test("streams plain snapshots and carries memory/tools into the next model round", async () => {
@@ -45,16 +82,23 @@ test("streams plain snapshots and carries memory/tools into the next model round
     [{ message: { thinking: "considering", tool_calls: [call] } }],
     [{ message: { thinking: "done thinking" } }, { message: { content: "answer" } }],
   ]);
-  const result = await env.assistant.createSession({ ...env.options,
-    context: { scopeId: "123", authorName: "Alice" }, think: true,
-    platformInstructions: "CLI conversation",
-  }).run();
+  const result = await env.assistant
+    .createSession({
+      ...env.options,
+      context: { scopeId: "123", authorName: "Alice" },
+      think: true,
+      platformInstructions: "CLI conversation",
+    })
+    .run();
   expect(result.text).toBe("answer");
   expect(result.thinkingLog).toBe("considering\n\n---\n\ndone thinking");
   expect(env.requests[0].messages[0].content).toMatch(/shared fact/);
   expect(env.requests[0].messages[0].content).toMatch(/CLI conversation/);
   expect(env.requests[0].think).toBe(true);
-  expect(env.requests[0].tools.map((tool) => tool.function.name)).toStrictEqual(["remember", "forget"]);
+  expect(env.requests[0].tools.map((tool) => tool.function.name)).toStrictEqual([
+    "remember",
+    "forget",
+  ]);
   expect(env.requests[1].messages.at(-1).content).toBe("saved");
   expect(env.updates.some((state) => state.status === call)).toBeTruthy();
   expect(env.updates.at(-1).final).toBe(true);
@@ -84,10 +128,21 @@ test("stop before running avoids a model request and finalizes the session", asy
 test("stop while awaiting the stream aborts it before consuming output", async () => {
   let session: Session;
   let aborted = false;
-  const env = setup([], { modelClient: { async chat() {
-    session.stop();
-    return { abort() { aborted = true; }, async *[Symbol.asyncIterator]() { throw new Error("should not read"); } };
-  } } });
+  const env = setup([], {
+    modelClient: {
+      async chat() {
+        session.stop();
+        return {
+          abort() {
+            aborted = true;
+          },
+          async *[Symbol.asyncIterator]() {
+            throw new Error("should not read");
+          },
+        };
+      },
+    },
+  });
   session = env.assistant.createSession(env.options);
   const result = await session.run();
   expect(aborted).toBe(true);
@@ -96,11 +151,25 @@ test("stop while awaiting the stream aborts it before consuming output", async (
 });
 
 test("timeout aborts a live stream and reports timeout", async () => {
-  const env = setup([], { timeoutMs: 5, modelClient: { async chat() {
-    let finish: () => void;
-    const waiting = new Promise<void>((resolve) => { finish = resolve; });
-    return { abort() { finish(); }, async *[Symbol.asyncIterator]() { await waiting; } };
-  } } });
+  const env = setup([], {
+    timeoutMs: 5,
+    modelClient: {
+      async chat() {
+        let finish: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+        return {
+          abort() {
+            finish();
+          },
+          async *[Symbol.asyncIterator]() {
+            await waiting;
+          },
+        };
+      },
+    },
+  });
   const result = await env.assistant.createSession(env.options).run();
   expect(result.timedOut).toBe(true);
   expect(result.failed).toBe(false);
@@ -118,12 +187,19 @@ test("tool rounds are bounded and the final model request disables tools", async
 test("model errors preserve partial output and finalize with an error", async () => {
   const spy = spyOn(console, "error").mockImplementation(() => {});
   onTestFinished(() => spy.mockRestore());
-  const env = setup([], { modelClient: { async chat() {
-    return { abort() {}, async *[Symbol.asyncIterator]() {
-      yield { message: { content: "partial" } };
-      throw new Error("connection lost");
-    }};
-  } } });
+  const env = setup([], {
+    modelClient: {
+      async chat() {
+        return {
+          abort() {},
+          async *[Symbol.asyncIterator]() {
+            yield { message: { content: "partial" } };
+            throw new Error("connection lost");
+          },
+        };
+      },
+    },
+  });
   const result = await env.assistant.createSession(env.options).run();
   expect(result.failed).toBe(true);
   expect(result.text).toMatch(/^partial\n\n⚠️/);
@@ -132,40 +208,71 @@ test("model errors preserve partial output and finalize with an error", async ()
 
 test("web search fetches top results and falls back to snippets for failed pages", async () => {
   const fetched = [];
-  const service = createToolService({ memory: {}, searchClient: {
-    async webSearch({ max_results }) {
-      expect(max_results).toBe(8);
-      return { results: [
-        { title: "first", url: "https://first.example", content: "snippet one" },
-        { title: "second", url: "https://second.example", content: "snippet two" },
-        { title: "third", url: "https://third.example", content: "snippet three" },
-      ] };
+  const service = createToolService({
+    memory: {},
+    searchClient: {
+      async webSearch({ max_results }) {
+        expect(max_results).toBe(8);
+        return {
+          results: [
+            { title: "first", url: "https://first.example", content: "snippet one" },
+            { title: "second", url: "https://second.example", content: "snippet two" },
+            { title: "third", url: "https://third.example", content: "snippet three" },
+          ],
+        };
+      },
+      async webFetch({ url }) {
+        fetched.push(url);
+        if (url.includes("second")) throw new Error("unavailable");
+        return { content: "full page" };
+      },
     },
-    async webFetch({ url }) {
-      fetched.push(url);
-      if (url.includes("second")) throw new Error("unavailable");
-      return { content: "full page" };
-    },
-  } });
-  expect(service.definitions({}).map((tool) => tool.function.name)).toStrictEqual(["web_search", "web_fetch"]);
-  expect(service.definitions({ search: true } as Parameters<typeof service.definitions>[0]).map((tool) => tool.function.name)).toStrictEqual(["web_search", "web_fetch"]);
-  const result = JSON.parse(await service.runTool({ function: {
-    name: "web_search", arguments: { query: "question", max_results: 99 },
-  } }, {}));
+  });
+  expect(service.definitions({}).map((tool) => tool.function.name)).toStrictEqual([
+    "web_search",
+    "web_fetch",
+  ]);
+  expect(
+    service
+      .definitions({ search: true } as Parameters<typeof service.definitions>[0])
+      .map((tool) => tool.function.name),
+  ).toStrictEqual(["web_search", "web_fetch"]);
+  const result = JSON.parse(
+    await service.runTool(
+      {
+        function: {
+          name: "web_search",
+          arguments: { query: "question", max_results: 99 },
+        },
+      },
+      {},
+    ),
+  );
   expect(fetched.length).toBe(2);
-  expect(result.map((item: {content: string}) => item.content)).toStrictEqual(["full page", "snippet two", "snippet three"]);
+  expect(result.map((item: { content: string }) => item.content)).toStrictEqual([
+    "full page",
+    "snippet two",
+    "snippet three",
+  ]);
 });
 
 test("uses the same configured model across sessions and tool rounds", async () => {
   const call = { function: { name: "remember", arguments: { fact: "fact" } } };
-  const env = setup([
-    [{ message: { tool_calls: [call] } }],
-    [{ message: { content: "answer" } }],
-    [{ message: { content: "next answer" } }],
-  ], { model: "fixed-model", numCtx: 32768 });
+  const env = setup(
+    [
+      [{ message: { tool_calls: [call] } }],
+      [{ message: { content: "answer" } }],
+      [{ message: { content: "next answer" } }],
+    ],
+    { model: "fixed-model", numCtx: 32768 },
+  );
   await env.assistant.createSession({ ...env.options, context: { scopeId: "123" } }).run();
   const next = await env.assistant.createSession(env.options).run();
-  expect(env.requests.map((r) => r.model)).toStrictEqual(["fixed-model", "fixed-model", "fixed-model"]);
+  expect(env.requests.map((r) => r.model)).toStrictEqual([
+    "fixed-model",
+    "fixed-model",
+    "fixed-model",
+  ]);
   expect(env.requests.map((r) => r.options.num_ctx)).toStrictEqual([32768, 32768, 32768]);
   expect(next.modelAlias).toBe(undefined);
   expect(env.updates.at(-1).modelAlias).toBe(undefined);
@@ -189,9 +296,12 @@ test("model can enable thinking in response to a natural-language request", asyn
     [{ message: { tool_calls: [{ function: { name: "enable_thinking", arguments: {} } }] } }],
     [{ message: { thinking: "checking carefully", content: "answer" } }],
   ]);
-  await env.assistant.createSession({ ...env.options,
-    conversation: [{ role: "user", content: "Подумай хорошенько перед ответом" }],
-  }).run();
+  await env.assistant
+    .createSession({
+      ...env.options,
+      conversation: [{ role: "user", content: "Подумай хорошенько перед ответом" }],
+    })
+    .run();
   expect(env.requests.map((r) => r.think)).toStrictEqual([false, true]);
   expect(env.requests[0].tools.some((t) => t.function.name === "enable_thinking")).toBeTruthy();
   expect(!env.requests[1].tools?.some((t) => t.function.name === "enable_thinking")).toBeTruthy();
@@ -203,18 +313,22 @@ test("search tools are always available, including with a legacy disable flag", 
     searchEnabled: true,
     definitions: () => [{ type: "function", function: { name: "web_search" } }],
   };
-  const env = setup([
-    [{ message: { content: "answer" } }], [{ message: { content: "offline answer" } }],
-  ], { toolService });
+  const env = setup(
+    [[{ message: { content: "answer" } }], [{ message: { content: "offline answer" } }]],
+    { toolService },
+  );
   await env.assistant.createSession(env.options).run();
-  await env.assistant.createSession({ ...env.options, search: false } as SessionOptions as SessionOptions).run();
+  await env.assistant
+    .createSession({ ...env.options, search: false } as SessionOptions as SessionOptions)
+    .run();
   expect(env.requests[0].tools.some((t) => t.function.name === "web_search")).toBeTruthy();
   expect(env.requests[1].tools.some((t) => t.function.name === "web_search")).toBeTruthy();
 });
 
 test("generation limit is marked in the final text and snapshot", async () => {
-  const env = setup([[{ message: { content: "unfinished" } },
-    { done: true, done_reason: "length", message: {} }]]);
+  const env = setup([
+    [{ message: { content: "unfinished" } }, { done: true, done_reason: "length", message: {} }],
+  ]);
   const result = await env.assistant.createSession(env.options).run();
   expect(result.incompleteReason).toBe("length");
   expect(result.text).toMatch(/^unfinished\n\n⚠️ Ответ не завершён: достигнут лимит генерации/);
@@ -222,9 +336,18 @@ test("generation limit is marked in the final text and snapshot", async () => {
 });
 
 test("a stream without a terminal done event is marked as interrupted", async () => {
-  const env = setup([], { modelClient: { async chat() {
-    return { abort() {}, async *[Symbol.asyncIterator]() { yield { message: { content: "partial" } }; } };
-  } } });
+  const env = setup([], {
+    modelClient: {
+      async chat() {
+        return {
+          abort() {},
+          async *[Symbol.asyncIterator]() {
+            yield { message: { content: "partial" } };
+          },
+        };
+      },
+    },
+  });
   const result = await env.assistant.createSession(env.options).run();
   expect(result.incompleteReason).toBe("stream_interrupted");
   expect(result.text).toMatch(/⚠️ Ответ не завершён/);
@@ -240,22 +363,40 @@ test("normal completion has no incomplete marker", async () => {
 test("assistant sessions share a queue and waiting does not start a model request", async () => {
   let release: () => void;
   let started: () => void;
-  const ready = new Promise<void>((resolve) => { started = resolve; });
-  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const ready = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   let calls = 0;
-  const env = setup([], { modelClient: { async chat() {
-    const first = ++calls === 1;
-    started();
-    return { abort() {}, async *[Symbol.asyncIterator]() {
-      if (first) await gate;
-      yield { message: { content: "answer" } };
-      yield { done: true, done_reason: "stop", message: {} };
-    } };
-  } } });
+  const env = setup([], {
+    modelClient: {
+      async chat() {
+        const first = ++calls === 1;
+        started();
+        return {
+          abort() {},
+          async *[Symbol.asyncIterator]() {
+            if (first) await gate;
+            yield { message: { content: "answer" } };
+            yield { done: true, done_reason: "stop", message: {} };
+          },
+        };
+      },
+    },
+  });
   const first = env.assistant.createSession(env.options).run();
   await ready;
   let position: number | undefined;
-  const second = env.assistant.createSession({ ...env.options, onQueued: async (value) => { position = value; } }).run();
+  const second = env.assistant
+    .createSession({
+      ...env.options,
+      onQueued: async (value) => {
+        position = value;
+      },
+    })
+    .run();
   await Promise.resolve();
   expect(position).toBe(1);
   expect(calls).toBe(1);
@@ -283,18 +424,25 @@ test("owner facts reach the system prompt independently of shared memory", async
 
 test("thinking is logged server-side and never included in streamed updates", async () => {
   const logs: unknown[][] = [];
-  const env = setup([[{ message: { thinking: "private reasoning" } }, { message: { content: "answer" } }]], {
-    logger: { info: (...args: unknown[]) => logs.push(args) },
-  });
+  const env = setup(
+    [[{ message: { thinking: "private reasoning" } }, { message: { content: "answer" } }]],
+    {
+      logger: { info: (...args: unknown[]) => logs.push(args) },
+    },
+  );
   await env.assistant.createSession(env.options).run();
   expect(logs.length).toBe(1);
   expect(logs[0][0]).toBe("[thinking]");
-  expect((logs[0][1] as {text: string}).text).toBe("private reasoning");
-  expect(env.updates.every((state) => !JSON.stringify(state).includes("private reasoning"))).toBeTruthy();
+  expect((logs[0][1] as { text: string }).text).toBe("private reasoning");
+  expect(
+    env.updates.every((state) => !JSON.stringify(state).includes("private reasoning")),
+  ).toBeTruthy();
 });
 
 test("personality is injected into the system prompt independently of platform", async () => {
-  const env = setup([[{ message: { content: "answer" } }]], { personality: "Custom local personality" });
+  const env = setup([[{ message: { content: "answer" } }]], {
+    personality: "Custom local personality",
+  });
   await env.assistant.createSession(env.options).run();
   expect(env.requests[0].messages[0].content).toMatch(/Custom local personality/);
 });
@@ -302,29 +450,61 @@ test("personality is injected into the system prompt independently of platform",
 test("supervisor chooses thinking before the main round and explicit think bypasses it", async () => {
   let routed = 0;
   const env = setup([[{ message: { content: "answer" } }], [{ message: { content: "second" } }]], {
-    logger: { info() {} }, supervisor: { async decideThinking() { routed++; return true; } },
+    logger: { info() {} },
+    supervisor: {
+      async decideThinking() {
+        routed++;
+        return true;
+      },
+    },
   });
   await env.assistant.createSession(env.options).run();
   await env.assistant.createSession({ ...env.options, think: true }).run();
   expect(routed).toBe(1);
   expect(env.requests.every((request) => request.think)).toBeTruthy();
-  expect(!env.requests[0].tools?.some((tool) => tool.function.name === "enable_thinking")).toBeTruthy();
+  expect(
+    !env.requests[0].tools?.some((tool) => tool.function.name === "enable_thinking"),
+  ).toBeTruthy();
   env.assistant.stopObserving();
 });
 
 test("ordinary messages are batched by group/room and saved with source attribution", async () => {
-  const extracted: {id: string; text: string; authorName: string}[][] = [];
+  const extracted: { id: string; text: string; authorName: string }[][] = [];
   const saved: unknown[][] = [];
-  const env = setup([], { logger: { info() {} },
-    memory: { async addMemoryFact(...args: unknown[]) { saved.push(args); } },
-    supervisor: { async extractFacts(messages) {
-      extracted.push(messages);
-      return [{ text: messages[0].text, authorName: messages[0].authorName }];
-    } },
+  const env = setup([], {
+    logger: { info() {} },
+    memory: {
+      async addMemoryFact(...args: unknown[]) {
+        saved.push(args);
+      },
+    },
+    supervisor: {
+      async extractFacts(messages) {
+        extracted.push(messages);
+        return [{ text: messages[0].text, authorName: messages[0].authorName }];
+      },
+    },
   });
-  env.assistant.observeMessage({ scopeId: "telegram_-1", roomId: "topic-1", id: "10", text: "Release day is Friday", authorName: "Alice" });
-  env.assistant.observeMessage({ scopeId: "telegram_-2", roomId: "topic-1", id: "11", text: "Other group", authorName: "Bob" });
-  env.assistant.observeMessage({ roomId: "private", id: "12", text: "private info", authorName: "Carol" });
+  env.assistant.observeMessage({
+    scopeId: "telegram_-1",
+    roomId: "topic-1",
+    id: "10",
+    text: "Release day is Friday",
+    authorName: "Alice",
+  });
+  env.assistant.observeMessage({
+    scopeId: "telegram_-2",
+    roomId: "topic-1",
+    id: "11",
+    text: "Other group",
+    authorName: "Bob",
+  });
+  env.assistant.observeMessage({
+    roomId: "private",
+    id: "12",
+    text: "private info",
+    authorName: "Carol",
+  });
   expect(extracted.length).toBe(0);
   await env.assistant.flushObservations();
   expect(saved[0]).toStrictEqual(["telegram_-1", "Release day is Friday", "Alice"]);
@@ -340,11 +520,28 @@ test("automatic saves are limited to one per group per cooldown across all rooms
   onTestFinished(() => spy.mockRestore());
   let checks = 0;
   const saved: unknown[][] = [];
-  const env = setup([], { logger: { info() {} },
-    memory: { async addMemoryFact(...args: unknown[]) { saved.push(args); } },
-    supervisor: { async extractFacts() { checks++; return [{ text: "fact", authorName: "Alice" }]; } },
+  const env = setup([], {
+    logger: { info() {} },
+    memory: {
+      async addMemoryFact(...args: unknown[]) {
+        saved.push(args);
+      },
+    },
+    supervisor: {
+      async extractFacts() {
+        checks++;
+        return [{ text: "fact", authorName: "Alice" }];
+      },
+    },
   });
-  const observe = (scopeId = "group", roomId = "room") => env.assistant.observeMessage({ scopeId, roomId, id: String(now), text: "Our project releases Friday", authorName: "Alice" });
+  const observe = (scopeId = "group", roomId = "room") =>
+    env.assistant.observeMessage({
+      scopeId,
+      roomId,
+      id: String(now),
+      text: "Our project releases Friday",
+      authorName: "Alice",
+    });
   observe();
   await env.assistant.flushObservations();
   now += 61000;
@@ -364,10 +561,14 @@ test("automatic saves are limited to one per group per cooldown across all rooms
 test("successful media delivery permits an empty final answer without markers", async () => {
   const call = { function: { name: "send_image", arguments: { id: "image_1" } } };
   const env = setup([[{ message: { tool_calls: [call] } }], [{ message: { content: "" } }]], {
-    toolService: { searchEnabled: false, definitions: () => [], async runTool(_call, context) {
-      context.imageState.sent = true;
-      return "Медиа отправлено";
-    } },
+    toolService: {
+      searchEnabled: false,
+      definitions: () => [],
+      async runTool(_call, context) {
+        context.imageState.sent = true;
+        return "Медиа отправлено";
+      },
+    },
   });
   const result = await env.assistant.createSession(env.options).run();
   expect(result.text).toBe("");
@@ -378,18 +579,34 @@ test("successful media delivery permits an empty final answer without markers", 
 
 test("operator cancellation stops only the active reply and preserves queued work", async () => {
   let ready: () => void;
-  const started = new Promise<void>((resolve) => { ready = resolve; });
+  const started = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
   let calls = 0;
-  const env = setup([], { modelClient: { async chat() {
-    const first = ++calls === 1;
-    let release: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
-    return { abort() { release(); }, async *[Symbol.asyncIterator]() {
-      if (first) { ready(); await gate; }
-      yield { message: { content: "answer" } };
-      yield { done: true, done_reason: "stop", message: {} };
-    } };
-  } } });
+  const env = setup([], {
+    modelClient: {
+      async chat() {
+        const first = ++calls === 1;
+        let release: () => void;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return {
+          abort() {
+            release();
+          },
+          async *[Symbol.asyncIterator]() {
+            if (first) {
+              ready();
+              await gate;
+            }
+            yield { message: { content: "answer" } };
+            yield { done: true, done_reason: "stop", message: {} };
+          },
+        };
+      },
+    },
+  });
   expect(env.assistant.stopCurrentGeneration()).toBe(false);
   const first = env.assistant.createSession(env.options).run();
   await started;
@@ -404,35 +621,60 @@ test("operator cancellation stops only the active reply and preserves queued wor
 
 test("active generation is cleared even if final delivery fails", async () => {
   const env = setup([[{ message: { content: "answer" } }]]);
-  await expect(env.assistant.createSession({ ...env.options,
-    onUpdate(state) { if (state.final) throw new Error("delivery failed"); },
-  }).run()).rejects.toThrow(/delivery failed/);
+  await expect(
+    env.assistant
+      .createSession({
+        ...env.options,
+        onUpdate(state) {
+          if (state.final) throw new Error("delivery failed");
+        },
+      })
+      .run(),
+  ).rejects.toThrow(/delivery failed/);
   expect(env.assistant.stopCurrentGeneration()).toBe(false);
 });
 
 test("terminal receives live reasoning and queued requests without exposing thoughts to adapters", async () => {
   let release: () => void;
   let ready: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  const started = new Promise<void>((resolve) => { ready = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    ready = resolve;
+  });
   let calls = 0;
-  const env = setup([], { logger: { info() {} }, modelClient: { async chat() {
-    const first = ++calls === 1;
-    return { abort() { release(); }, async *[Symbol.asyncIterator]() {
-      if (first) {
-        yield { message: { thinking: "local thoughts" } };
-        ready();
-        await gate;
-      }
-      yield { message: { content: "answer" } };
-      yield { done: true, done_reason: "stop", message: {} };
-    } };
-  } } });
+  const env = setup([], {
+    logger: { info() {} },
+    modelClient: {
+      async chat() {
+        const first = ++calls === 1;
+        return {
+          abort() {
+            release();
+          },
+          async *[Symbol.asyncIterator]() {
+            if (first) {
+              yield { message: { thinking: "local thoughts" } };
+              ready();
+              await gate;
+            }
+            yield { message: { content: "answer" } };
+            yield { done: true, done_reason: "stop", message: {} };
+          },
+        };
+      },
+    },
+  });
   const snapshots: TerminalState[] = [];
   const unsubscribe = env.assistant.subscribeTerminal((state) => snapshots.push(state));
-  const first = env.assistant.createSession({ ...env.options, context: { authorName: "Alice" } }).run();
+  const first = env.assistant
+    .createSession({ ...env.options, context: { authorName: "Alice" } })
+    .run();
   await started;
-  const second = env.assistant.createSession({ ...env.options, context: { authorName: "Bob" } }).run();
+  const second = env.assistant
+    .createSession({ ...env.options, context: { authorName: "Bob" } })
+    .run();
   const queued = snapshots.at(-1);
   expect(queued.current.author).toBe("Alice");
   expect(queued.current.thinking).toBe("local thoughts");
@@ -444,6 +686,8 @@ test("terminal receives live reasoning and queued requests without exposing thou
   expect(snapshots.some((state) => state.last?.thinking === "local thoughts")).toBeTruthy();
   expect(snapshots.at(-1).current).toBe(null);
   expect(snapshots.at(-1).queue).toStrictEqual([]);
-  expect(env.updates.every((state) => !JSON.stringify(state).includes("local thoughts"))).toBeTruthy();
+  expect(
+    env.updates.every((state) => !JSON.stringify(state).includes("local thoughts")),
+  ).toBeTruthy();
   unsubscribe();
 });

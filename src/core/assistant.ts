@@ -1,3 +1,4 @@
+/** @file Coordinate cancellable model sessions, shared inference scheduling and background observation. */
 import { createSpontaneousPolicy } from "./spontaneous.ts";
 import { guardContext, ContextLimitError } from "./context.ts";
 import { createRequestQueue } from "./queue.ts";
@@ -8,7 +9,8 @@ const THINK_TOOL = {
   type: "function",
   function: {
     name: "enable_thinking",
-    description: "Включает режим размышлений перед ответом, если пользователь просит подумать, тщательно проанализировать или перепроверить рассуждение. После вызова продолжи решение задачи.",
+    description:
+      "Включает режим размышлений перед ответом, если пользователь просит подумать, тщательно проанализировать или перепроверить рассуждение. После вызова продолжи решение задачи.",
     parameters: { type: "object", properties: {} },
   },
 };
@@ -21,7 +23,12 @@ const THINK_TOOL = {
  * @returns Assistant factory; no network calls until run().
  */
 export function createAssistant({
-  modelClient, memory, toolService, model, numCtx, timeoutMs,
+  modelClient,
+  memory,
+  toolService,
+  model,
+  numCtx,
+  timeoutMs,
   updateIntervalMs = 0,
   facts = [],
   personality = "",
@@ -39,19 +46,34 @@ export function createAssistant({
   let nextRequestId = 0;
   let currentRequest: import("../types.ts").TerminalRequest = null;
   let lastRequest: import("../types.ts").TerminalRequest = null;
-  const terminalState = () => ({ current: currentRequest, last: lastRequest,
-    queue: [...pendingRequests.values()] });
+  const terminalState = () => ({
+    current: currentRequest,
+    last: lastRequest,
+    queue: [...pendingRequests.values()],
+  });
+  /** Notify local terminal subscribers with an isolated snapshot of generation and queue state. */
   function publishTerminal() {
     for (const listener of terminalListeners) {
-      try { listener(structuredClone(terminalState())); } catch { /* UI cannot interrupt generation. */ }
+      try {
+        listener(structuredClone(terminalState()));
+      } catch {
+        /* UI cannot interrupt generation. */
+      }
     }
   }
-  const observations = new Map<string, {scopeId: string; messages: {id: string; text: string; authorName: string}[]}>();
+  const observations = new Map<
+    string,
+    { scopeId: string; messages: { id: string; text: string; authorName: string }[] }
+  >();
   const memoryTiming = new Map();
   /** @param scopeId Group namespace. @returns Whether background memory is eligible now. */
   function canObserve(scopeId: string) {
     const state = memoryTiming.get(scopeId);
-    return !state || (Date.now() - state.checked >= autoMemoryCheckIntervalMs && Date.now() - state.saved >= autoMemoryCooldownMs);
+    return (
+      !state ||
+      (Date.now() - state.checked >= autoMemoryCheckIntervalMs &&
+        Date.now() - state.saved >= autoMemoryCooldownMs)
+    );
   }
   const observationController = new AbortController();
   let observationTimer: ReturnType<typeof setTimeout>;
@@ -75,33 +97,44 @@ export function createAssistant({
     if (!observations.size || observerClosed) return Promise.resolve();
     const [key, entry] = observations.entries().next().value;
     observations.delete(key);
-    observationJob = enqueue(async () => {
-      if (observerClosed || !canObserve(entry.scopeId)) return;
-      const timing = memoryTiming.get(entry.scopeId) ?? { checked: -Infinity, saved: -Infinity };
-      timing.checked = Date.now();
-      memoryTiming.delete(entry.scopeId);
-      memoryTiming.set(entry.scopeId, timing);
-      if (memoryTiming.size > 500) memoryTiming.delete(memoryTiming.keys().next().value);
-      try {
-        const extracted = await supervisor.extractFacts(entry.messages.slice(-8), observationController.signal);
-        for (const fact of extracted.slice(0, 1)) {
-          if (observerClosed) break;
-          await memory.addMemoryFact(entry.scopeId, fact.text, fact.authorName);
-          timing.saved = Date.now();
+    observationJob = enqueue(
+      async () => {
+        if (observerClosed || !canObserve(entry.scopeId)) return;
+        const timing = memoryTiming.get(entry.scopeId) ?? { checked: -Infinity, saved: -Infinity };
+        timing.checked = Date.now();
+        memoryTiming.delete(entry.scopeId);
+        memoryTiming.set(entry.scopeId, timing);
+        if (memoryTiming.size > 500) memoryTiming.delete(memoryTiming.keys().next().value);
+        try {
+          const extracted = await supervisor.extractFacts(
+            entry.messages.slice(-8),
+            observationController.signal,
+          );
+          for (const fact of extracted.slice(0, 1)) {
+            if (observerClosed) break;
+            await memory.addMemoryFact(entry.scopeId, fact.text, fact.authorName);
+            timing.saved = Date.now();
+          }
+          if (extracted.length)
+            logger.info("[auto-memory]", { scopeId: entry.scopeId, count: extracted.length });
+        } catch (error) {
+          if (!observerClosed) console.warn("Automatic memory extraction failed:", error.message);
         }
-        if (extracted.length) logger.info("[auto-memory]", { scopeId: entry.scopeId, count: extracted.length });
-      } catch (error) {
-        if (!observerClosed) console.warn("Automatic memory extraction failed:", error.message);
-      }
-    }, undefined, { priority: -1 }).finally(() => {
+      },
+      undefined,
+      { priority: -1 },
+    ).finally(() => {
       observationJob = undefined;
       if (observations.size) scheduleObservation();
     });
     return observationJob;
   }
   const consider = createSpontaneousPolicy({
-    ...spontaneous, enqueue,
-    decide: supervisor?.decideReply ? (message) => supervisor.decideReply(message, observationController.signal) : undefined,
+    ...spontaneous,
+    enqueue,
+    decide: supervisor?.decideReply
+      ? (message) => supervisor.decideReply(message, observationController.signal)
+      : undefined,
   });
   return {
     /** Subscribe to local operator state, including reasoning; never sent to messenger callbacks. */
@@ -117,19 +150,38 @@ export function createAssistant({
       return true;
     },
     /** @param message Scoped group message. @returns Optional contribution angle. */
-    considerMessage(message: any) { return observerClosed ? Promise.resolve(null) : consider(message); },
+    considerMessage(message: any) {
+      return observerClosed ? Promise.resolve(null) : consider(message);
+    },
     /**
      * Buffer an ordinary group statement for conservative, silent fact extraction.
      * @param message Scoped statement.
      */
-    observeMessage(message: { scopeId: string; roomId: string; id: string; text: string; authorName: string; }) {
-      if (!supervisor || !autoMemory || observerClosed || !message.scopeId || !message.text?.trim() || !canObserve(message.scopeId)) return;
+    observeMessage(message: {
+      scopeId: string;
+      roomId: string;
+      id: string;
+      text: string;
+      authorName: string;
+    }) {
+      if (
+        !supervisor ||
+        !autoMemory ||
+        observerClosed ||
+        !message.scopeId ||
+        !message.text?.trim() ||
+        !canObserve(message.scopeId)
+      )
+        return;
       const key = `${message.scopeId}:${message.roomId}`;
       if (!observations.has(key) && observations.size >= 50) return;
       const entry = observations.get(key) ?? { scopeId: message.scopeId, messages: [] };
-      if (!entry.messages.some((item) => item.id === message.id)) entry.messages.push({
-        id: message.id, text: message.text.slice(0, 900), authorName: message.authorName,
-      });
+      if (!entry.messages.some((item) => item.id === message.id))
+        entry.messages.push({
+          id: message.id,
+          text: message.text.slice(0, 900),
+          authorName: message.authorName,
+        });
       entry.messages = entry.messages.slice(-8);
       observations.set(key, entry);
       scheduleObservation();
@@ -148,8 +200,13 @@ export function createAssistant({
      * @returns Single-use cancellable session.
      */
     createSession({
-      conversation, background = [], context = {}, think = false,
-      assistantName = "Релаксачер", platformInstructions = "", onUpdate = async () => {},
+      conversation,
+      background = [],
+      context = {},
+      think = false,
+      assistantName = "Релаксачер",
+      platformInstructions = "",
+      onUpdate = async () => {},
       onQueued = async () => {},
     }: import("../types.ts").SessionOptions): import("../types.ts").Session {
       const toolContext = { ...context, imageState: { candidates: new Map(), sent: false } };
@@ -179,10 +236,17 @@ export function createAssistant({
           if (started) throw new Error("Session already started");
           started = true;
           const requestId = ++nextRequestId;
-          const request = { id: requestId, author: context.authorName ?? "Неизвестный автор",
-            scope: context.scopeId ?? "Личный чат", model,
-            prompt: conversation.at(-1)?.content ?? "", text: "", thinking: "",
-            status: "В очереди", queuedAt: Date.now() };
+          const request = {
+            id: requestId,
+            author: context.authorName ?? "Неизвестный автор",
+            scope: context.scopeId ?? "Личный чат",
+            model,
+            prompt: conversation.at(-1)?.content ?? "",
+            text: "",
+            thinking: "",
+            status: "В очереди",
+            queuedAt: Date.now(),
+          };
           pendingRequests.set(requestId, request);
           publishTerminal();
           return enqueue(async () => {
@@ -201,9 +265,24 @@ export function createAssistant({
              */
             const updateTerminal = (final: boolean = false) => {
               if (currentRequest?.id !== requestId) return;
-              currentRequest = { ...currentRequest, text, thinking: thinkingLog,
-                status: final ? (generation.stopped ? "Остановлена" : failed ? "Ошибка" : incompleteReason ? "Не завершена" : "Завершена")
-                  : generation.stopped ? "Остановка" : status ? `Инструмент: ${status.function.name}` : "Генерация" };
+              currentRequest = {
+                ...currentRequest,
+                text,
+                thinking: thinkingLog,
+                status: final
+                  ? generation.stopped
+                    ? "Остановлена"
+                    : failed
+                      ? "Ошибка"
+                      : incompleteReason
+                        ? "Не завершена"
+                        : "Завершена"
+                  : generation.stopped
+                    ? "Остановка"
+                    : status
+                      ? `Инструмент: ${status.function.name}`
+                      : "Генерация",
+              };
               if (final) lastRequest = currentRequest;
               publishTerminal();
             };
@@ -221,22 +300,40 @@ export function createAssistant({
               await flush(false);
               if (supervisor && !think && !generation.stopped) {
                 try {
-                  useThinking = await supervisor.decideThinking(conversation, generation.controller.signal);
+                  useThinking = await supervisor.decideThinking(
+                    conversation,
+                    generation.controller.signal,
+                  );
                   logger.info("[router]", { think: useThinking, model });
                 } catch (error) {
-                  if (!generation.stopped) console.warn("Thinking router failed; using non-thinking mode:", error.message);
+                  if (!generation.stopped)
+                    console.warn("Thinking router failed; using non-thinking mode:", error.message);
                 }
               }
               const memoryFacts = context.scopeId ? await memory.loadMemory(context.scopeId) : [];
-              const messages = buildMessages({ conversation, background, assistantName, platformInstructions, facts, personality,
-                memoryPrompt: memory.buildMemoryPrompt(memoryFacts, Boolean(context.scopeId)) });
-              const definitions = toolService.definitions({ scopeId: context.scopeId, history: typeof context.readHistory === "function", images: typeof context.sendImage === "function" });
+              const messages = buildMessages({
+                conversation,
+                background,
+                assistantName,
+                platformInstructions,
+                facts,
+                personality,
+                memoryPrompt: memory.buildMemoryPrompt(memoryFacts, Boolean(context.scopeId)),
+              });
+              const definitions = toolService.definitions({
+                scopeId: context.scopeId,
+                history: typeof context.readHistory === "function",
+                images: typeof context.sendImage === "function",
+              });
               /**
                * List currently available tools, omitting the thinking switch once enabled.
                * @returns Available schemas.
                */
               const toolsForRound = () => {
-                const available = [...definitions, ...(!supervisor && !useThinking ? [THINK_TOOL] : [])];
+                const available = [
+                  ...definitions,
+                  ...(!supervisor && !useThinking ? [THINK_TOOL] : []),
+                ];
                 return available.length ? available : undefined;
               };
               let lastUpdate = 0;
@@ -313,7 +410,6 @@ export function createAssistant({
                   }
                 }
 
-
                 if (generation.stopped) break;
                 if (!streamDone) {
                   incompleteReason = "stream_interrupted";
@@ -328,7 +424,8 @@ export function createAssistant({
                   break;
                 }
                 if (toolCalls.length === 0) {
-                  if (!roundContent.trim() && !toolContext.imageState.sent) incompleteReason = "empty_answer";
+                  if (!roundContent.trim() && !toolContext.imageState.sent)
+                    incompleteReason = "empty_answer";
                   break;
                 }
                 if (round === MAX_TOOL_ROUNDS) {
@@ -379,12 +476,13 @@ export function createAssistant({
               clearTimeout(timeoutTimer);
               status = "";
               generation.stream?.abort();
-              if (thinkingLog.trim()) logger.info("[thinking]", {
-                model,
-                scopeId: context.scopeId,
-                authorName: context.authorName,
-                text: thinkingLog,
-              });
+              if (thinkingLog.trim())
+                logger.info("[thinking]", {
+                  model,
+                  scopeId: context.scopeId,
+                  authorName: context.authorName,
+                  text: thinkingLog,
+                });
             }
 
             if (failed) {
@@ -396,22 +494,33 @@ export function createAssistant({
                 ? "\n\n⚠️ Превышено время ожидания."
                 : "Превышено время ожидания ответа.";
             } else if (generation.stopped) {
-              text = text.trim() ? `${text}\n\n⚠️ Ответ не завершён: генерация остановлена.` : "Генерация остановлена.";
+              text = text.trim()
+                ? `${text}\n\n⚠️ Ответ не завершён: генерация остановлена.`
+                : "Генерация остановлена.";
             } else if (incompleteReason) {
-              const explanation = incompleteReason === "context_limit"
-                ? "текущий запрос и обязательный контекст слишком велики; сократи запрос или начни новый диалог"
-                : incompleteReason === "length"
-                ? "достигнут лимит генерации"
-                : incompleteReason === "tool_limit"
-                  ? "достигнут лимит вызовов инструментов"
-                  : incompleteReason === "empty_answer"
-                    ? "модель не вернула текст ответа"
-                    : "не подтверждено нормальное завершение генерации";
+              const explanation =
+                incompleteReason === "context_limit"
+                  ? "текущий запрос и обязательный контекст слишком велики; сократи запрос или начни новый диалог"
+                  : incompleteReason === "length"
+                    ? "достигнут лимит генерации"
+                    : incompleteReason === "tool_limit"
+                      ? "достигнут лимит вызовов инструментов"
+                      : incompleteReason === "empty_answer"
+                        ? "модель не вернула текст ответа"
+                        : "не подтверждено нормальное завершение генерации";
               text += `${text ? "\n\n" : ""}⚠️ Ответ не завершён: ${explanation}.`;
             }
 
             await flush(true);
-            return { text, thinkingLog, model, incompleteReason, failed, stopped: generation.stopped, timedOut: generation.timedOut };
+            return {
+              text,
+              thinkingLog,
+              model,
+              incompleteReason,
+              failed,
+              stopped: generation.stopped,
+              timedOut: generation.timedOut,
+            };
           }, onQueued).finally(() => {
             pendingRequests.delete(requestId);
             if (currentRequest?.id === requestId) {

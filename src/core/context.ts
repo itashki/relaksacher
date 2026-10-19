@@ -1,3 +1,4 @@
+/** @file Estimate model input size and trim optional history while retaining the current request. */
 import type { Message, Tool } from "ollama";
 /**
  * Indicates that required context cannot fit without dropping the current request.
@@ -10,10 +11,19 @@ export class ContextLimitError extends Error {}
  * @param input Model input.
  * @returns Approximate token count, including a fixed image allowance.
  */
-const estimateTokens = ({ messages, tools }: { messages: import("../types.ts").ChatMessage[]; tools: import("../types.ts").ToolDefinition[] | undefined; }) => {
+const estimateTokens = ({
+  messages,
+  tools,
+}: {
+  messages: import("../types.ts").ChatMessage[];
+  tools: import("../types.ts").ToolDefinition[] | undefined;
+}) => {
   const text = messages.map(({ images, ...entry }) => entry);
   const images = messages.reduce((sum, entry) => sum + (entry.images?.length ?? 0), 0);
-  return Math.ceil(new TextEncoder().encode(JSON.stringify({ messages: text, tools })).byteLength / 3) + images * 4096;
+  return (
+    Math.ceil(new TextEncoder().encode(JSON.stringify({ messages: text, tools })).byteLength / 3) +
+    images * 4096
+  );
 };
 
 /**
@@ -37,7 +47,10 @@ export function guardContext(messages: Message[], tools: Tool[], numCtx: number)
     const next = messages.findIndex((entry, index) => index > 1 && entry.role === "user");
     messages.splice(1, (next === -1 ? current : next) - 1);
     if (!trimmed && !messages[0].content.includes("Часть старой истории удалена")) {
-      messages[0] = { ...messages[0], content: `${messages[0].content}\nЧасть старой истории удалена из-за размера контекста. Не выдумывай пропущенные детали; если они нужны, попроси уточнение.` };
+      messages[0] = {
+        ...messages[0],
+        content: `${messages[0].content}\nЧасть старой истории удалена из-за размера контекста. Не выдумывай пропущенные детали; если они нужны, попроси уточнение.`,
+      };
     }
     trimmed = true;
   }

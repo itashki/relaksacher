@@ -1,7 +1,7 @@
 # Relaksacher
 
-A Discord assistant backed by Ollama, with streamed replies, optional web search,
-and persistent shared memory.
+A Discord and Telegram assistant backed by Ollama, with streamed replies, web tools,
+persistent shared memory and Discord music playback.
 
 Use Bun 1.4.2 or newer. Install dependencies and copy the commented configuration template:
 
@@ -40,6 +40,12 @@ an in-flight tool operation may need to finish before the reply is finalized.
 Terminal controls are disabled when standard input is not a TTY (for example,
 when running as a service). Ctrl+C shuts down the bot.
 
+## Documentation
+
+- [Commands and controls](docs/COMMANDS.md)
+- [Architecture and module responsibilities](docs/ARCHITECTURE.md)
+- [Development, formatting and verification](docs/DEVELOPMENT.md)
+
 ## Structure
 
 - `index.ts` wires configuration, Ollama clients, storage, and the Discord adapter.
@@ -62,8 +68,8 @@ const session = assistant.createSession({
   context: { scopeId: "my-group", authorName: "Alice" },
   think: false,
   platformInstructions: "Ты общаешься через терминал.",
-  onUpdate: async ({ text, status, thinkingLog, liveThinking, final }) => {
-    // Render the accumulated answer and optional tool/thinking status.
+  onUpdate: async ({ text, status, final }) => {
+    // Render the accumulated answer and optional tool status.
     // status is a tool call object while a tool runs; otherwise an empty string.
     console.log(text);
   },
@@ -74,8 +80,7 @@ await session.run();
 
 Each session runs once. Its result includes `text`, `thinkingLog`, `failed`,
 `stopped`, and `timedOut`. Updates are awaited, allowing the adapter to apply
-backpressure. `thinkingComplete` signals that reasoning has transitioned into
-answer content. The application sets the update interval to 1200 ms for Discord.
+backpressure. Reasoning is exposed only through local terminal monitoring and logs. The application sets the update interval to 1200 ms for Discord.
 
 Memory scopes use safe filename identifiers (letters, digits, `_`, `-`). Discord
 passes the guild ID, preserving existing `memory/<guildId>.json` files and their
@@ -83,6 +88,7 @@ schema. Omit `scopeId` to disable memory for a conversation.
 
 ## Verification
 
+Run `bun run format` to format the project, and `bun run format:check` to verify formatting.
 Run `bun run typecheck` to check application and test types with `noImplicitAny`, and `bun test` to run the tests. Tests use fake model streams and temporary memory directories;
 they require no credentials or external services. Live Discord/Ollama connectivity
 is separate from these tests.
@@ -211,17 +217,17 @@ startup error. Restart the bot after editing. Facts count toward the context bud
 
 ## Library choices
 
-| Responsibility | Library |
-| --- | --- |
-| Discord client and events | `discord.js` |
-| Telegram API, multipart uploads, API error types | [grammY](https://grammy.dev/guide/api) |
-| Concurrent Telegram polling, offsets and polling backoff | [@grammyjs/runner](https://grammy.dev/plugins/runner) |
-| Telegram flood-limit responses | [@grammyjs/auto-retry](https://grammy.dev/plugins/auto-retry) |
-| Bounded retries for idempotent Telegram edits | [p-retry](https://github.com/sindresorhus/p-retry) |
-| Single-concurrency FIFO generation queue | [p-queue](https://github.com/sindresorhus/p-queue) |
-| Markdown parsing | `marked` |
-| Commented configuration | `Bun.JSON5` |
-| Model API | `ollama` |
+| Responsibility                                           | Library                                                       |
+| -------------------------------------------------------- | ------------------------------------------------------------- |
+| Discord client and events                                | `discord.js`                                                  |
+| Telegram API, multipart uploads, API error types         | [grammY](https://grammy.dev/guide/api)                        |
+| Concurrent Telegram polling, offsets and polling backoff | [@grammyjs/runner](https://grammy.dev/plugins/runner)         |
+| Telegram flood-limit responses                           | [@grammyjs/auto-retry](https://grammy.dev/plugins/auto-retry) |
+| Bounded retries for idempotent Telegram edits            | [p-retry](https://github.com/sindresorhus/p-retry)            |
+| Single-concurrency FIFO generation queue                 | [p-queue](https://github.com/sindresorhus/p-queue)            |
+| Markdown parsing                                         | `marked`                                                      |
+| Commented configuration                                  | `Bun.JSON5`                                                   |
+| Model API                                                | `ollama`                                                      |
 
 `src/adapters/telegram-api.ts` is a small compatibility layer around grammY so
 platform behavior remains testable with an injected API. It keeps request deadlines,
@@ -402,3 +408,92 @@ after successful delivery: adapters delete temporary text/status messages so
 only the image or GIF remains. Delivery and generation failures still show errors.
 
 Bun runs TypeScript directly; no build step is required. Use `bun run dev` for watch mode. Application and test type checking is configured in `tsconfig.json`. Tests use typed partial doubles at external API boundaries. Commit `bun.lock` when dependencies change and use `bun install --frozen-lockfile` for reproducible installs.
+
+## Discord music
+
+Use `!music help` in a server text channel (no mention required). Join a regular
+voice channel first to change the playlist or control playback:
+
+- `!music add <https://youtu.be/...>` or a SoundCloud track URL saves a track.
+- `!music list` shows the current track and all saved entries.
+- `!music remove <number>` removes a saved entry.
+- `!music play` plays the saved playlist (once, in order by default).
+- `!music play <URL>` saves and plays that track when the player is idle.
+- `!music pause`, `!music resume`, `!music skip` control playback.
+- `!music stop` / `!music leave` stop playback and leave the voice channel.
+
+Install [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) and
+[FFmpeg](https://ffmpeg.org/download.html) on the bot host, available on PATH.
+Use an up-to-date yt-dlp with its recommended JavaScript runtime/components for
+YouTube. Source availability, region restrictions and provider challenges can
+prevent playback; failed tracks are skipped. YouTube URLs with a `list` parameter import the playlist in its original order
+(including watch links containing both `v` and `list`). Use `!music add <playlist URL>`
+to save it or `!music play <playlist URL>` to save and play the imported tracks.
+Imports fill the remaining capacity up to 100 tracks and report truncation or skipped
+unavailable entries. Empty, private or failed imports leave the saved playlist intact.
+Import has a 45-second timeout. SoundCloud playlist imports are not supported. There is a limit of 100 tracks per guild.
+Audio is piped through FFmpeg without saving media files. Process execution uses
+`Bun.spawn` with native streams; a Node readable adapter is used only at the
+`@discordjs/voice` audio-resource boundary. Playlist imports keep their timeout,
+4 MB output limit and cancellation on shutdown.
+
+The bot needs View Channel, Connect and Speak permissions. GuildVoiceStates intent
+is enabled in code. Anyone in the bot's voice channel can control playback; when
+it is disconnected, playlist edits require joining a voice channel. Lists can be
+read without joining. Playlists are stored separately in `memory/music_<guildId>.json`;
+the playback position is not persisted. New additions apply on the next playlist
+start. The bot leaves 60 seconds after the queue ends and closes playback on shutdown.
+Telegram voice chats are not supported by this feature.
+Voice transport uses [@discordjs/voice](https://discordjs.dev/docs/packages/voice/main),
+with Opus encoding and DAVE support installed as dependencies.
+
+### Music control panel
+
+Send `!music` or `!music panel` to publish a shared control panel. It shows the
+current track, pause state, saved track count and remaining playback queue.
+Buttons start playback, toggle pause/resume, skip or stop and disconnect.
+Unavailable actions are disabled. Add opens a URL form (including YouTube
+playlists); Remove opens a track-number form. Playlist shows the full saved list
+privately to the person clicking. Refresh updates the shared panel.
+The latest panel per guild updates automatically when playback or the playlist
+changes; publishing a new panel removes buttons from the previous one.
+Button results and errors are private. All playback and playlist changes use the
+same voice-channel checks as text commands. Existing text commands still work.
+
+### Music in the terminal dashboard
+
+When Discord is enabled, the TUI has a live music section showing the server,
+voice channel, current track URL, playback/pause/connection/import state, saved
+track count, remaining playback queue and latest error. Updates come directly
+from the music player, independently of assistant generation and Discord panels.
+Servers appear after their first music command; active players are listed first.
+The section shows one or two servers depending on terminal height, with a compact
+summary on small terminals. It updates automatically and unsubscribes on TUI exit.
+
+### Repeat and shuffle
+
+- `!music repeat track` repeats the current track; `!music repeat all` repeats the
+  selection used for the current playback session; `!music repeat off` disables repeat.
+  With no argument, `repeat` cycles off → track → all → off, as does the panel button.
+- `!music shuffle on` enables random order and shuffles remaining queued tracks.
+  Each new start and each repeat-all cycle is shuffled too. `shuffle off` disables
+  future shuffling, keeping the current queue order. With no argument it toggles.
+- `!music mix` shuffles only the remaining queue once, leaving the current track
+  and shuffle mode unchanged. The panel has a separate shuffle-queue button.
+- `!music queue` (or the Queue button) shows the current track and remaining queue.
+
+Skip advances even in repeat-track mode. Stop/leave clears the playback queue and
+prevents repetition. Tracks that fail playback are excluded from further repeat
+cycles until the next `play`, so an unavailable playlist cannot loop endlessly.
+Shuffle preserves every track occurrence and never rewrites the saved playlist.
+New saved tracks enter playback on the next start. Modes are separate per guild,
+remain selected across stop/start, and default to off after a process restart.
+Both the Discord panel and TUI display the selected repeat and shuffle modes.
+
+## Runtime conventions
+
+Prefer Bun-native APIs for file reads/writes, subprocesses, environment access and
+verification. Playlist files use `Bun.file().json()` and `Bun.write()`; writes create
+missing parent directories and replace the destination atomically via `rename`.
+Node compatibility APIs remain for atomic renames, terminal raw-mode/key handling
+and the readable-stream boundary required by Discord's voice library.

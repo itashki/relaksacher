@@ -1,8 +1,11 @@
+/** @file Regression coverage for telegram format behavior and its external boundaries. */
 import { expect, test } from "bun:test";
 import { formatTelegramChunks } from "../src/adapters/telegram-format.ts";
 
 test("renders Markdown using Telegram tags instead of visible markers", () => {
-  const [text] = formatTelegramChunks("# Title\n\n**bold** and *italic* with ~~strike~~ and `code`\n\n[site](https://example.org)");
+  const [text] = formatTelegramChunks(
+    "# Title\n\n**bold** and *italic* with ~~strike~~ and `code`\n\n[site](https://example.org)",
+  );
   expect(text).toMatch(/<b>Title<\/b>/);
   expect(text).toMatch(/<b>bold<\/b>/);
   expect(text).toMatch(/<i>italic<\/i>/);
@@ -13,26 +16,32 @@ test("renders Markdown using Telegram tags instead of visible markers", () => {
 });
 
 test("escapes untrusted HTML and code and rejects unsupported link schemes", () => {
-  const [text] = formatTelegramChunks('<script>alert(1)</script>\n\n`a < b && c`\n\n[x](javascript:alert)');
+  const [text] = formatTelegramChunks(
+    "<script>alert(1)</script>\n\n`a < b && c`\n\n[x](javascript:alert)",
+  );
   expect(text).not.toMatch(/<script>|href="javascript:/);
   expect(text).toMatch(/&lt;script&gt;/);
   expect(text).toMatch(/<code>a &lt; b &amp;&amp; c<\/code>/);
 });
 
 test("splits long formatted code into balanced messages with model aliases", () => {
-  const chunks = formatTelegramChunks('```js\n' + '<😀>'.repeat(3000) + '\n```', "терн");
+  const chunks = formatTelegramChunks("```js\n" + "<😀>".repeat(3000) + "\n```", "терн");
   expect(chunks.length > 1).toBeTruthy();
   for (const chunk of chunks) {
     expect(chunk).toMatch(/^<pre>/);
     expect(chunk).toMatch(/<\/pre>\n\n· терн$/);
-    const decoded = chunk.replace(/<[^>]*>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    const decoded = chunk
+      .replace(/<[^>]*>/g, "")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&");
     expect(decoded.length <= 3800).toBeTruthy();
   }
 });
 
 test("unfinished Markdown during streaming still produces closed HTML tags", () => {
-  const [text] = formatTelegramChunks('```\nconst a = 1;');
-  expect(text).toBe('<pre>const a = 1;</pre>');
+  const [text] = formatTelegramChunks("```\nconst a = 1;");
+  expect(text).toBe("<pre>const a = 1;</pre>");
 });
 
 test("long text uses balanced expandable quotes while signatures remain visible", () => {

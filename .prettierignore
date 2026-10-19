@@ -1,0 +1,11 @@
+node_modules/
+.git/
+.agents/
+.codex/
+.aws/
+memory/
+bun.lock
+.env
+.env.*
+facts.json5
+personality.json5

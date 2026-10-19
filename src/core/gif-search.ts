@@ -5,14 +5,25 @@ import { fetchText, validatePublicUrl } from "./web-fallback.ts";
  * Create optional GIF search; credentials stay outside model-visible results/errors.
  * @returns Search operation.
  */
-export function createGifSearch({ apiKey, getText = fetchText }: { apiKey?: string; getText?: typeof fetchText; } = {}) {
+export function createGifSearch({
+  apiKey,
+  getText = fetchText,
+}: { apiKey?: string; getText?: typeof fetchText } = {}) {
   if (!apiKey?.trim()) return null;
   return async (query: string): Promise<import("../types.ts").ImageCandidate[]> => {
-    const term = String(query ?? "").trim().slice(0, 300);
+    const term = String(query ?? "")
+      .trim()
+      .slice(0, 300);
     if (!term) return [];
     try {
-      const params = new URLSearchParams({ key: apiKey, q: term, limit: "5",
-        media_filter: "tinygif,tinymp4", contentfilter: "medium", locale: "ru_RU" });
+      const params = new URLSearchParams({
+        key: apiKey,
+        q: term,
+        limit: "5",
+        media_filter: "tinygif,tinymp4",
+        contentfilter: "medium",
+        locale: "ru_RU",
+      });
       const response = JSON.parse(await getText(`https://api.klipy.com/v2/search?${params}`));
       if (!Array.isArray(response.results)) throw new Error("Invalid response");
       const candidates: import("../types.ts").ImageCandidate[] = [];
@@ -23,13 +34,26 @@ export function createGifSearch({ apiKey, getText = fetchText }: { apiKey?: stri
           if (!media?.url || media.size > 10 * 1024 * 1024) continue;
           const url = validatePublicUrl(media.url);
           const source = validatePublicUrl(entry.itemurl || entry.url);
-          if (url.protocol !== "https:" || !(url.hostname === "static.klipy.com" || url.hostname.endsWith(".static.klipy.com")) ||
-              source.protocol !== "https:" || !(source.hostname === "klipy.com" || source.hostname === "www.klipy.com") || seen.has(url.href)) continue;
+          if (
+            url.protocol !== "https:" ||
+            !(url.hostname === "static.klipy.com" || url.hostname.endsWith(".static.klipy.com")) ||
+            source.protocol !== "https:" ||
+            !(source.hostname === "klipy.com" || source.hostname === "www.klipy.com") ||
+            seen.has(url.href)
+          )
+            continue;
           seen.add(url.href);
-          candidates.push({ title: String(entry.title || entry.content_description || "GIF").slice(0, 180),
-            url: url.href, sourceUrl: source.href, kind: "gif", provider: "KLIPY" });
+          candidates.push({
+            title: String(entry.title || entry.content_description || "GIF").slice(0, 180),
+            url: url.href,
+            sourceUrl: source.href,
+            kind: "gif",
+            provider: "KLIPY",
+          });
           if (candidates.length === 5) break;
-        } catch { /* Skip malformed or unexpected provider addresses. */ }
+        } catch {
+          /* Skip malformed or unexpected provider addresses. */
+        }
       }
       return candidates;
     } catch {

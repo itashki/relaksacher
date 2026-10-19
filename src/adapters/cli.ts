@@ -2,24 +2,36 @@
 import { createTui } from "./tui.ts";
 
 /** Listen for operator commands without stopping the messenger adapters. */
-export function createCliControls({ assistant, input, output }: {
+export function createCliControls({
+  assistant,
+  input,
+  output,
+  music,
+}: {
+  music?: import("../core/music-status.ts").MusicStatusSource;
   assistant: import("../types.ts").Assistant;
   input?: ReadableStream<Uint8Array>;
   output?: Pick<Bun.FileSink, "write">;
 }) {
-  if (!input && !output && process.stdin.isTTY && process.stdout.isTTY) return createTui({ assistant });
+  if (!input && !output && process.stdin.isTTY && process.stdout.isTTY)
+    return createTui({ assistant, music });
   const reader = (input ?? Bun.stdin.stream()).getReader();
   const sink = output ? null : Bun.stdout.writer();
   const writer = output ?? sink;
   const help = "CLI: stop — остановить текущую генерацию; help — показать команды.\n";
   let closed = false;
-  const write = (text: string) => { writer.write(text); sink?.flush(); };
+  const write = (text: string) => {
+    writer.write(text);
+    sink?.flush();
+  };
   const command = (line: string) => {
     const value = line.trim().toLowerCase();
     if (value === "stop") {
-      write(assistant.stopCurrentGeneration()
-        ? "Остановка генерации запрошена. Бот продолжает работать.\n"
-        : "Нет активной генерации для остановки.\n");
+      write(
+        assistant.stopCurrentGeneration()
+          ? "Остановка генерации запрошена. Бот продолжает работать.\n"
+          : "Нет активной генерации для остановки.\n",
+      );
     } else if (value === "help") {
       write(help);
     } else if (value) {
@@ -41,7 +53,10 @@ export function createCliControls({ assistant, input, output }: {
           if (closed) break;
           command(line);
         }
-        if (done) { if (pending) command(pending); break; }
+        if (done) {
+          if (pending) command(pending);
+          break;
+        }
       }
     } catch (error) {
       if (!closed) console.error("CLI input failed:", error);

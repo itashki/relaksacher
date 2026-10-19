@@ -1,3 +1,4 @@
+/** @file Parse explicit chat flags and truncate user-visible text safely. */
 /**
  * Truncate a value using UTF-16 length, adding an ellipsis when needed.
  * @param value Value to stringify; nullish values become an empty string.
@@ -6,9 +7,7 @@
  */
 export function truncate(value: any, maxLength: number) {
   const textValue = String(value ?? "");
-  return textValue.length > maxLength
-    ? `${textValue.slice(0, maxLength)}…`
-    : textValue;
+  return textValue.length > maxLength ? `${textValue.slice(0, maxLength)}…` : textValue;
 }
 
 /**
@@ -20,14 +19,11 @@ export function parseCommands(content: string) {
   const flags = { think: false };
   let found = false;
 
-  let cleaned = content.replace(
-    /(^|\s)\/(think)(?=\s|$)/giu,
-    (_match, prefix, command) => {
-      flags.think = true;
-      found = true;
-      return prefix;
-    },
-  );
+  let cleaned = content.replace(/(^|\s)\/(think)(?=\s|$)/giu, (_match, prefix, command) => {
+    flags.think = true;
+    found = true;
+    return prefix;
+  });
 
   if (found) {
     cleaned = cleaned.replace(/[ \t]{2,}/g, " ").trim();
@@ -35,4 +31,3 @@ export function parseCommands(content: string) {
 
   return { flags, content: cleaned };
 }
-

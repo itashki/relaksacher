@@ -1,37 +1,77 @@
+/** @file Expose bounded model tools for memory, web access, history and selected media delivery. */
 import { createImageSearch } from "./image-search.ts";
 import { createWebFallback, createWebClient } from "./web-fallback.ts";
 import { truncate } from "./text.ts";
 
 const IMAGE_TOOLS = [
-  { type: "function", function: { name: "search_images",
-    description: "Ищет картинки, фотографии и мемы в DuckDuckGo (резерв — Bing Images). Возвращает id, названия и ссылки на источники, но не визуальное содержимое. Автор и лицензия неизвестны. Используй по просьбе или для уместного ответа картинкой.",
-    parameters: { type: "object", required: ["query"], properties: { query: { type: "string", description: "Поисковый запрос, лучше по-английски" } } },
-  } },
-  { type: "function", function: { name: "send_image",
-    description: "Отправляет в текущий чат одну картинку по id из search_images. Не более одной на запрос. Не вызывай без подходящего результата поиска.",
-    parameters: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
-  } },
+  {
+    type: "function",
+    function: {
+      name: "search_images",
+      description:
+        "Ищет картинки, фотографии и мемы в DuckDuckGo (резерв — Bing Images). Возвращает id, названия и ссылки на источники, но не визуальное содержимое. Автор и лицензия неизвестны. Используй по просьбе или для уместного ответа картинкой.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        properties: {
+          query: { type: "string", description: "Поисковый запрос, лучше по-английски" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_image",
+      description:
+        "Отправляет в текущий чат одну картинку по id из search_images. Не более одной на запрос. Не вызывай без подходящего результата поиска.",
+      parameters: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+    },
+  },
 ];
 
 const GIF_TOOLS = [
-  { type: "function", function: { name: "search_gifs",
-    description: "Ищет GIF-реакции в KLIPY. Возвращает id и метаданные, не визуальное содержимое. Можно использовать по просьбе или для уместного короткого ответа гифкой.",
-    parameters: { type: "object", required: ["query"], properties: { query: { type: "string" } } },
-  } },
-  { type: "function", function: { name: "send_gif",
-    description: "Отправляет GIF по id из search_gifs. Не более одной картинки или GIF на запрос. Не придумывай id.",
-    parameters: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
-  } },
+  {
+    type: "function",
+    function: {
+      name: "search_gifs",
+      description:
+        "Ищет GIF-реакции в KLIPY. Возвращает id и метаданные, не визуальное содержимое. Можно использовать по просьбе или для уместного короткого ответа гифкой.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        properties: { query: { type: "string" } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_gif",
+      description:
+        "Отправляет GIF по id из search_gifs. Не более одной картинки или GIF на запрос. Не придумывай id.",
+      parameters: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+    },
+  },
 ];
 
 const HISTORY_TOOL = {
   type: "function",
   function: {
     name: "read_history",
-    description: "Читает последние сообщения текущего чата/темы перед текущим запросом; в ветке Discord также читает родительский канал. Используй по необходимости для понимания отсылок или по просьбе посмотреть историю. Это фон, не новые запросы. В Telegram доступен только кеш полученных сообщений.",
-    parameters: { type: "object", properties: {
-      limit: { type: "integer", minimum: 1, maximum: 20, description: "Число последних сообщений, по умолчанию 10" },
-    } },
+    description:
+      "Читает последние сообщения текущего чата/темы перед текущим запросом; в ветке Discord также читает родительский канал. Используй по необходимости для понимания отсылок или по просьбе посмотреть историю. Это фон, не новые запросы. В Telegram доступен только кеш полученных сообщений.",
+    parameters: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20,
+          description: "Число последних сообщений, по умолчанию 10",
+        },
+      },
+    },
   },
 };
 
@@ -69,7 +109,6 @@ const MEMORY_TOOLS = [
     },
   },
 ];
-
 
 // Сколько первых результатов поиска сразу подгружать целиком (полный текст страницы).
 const SEARCH_FETCH_TOP = 2;
@@ -111,12 +150,23 @@ const TOOLS = [
   },
 ];
 
-
 /**
  * Expose memory tools and optionally Ollama cloud web tools.
  * @returns Tool service.
  */
-export function createToolService({ searchClient: primarySearchClient = null, fallbackClient = createWebFallback(), imageSearch = createImageSearch(), gifSearch = null, memory }: { searchClient?: import("../types.ts").WebClient | null; imageSearch?: (arg0: string) => Promise<import("../types.ts").ImageCandidate[]>; gifSearch?: (arg0: string) => Promise<import("../types.ts").ImageCandidate[]> | null; fallbackClient?: import("../types.ts").WebClient | null; memory: import("../types.ts").MemoryStore; }): import("../types.ts").ToolService {
+export function createToolService({
+  searchClient: primarySearchClient = null,
+  fallbackClient = createWebFallback(),
+  imageSearch = createImageSearch(),
+  gifSearch = null,
+  memory,
+}: {
+  searchClient?: import("../types.ts").WebClient | null;
+  imageSearch?: (arg0: string) => Promise<import("../types.ts").ImageCandidate[]>;
+  gifSearch?: (arg0: string) => Promise<import("../types.ts").ImageCandidate[]> | null;
+  fallbackClient?: import("../types.ts").WebClient | null;
+  memory: import("../types.ts").MemoryStore;
+}): import("../types.ts").ToolService {
   const searchClient = createWebClient(primarySearchClient, fallbackClient);
   const { addMemoryFact, removeMemoryFact } = memory;
   // Выполняет вызов инструмента и возвращает строку для модели.
@@ -126,7 +176,10 @@ export function createToolService({ searchClient: primarySearchClient = null, fa
    * @param context Memory scope and attribution.
    * @returns Tool output or a readable failure description.
    */
-  async function runTool(call: import("../types.ts").ToolCall, context: import("../types.ts").RequestContext) {
+  async function runTool(
+    call: import("../types.ts").ToolCall,
+    context: import("../types.ts").RequestContext,
+  ) {
     const { name } = call.function;
     const args = call.function.arguments ?? {};
 
@@ -141,16 +194,20 @@ export function createToolService({ searchClient: primarySearchClient = null, fa
           const query = String(args.query ?? "").trim();
           if (!query) return "Нужен поисковый запрос.";
           const results = await (isGif ? gifSearch : imageSearch)(query);
-          return JSON.stringify(results.slice(0, 5).map((image) => {
-            const id = `${isGif ? "gif" : "image"}_${context.imageState.candidates.size + 1}`;
-            context.imageState.candidates.set(id, image);
-            return { id, ...image };
-          }));
+          return JSON.stringify(
+            results.slice(0, 5).map((image) => {
+              const id = `${isGif ? "gif" : "image"}_${context.imageState.candidates.size + 1}`;
+              context.imageState.candidates.set(id, image);
+              return { id, ...image };
+            }),
+          );
         }
         if (context.imageState.sent) return "Картинка в этом ответе уже отправлена.";
-        if (context.imageState.attempted) return "Попытка отправки уже была; не повторяй её, чтобы избежать дубликатов.";
+        if (context.imageState.attempted)
+          return "Попытка отправки уже была; не повторяй её, чтобы избежать дубликатов.";
         const image = context.imageState.candidates.get(String(args.id));
-        if (!image || (image.kind === "gif") !== isGif) return "Неизвестный id: сначала выполни подходящий поиск search_images или search_gifs.";
+        if (!image || (image.kind === "gif") !== isGif)
+          return "Неизвестный id: сначала выполни подходящий поиск search_images или search_gifs.";
         // Mark before sending: an ambiguous delivery error must not cause duplicates.
         context.imageState.attempted = true;
         await context.sendImage(image);
@@ -158,12 +215,17 @@ export function createToolService({ searchClient: primarySearchClient = null, fa
         return "Медиа отправлено. Если оно само отвечает на запрос, заверши ответ без текста. Не добавляй подпись, ссылку, подтверждение отправки или эмодзи. Если пояснение действительно нужно, ответь коротко. Не утверждай, что видел изображение: поиск дал только метаданные.";
       }
       if (name === "read_history") {
-        if (typeof context?.readHistory !== "function") return "Чтение истории недоступно в этом чате.";
+        if (typeof context?.readHistory !== "function")
+          return "Чтение истории недоступно в этом чате.";
         const limit = Math.min(20, Math.max(1, Math.floor(Number(args.limit) || 10)));
         const history = await context.readHistory(limit);
-        return JSON.stringify({ ...history, messages: history.messages.slice(-limit).map((entry) => ({
-          ...entry, content: truncate(entry.content, 800),
-        })) });
+        return JSON.stringify({
+          ...history,
+          messages: history.messages.slice(-limit).map((entry) => ({
+            ...entry,
+            content: truncate(entry.content, 800),
+          })),
+        });
       }
       if (name === "remember" || name === "forget") {
         // Память работает только на серверах и только в рамках текущего сервера.
@@ -193,14 +255,11 @@ export function createToolService({ searchClient: primarySearchClient = null, fa
 
         return JSON.stringify(
           results.map((result, index) => {
-            const page =
-              pages[index]?.status === "fulfilled" ? pages[index].value : null;
+            const page = pages[index]?.status === "fulfilled" ? pages[index].value : null;
             return {
               title: result.title,
               url: result.url,
-              content: page
-                ? truncate(page.content, 3500)
-                : truncate(result.content, 1500),
+              content: page ? truncate(page.content, 3500) : truncate(result.content, 1500),
             };
           }),
         );

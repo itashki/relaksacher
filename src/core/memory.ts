@@ -1,3 +1,4 @@
+/** @file Persist scoped facts with serialized updates and atomic file replacement. */
 import { rename } from "node:fs/promises";
 import { resolvePath } from "./paths.ts";
 
@@ -90,9 +91,7 @@ export function createMemoryStore(directory: string) {
 
     return withMemoryLock(scopeId, async () => {
       const facts = await loadMemory(scopeId);
-      const duplicate = facts.find(
-        (entry) => entry.fact.toLowerCase() === fact.toLowerCase(),
-      );
+      const duplicate = facts.find((entry) => entry.fact.toLowerCase() === fact.toLowerCase());
       if (duplicate) return `Такая запись уже есть (id ${duplicate.id}).`;
 
       const id = facts.reduce((max, entry) => Math.max(max, entry.id), 0) + 1;

@@ -1,7 +1,12 @@
+/** @file Load and validate local JSON5 configuration and environment settings before clients start. */
 const projectDirectory = Bun.fileURLToPath(new URL("../", import.meta.url));
 
+/** Resolve a local configuration file and parse JSON5; missing or invalid files reject startup. */
 async function readConfigFile(filename: string) {
-  const file = Bun.resolveSync(filename.startsWith("/") ? filename : `./${filename}`, projectDirectory);
+  const file = Bun.resolveSync(
+    filename.startsWith("/") ? filename : `./${filename}`,
+    projectDirectory,
+  );
   return Bun.JSON5.parse(await Bun.file(file).text());
 }
 
@@ -41,15 +46,22 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
     }
     personality = rules.map((rule) => rule.trim()).join("\n");
   } catch (error) {
-    throw new Error(`Cannot read personality from ${personalityFile}: ${error.message}`, { cause: error });
+    throw new Error(`Cannot read personality from ${personalityFile}: ${error.message}`, {
+      cause: error,
+    });
   }
   const supervisorModel = env.OLLAMA_SUPERVISOR_MODEL || "qwen3:0.6b";
   const supervisorTimeoutMs = Number(env.OLLAMA_SUPERVISOR_TIMEOUT_MS ?? 30000);
-  if (!Number.isSafeInteger(supervisorTimeoutMs) || supervisorTimeoutMs <= 0) throw new Error("Invalid OLLAMA_SUPERVISOR_TIMEOUT_MS");
+  if (!Number.isSafeInteger(supervisorTimeoutMs) || supervisorTimeoutMs <= 0)
+    throw new Error("Invalid OLLAMA_SUPERVISOR_TIMEOUT_MS");
   const autoMemory = env.AUTO_MEMORY !== "false";
   const autoMemoryCooldownMs = Number(env.AUTO_MEMORY_COOLDOWN_MS ?? 120000);
   const autoMemoryCheckIntervalMs = Number(env.AUTO_MEMORY_CHECK_INTERVAL_MS ?? 60000);
-  if (![autoMemoryCooldownMs, autoMemoryCheckIntervalMs].every((value) => Number.isSafeInteger(value) && value >= 1000)) {
+  if (
+    ![autoMemoryCooldownMs, autoMemoryCheckIntervalMs].every(
+      (value) => Number.isSafeInteger(value) && value >= 1000,
+    )
+  ) {
     throw new Error("Automatic memory intervals must be integers of at least 1000 ms");
   }
   const spontaneous = {
@@ -57,8 +69,13 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
     chance: Number(env.SPONTANEOUS_CHANCE ?? 0.05),
     cooldownMs: Number(env.SPONTANEOUS_COOLDOWN_MS ?? 300000),
   };
-  if (!Number.isFinite(spontaneous.chance) || spontaneous.chance < 0 || spontaneous.chance > 1 ||
-      !Number.isSafeInteger(spontaneous.cooldownMs) || spontaneous.cooldownMs < 30000) {
+  if (
+    !Number.isFinite(spontaneous.chance) ||
+    spontaneous.chance < 0 ||
+    spontaneous.chance > 1 ||
+    !Number.isSafeInteger(spontaneous.cooldownMs) ||
+    spontaneous.cooldownMs < 30000
+  ) {
     throw new Error("Invalid spontaneous reply probability or cooldown (minimum 30000 ms)");
   }
   const token = env.BOT_TOKEN;
@@ -72,7 +89,9 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
     throw new Error("TELEGRAM_TIMEOUT_MS must be a positive integer");
   }
   const adapters = (env.BOT_ADAPTERS || (token ? "discord" : "telegram"))
-    .split(",").map((name) => name.trim()).filter(Boolean);
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
   if (!adapters.length || adapters.some((name) => !["discord", "telegram"].includes(name))) {
     throw new Error("BOT_ADAPTERS must contain discord and/or telegram");
   }
@@ -97,9 +116,7 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
     throw new Error("BOT_TOKEN is not defined in the environment variables.");
   }
   if (adapters.includes("discord") && !applicantId) {
-    throw new Error(
-      "APPLICANT_ID is not defined in the environment variables.",
-    );
+    throw new Error("APPLICANT_ID is not defined in the environment variables.");
   }
   if (adapters.includes("discord") && !publicKey) {
     throw new Error("PUBLIC_KEY is not defined in the environment variables.");
