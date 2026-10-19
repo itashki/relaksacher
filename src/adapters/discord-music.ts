@@ -2,12 +2,14 @@
 import {
   createPlaybackQueue,
   startQueue,
+  startQueueAt,
   advanceQueue,
   shuffled,
   type AdvanceReason,
   type RepeatMode,
 } from "../core/music-queue.ts";
 import type { MusicStatus } from "../core/music-status.ts";
+import { loadMusicMetadata, formatMusicTrack, type MusicMetadata } from "./music-metadata.ts";
 import { rename } from "node:fs/promises";
 import { resolvePath } from "../core/paths.ts";
 import { createMusicPipeline, runMusicCommand } from "./music-process.ts";
@@ -20,6 +22,7 @@ import {
   ChannelType,
   ActionRowBuilder,
   ButtonBuilder,
+  StringSelectMenuBuilder,
   ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
@@ -37,7 +40,7 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 
-/** Validate a bounded HTTPS media URL against supported YouTube and SoundCloud hosts.
+/** Validate a bounded HTTPS media URL against supported music hosts.
  * @throws When the protocol, host, credentials, port or URL length is unsupported. */
 export function musicUrl(input: string) {
   const url = new URL(input.replace(/^<|>$/g, ""));
@@ -47,18 +50,30 @@ export function musicUrl(input: string) {
     url.username ||
     url.password ||
     url.port ||
-    ![
-      "youtube.com",
-      "www.youtube.com",
-      "m.youtube.com",
-      "music.youtube.com",
-      "youtu.be",
-      "soundcloud.com",
-      "www.soundcloud.com",
-      "on.soundcloud.com",
-    ].includes(url.hostname)
+    !(
+      /^[a-z0-9-]+\.bandcamp\.com$/.test(url.hostname) ||
+      [
+        "bandcamp.com",
+        "audiomack.com",
+        "www.audiomack.com",
+        "music.yandex.ru",
+        "music.yandex.com",
+        "music.yandex.kz",
+        "music.yandex.by",
+        "youtube.com",
+        "www.youtube.com",
+        "m.youtube.com",
+        "music.youtube.com",
+        "youtu.be",
+        "soundcloud.com",
+        "www.soundcloud.com",
+        "on.soundcloud.com",
+      ].includes(url.hostname)
+    )
   ) {
-    throw new Error("Нужна HTTPS-ссылка на YouTube или SoundCloud.");
+    throw new Error(
+      "Нужна HTTPS-ссылка на YouTube, SoundCloud, Bandcamp, Audiomack или Яндекс Музыку.",
+    );
   }
   return url.href;
 }
@@ -147,16 +162,88 @@ export async function loadYouTubePlaylist(
   return { tracks, truncated: data.entries.length > limit, skipped };
 }
 
+/** A display title and validated playable URL returned by a music search. */
+export type MusicSearchResult = { title: string; url: string; duration?: number };
+
+/** Search up to five public YouTube or SoundCloud tracks without downloading audio.
+ * Prefix the query with sc: for SoundCloud; cancellation stops metadata extraction. */
+export async function searchMusic(
+  query: string,
+  signal: AbortSignal,
+  run: PlaylistRunner = runPlaylist,
+): Promise<MusicSearchResult[]> {
+  const soundcloud = /^sc:/i.test(query);
+  const text = query.replace(/^(sc:|yt:)/i, "").trim();
+  if (!text || text.length > 200) throw new Error("Введите название трека (до 200 символов).");
+  let data: { entries?: unknown[] };
+  try {
+    data = JSON.parse(
+      await run(
+        [
+          "--ignore-config",
+          "--flat-playlist",
+          "--dump-single-json",
+          "--skip-download",
+          "--socket-timeout",
+          "15",
+          "--retries",
+          "1",
+          "--",
+          `${soundcloud ? "scsearch5" : "ytsearch5"}:${text}`,
+        ],
+        signal,
+      ),
+    );
+  } catch {
+    throw new Error(
+      "Не удалось выполнить поиск. Проверьте доступность сервиса и установку yt-dlp.",
+    );
+  }
+  const results: MusicSearchResult[] = [];
+  for (const value of Array.isArray(data?.entries) ? data.entries.slice(0, 5) : []) {
+    if (!value || typeof value !== "object") continue;
+    const entry = value as {
+      id?: unknown;
+      title?: unknown;
+      url?: unknown;
+      webpage_url?: unknown;
+      duration?: unknown;
+    };
+    try {
+      const url = musicUrl(
+        !soundcloud && typeof entry.id === "string" && /^[A-Za-z0-9_-]{11}$/.test(entry.id)
+          ? `https://www.youtube.com/watch?v=${entry.id}`
+          : String(entry.webpage_url ?? entry.url ?? ""),
+      );
+      results.push({
+        ...(typeof entry.duration === "number" &&
+        Number.isFinite(entry.duration) &&
+        entry.duration >= 0
+          ? { duration: Math.floor(entry.duration) }
+          : {}),
+        url,
+        title:
+          typeof entry.title === "string" ? entry.title.replace(/\s+/g, " ").slice(0, 150) : url,
+      });
+    } catch {
+      /* Skip malformed or unsupported provider entries. */
+    }
+  }
+  if (!results.length) throw new Error("Ничего не найдено. Уточните название трека.");
+  return results;
+}
+
 const help =
-  "🎵 !music — панель с кнопками; !music add <ссылка> — сохранить трек или YouTube-плейлист; !music list — плейлист; !music remove <номер> — удалить; !music play [ссылка] — включить; !music pause / resume / skip / stop / leave; !music repeat off|track|all; !music shuffle on|off; !music mix — перемешать очередь; !music queue — очередь. Для управления войдите в голосовой канал бота.";
+  "🎵 !music — панель с кнопками; !music add <ссылка> — сохранить трек или YouTube-плейлист; !music search <название> — поиск (sc: для SoundCloud); !music list — плейлист; !music jump <номер> — включить выбранный трек; !music remove <номер> — удалить; !music play [ссылка] — включить; !music pause / resume / skip / stop / leave; !music repeat off|track|all; !music shuffle on|off; !music mix — перемешать очередь; !music queue — очередь. Для управления войдите в голосовой канал бота.";
 
 type MusicRequest = {
+  expectedTracks?: string[];
   content: string;
   guild: Guild | null;
   author: Pick<User, "id">;
   reply: (payload: {
     content: string;
-    components?: ActionRowBuilder<ButtonBuilder>[];
+    components?: (ActionRowBuilder<ButtonBuilder> | ActionRowBuilder<StringSelectMenuBuilder>)[];
     allowedMentions: { parse: never[]; repliedUser: boolean };
   }) => Promise<unknown>;
 };
@@ -166,13 +253,117 @@ export function createDiscordMusic(
   directory: string,
   {
     loadPlaylist = loadYouTubePlaylist,
+    search = searchMusic,
+    loadMetadata = loadMusicMetadata,
     onStatus = () => {},
   }: {
+    search?: typeof searchMusic;
+    loadMetadata?: typeof loadMusicMetadata;
     onStatus?: (statuses: MusicStatus[]) => void;
     loadPlaylist?: (url: string, limit: number, signal: AbortSignal) => Promise<PlaylistResult>;
   } = {},
 ) {
   const states = new Map<string, ReturnType<typeof newState>>();
+  const searchChoices = new Map<
+    string,
+    { userId: string; guildId: string; urls: string[]; expires: number }
+  >();
+  const playlistMenus = new Map<
+    string,
+    { userId: string; guildId: string; tracks: string[]; expires: number }
+  >();
+  const removalMenus = new Map<
+    string,
+    { userId: string; guildId: string; tracks: string[]; expires: number }
+  >();
+  const metadataTasks = new Set<Promise<void>>();
+  const listingTasks = new Set<Promise<void>>();
+  const metadataCache = new Map<string, { value: MusicMetadata | null; expires: number }>();
+  const listingLookups = new Map<string, Promise<MusicMetadata | null>>();
+  /** Cache successful lookups for an hour and provider failures for a minute, bounded to 500 URLs. */
+  async function trackMetadata(url: string, signal: AbortSignal): Promise<MusicMetadata | null> {
+    signal.throwIfAborted();
+    const cached = metadataCache.get(url);
+    if (cached && cached.expires > Date.now()) return cached.value;
+    let value: MusicMetadata | null = null;
+    try {
+      value = await loadMetadata(url, signal);
+    } catch {
+      signal.throwIfAborted();
+    }
+    signal.throwIfAborted();
+    while (metadataCache.size >= 500) metadataCache.delete(metadataCache.keys().next().value!);
+    metadataCache.set(url, { value, expires: Date.now() + (value ? 3_600_000 : 60_000) });
+    return value;
+  }
+  /** Coalesce list lookups while keeping playback cancellation independent. */
+  function listingMetadata(url: string): Promise<MusicMetadata | null> {
+    const existing = listingLookups.get(url);
+    if (existing) return existing;
+    const task = trackMetadata(url, imports.signal).finally(() => listingLookups.delete(url));
+    listingLookups.set(url, task);
+    return task;
+  }
+  /** Render a stable queue snapshot with at most three concurrent lookups and bounded Discord pages. */
+  async function sendTrackList(
+    tracks: string[],
+    current: string,
+    empty: string,
+    reply: (
+      text: string,
+      components?: ActionRowBuilder<StringSelectMenuBuilder>[],
+    ) => Promise<void>,
+    selectionToken?: string,
+  ) {
+    const urls = [...new Set([...(current ? [current] : []), ...tracks])];
+    const metadata = new Map<string, MusicMetadata | null>();
+    let cursor = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(3, urls.length) }, async () => {
+        while (cursor < urls.length) {
+          imports.signal.throwIfAborted();
+          const url = urls[cursor++];
+          metadata.set(url, await listingMetadata(url));
+        }
+      }),
+    );
+    if (closed) return;
+    const lines = [
+      ...(current ? [`Сейчас: ${formatMusicTrack(current, metadata.get(current) ?? null)}`] : []),
+      ...(tracks.length
+        ? tracks.map((url, i) => `${i + 1}. ${formatMusicTrack(url, metadata.get(url) ?? null)}`)
+        : [empty]),
+    ];
+    let page = "";
+    for (const line of lines) {
+      if (page && page.length + line.length + 1 > 1900) {
+        await reply(page);
+        page = "";
+      }
+      page += `${page ? "\n" : ""}${line}`;
+    }
+    if (page && !closed) {
+      const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+      if (selectionToken)
+        for (let offset = 0; offset < tracks.length; offset += 25) {
+          const select = new StringSelectMenuBuilder()
+            .setCustomId(`music:jump:${selectionToken}:${offset}`)
+            .setPlaceholder(`Включить трек ${offset + 1}–${Math.min(offset + 25, tracks.length)}`)
+            .addOptions(
+              tracks.slice(offset, offset + 25).map((url, i) => ({
+                label: `${offset + i + 1}. ${metadata.get(url)?.title ?? url}`.slice(0, 100),
+                value: String(offset + i),
+                description: formatMusicTrack(url, metadata.get(url) ?? null)
+                  .split(" · ")
+                  .at(-1)!
+                  .slice(0, 100),
+              })),
+            );
+          components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
+        }
+      await reply(page, components.length ? components : undefined);
+    }
+  }
   const locks = new Map<string, Promise<unknown>>();
   let closed = false;
   let shutdownTask: Promise<void> | undefined;
@@ -218,33 +409,33 @@ export function createDiscordMusic(
     const active = Boolean(s.current);
     const button = (
       action: string,
-      label: string,
+      label: string | { emoji: string },
       style = ButtonStyle.Secondary,
       disabled = false,
-    ) =>
-      new ButtonBuilder()
+    ) => {
+      const control = new ButtonBuilder()
         .setCustomId(`music:${action}`)
-        .setLabel(label)
         .setStyle(style)
         .setDisabled(disabled);
+      return typeof label === "string" ? control.setLabel(label) : control.setEmoji(label.emoji);
+    };
     return {
       content:
-        `🎵 **Музыкальный плеер**\n${active ? `${paused ? "⏸ На паузе" : "▶ Сейчас"}: <${s.current}>` : "⏹ Воспроизведение остановлено"}\n` +
+        `🎵 **Музыкальный плеер**\n${active ? `${paused ? "⏸ На паузе" : "▶ Сейчас"}: ${formatMusicTrack(s.current, s.metadata, Boolean(s.metadataAbort))}` : "⏹ Воспроизведение остановлено"}\n` +
         `Сохранено: **${s.tracks.length}/100** · Далее в очереди: **${s.pending.length}**\n` +
-        `Повтор: **${{ off: "выкл", track: "трек", all: "вся очередь" }[s.repeat]}** · Случайный порядок: **${s.shuffle ? "вкл" : "выкл"}**\n` +
-        "Добавьте ссылку на YouTube, SoundCloud или YouTube-плейлист. Для управления войдите в голосовой канал бота.",
+        `Повтор: **${{ off: "выкл", track: "трек", all: "вся очередь" }[s.repeat]}** · Случайный порядок: **${s.shuffle ? "вкл" : "выкл"}**`,
       components: [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
-          button("play", "▶ Включить", ButtonStyle.Success, active || !s.tracks.length),
-          button("toggle", paused ? "▶ Продолжить" : "⏸ Пауза", ButtonStyle.Primary, !active),
-          button("skip", "⏭ Далее", ButtonStyle.Secondary, !active),
-          button("stop", "⏹ Остановить", ButtonStyle.Danger, !s.connection),
+          button("play", { emoji: "▶️" }, ButtonStyle.Success, active || !s.tracks.length),
+          button("toggle", { emoji: paused ? "▶️" : "⏸️" }, ButtonStyle.Primary, !active),
+          button("skip", { emoji: "⏭️" }, ButtonStyle.Secondary, !active),
+          button("stop", { emoji: "⏹️" }, ButtonStyle.Danger, !s.connection),
         ),
         new ActionRowBuilder<ButtonBuilder>().addComponents(
-          button("add", "＋ Добавить"),
-          button("remove", "− Удалить", ButtonStyle.Secondary, !s.tracks.length),
-          button("list", "☷ Плейлист"),
-          button("panel", "↻ Обновить"),
+          button("add", "＋"),
+          button("remove", "−", ButtonStyle.Secondary, !s.tracks.length),
+          button("list", "☷"),
+          button("search", { emoji: "🔎" }),
         ),
         new ActionRowBuilder<ButtonBuilder>().addComponents(
           button(
@@ -281,6 +472,14 @@ export function createDiscordMusic(
       }, 300),
     );
   }
+  /** Refresh the panel owning a player after an asynchronous metadata update. */
+  function refreshGuild(state: State) {
+    for (const [guildId, candidate] of states)
+      if (candidate === state) {
+        refresh(guildId);
+        break;
+      }
+  }
   /** Create independent player and queue state for a guild; no voice connection is opened yet. */
   function newState() {
     const player = createAudioPlayer();
@@ -290,6 +489,9 @@ export function createDiscordMusic(
       guildName: "",
       channelName: "",
       importing: false,
+      replacing: false,
+      metadata: null as MusicMetadata | null,
+      metadataAbort: null as AbortController | null,
       error: "",
       player,
       tracks: [] as string[],
@@ -301,6 +503,9 @@ export function createDiscordMusic(
   type State = ReturnType<typeof newState>;
   /** Clear the playback deadline and stop the active source/encoder pipeline without advancing the queue. */
   function cleanup(s: State) {
+    s.metadataAbort?.abort();
+    s.metadataAbort = null;
+    s.metadata = null;
     if (s.timer) clearTimeout(s.timer);
     s.timer = null;
     const playback = s.playback;
@@ -333,6 +538,25 @@ export function createDiscordMusic(
       s.timer = setTimeout(() => disconnect(s), 60_000);
       return;
     }
+    // Resolve display data independently; a stale lookup must never overwrite a new track.
+    const metadataAbort = new AbortController();
+    s.metadataAbort = metadataAbort;
+    const currentUrl = s.current;
+    const task = Promise.resolve()
+      .then(() => trackMetadata(currentUrl, metadataAbort.signal))
+      .then((metadata) => {
+        if (!closed && s.metadataAbort === metadataAbort) s.metadata = metadata;
+      })
+      .catch(() => {}) // Metadata failure does not interrupt audio playback.
+      .finally(() => {
+        metadataTasks.delete(task);
+        if (!closed && s.metadataAbort === metadataAbort) {
+          s.metadataAbort = null;
+          refreshGuild(s);
+        }
+      });
+    metadataTasks.add(task);
+    refreshGuild(s);
     // No shell interpolation. yt-dlp resolves expiring media URLs at playback time.
     let playback: ReturnType<typeof createMusicPipeline> | null = null;
     let failed = false;
@@ -411,6 +635,7 @@ export function createDiscordMusic(
       return true;
     }
     const guild = message.guild;
+    let listingTask: Promise<void> | undefined;
     const previous = locks.get(guild.id) ?? Promise.resolve();
     const task = previous
       .catch(() => {})
@@ -439,7 +664,9 @@ export function createDiscordMusic(
           const notify = (text: string) => {
             void reply(text).catch(() => {});
           };
-          s.player.on(AudioPlayerStatus.Idle, () => next(state, notify));
+          s.player.on(AudioPlayerStatus.Idle, () => {
+            if (!state.replacing) next(state, notify);
+          });
           s.player.on(AudioPlayerStatus.Playing, () => {
             if (state.timer) clearTimeout(state.timer);
             state.timer = null;
@@ -465,32 +692,88 @@ export function createDiscordMusic(
           return;
         }
         if (command === "list" || command === "queue") {
-          const tracks = command === "queue" ? s.pending : s.tracks;
-          const lines = [
-            ...(s.current ? [`Сейчас: <${s.current}>`] : []),
-            ...(tracks.length
-              ? tracks.map((url, i) => `${i + 1}. <${url}>`)
-              : [command === "queue" ? "Очередь пуста." : "Плейлист пуст."]),
-          ];
-          let page = "";
-          for (const line of lines) {
-            if (page.length + line.length > 1900) {
-              await reply(page);
-              page = "";
-            }
-            page += `${page ? "\n" : ""}${line}`;
+          const snapshot = [...(command === "queue" ? s.pending : s.tracks)];
+          let selectionToken: string | undefined;
+          if (command === "list" && snapshot.length) {
+            for (const [key, menu] of playlistMenus)
+              if (menu.expires <= Date.now()) playlistMenus.delete(key);
+            while (playlistMenus.size >= 100)
+              playlistMenus.delete(playlistMenus.keys().next().value!);
+            selectionToken = crypto.randomUUID();
+            playlistMenus.set(selectionToken, {
+              userId: message.author.id,
+              guildId: guild.id,
+              tracks: snapshot,
+              expires: Date.now() + 300_000,
+            });
           }
-          if (page) await reply(page);
+          // Metadata reads run outside the mutation queue so stop/skip remain responsive.
+          listingTask = sendTrackList(
+            snapshot,
+            s.current,
+            command === "queue" ? "Очередь пуста." : "Плейлист пуст.",
+            async (content, components) => {
+              await message.reply({
+                content,
+                components,
+                allowedMentions: { parse: [], repliedUser: false },
+              });
+            },
+            selectionToken,
+          )
+            .catch(async () => {
+              if (!closed) await reply("Не удалось показать список треков.").catch(() => {});
+            })
+            .finally(() => listingTasks.delete(listingTask!));
+          listingTasks.add(listingTask);
           return;
         }
         const channel = await requireVoiceChannel(guild, message.author.id);
+        if (command === "search") {
+          const results = await search(argument, imports.signal);
+          if (closed) return;
+          for (const [key, choice] of searchChoices)
+            if (choice.expires <= Date.now()) searchChoices.delete(key);
+          while (searchChoices.size >= 100)
+            searchChoices.delete(searchChoices.keys().next().value!);
+          const token = crypto.randomUUID();
+          searchChoices.set(token, {
+            userId: message.author.id,
+            guildId: guild.id,
+            urls: results.map((item) => musicUrl(item.url)),
+            expires: Date.now() + 300_000,
+          });
+          const select = new StringSelectMenuBuilder()
+            .setCustomId(`music:pick:${token}`)
+            .setPlaceholder("Выберите трек для добавления")
+            .addOptions(
+              results.map((item, i) => ({
+                label: `${i + 1}. ${item.title}`.slice(0, 100),
+                value: String(i),
+                description: formatMusicTrack(item.url, {
+                  title: item.title,
+                  duration: item.duration ?? null,
+                  live: false,
+                })
+                  .split(" · ")
+                  .at(-1)!
+                  .slice(0, 100),
+              })),
+            );
+          await message.reply({
+            content: "Выберите трек для добавления в плейлист.",
+            components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
+            allowedMentions: { parse: [], repliedUser: false },
+          });
+          return;
+        }
         const save = async (tracks: string[]) => {
           await Bun.write(`${file}.tmp`, JSON.stringify(tracks, null, 2), { createPath: true });
           await rename(`${file}.tmp`, file);
           s.tracks = tracks;
         };
         if (["toggle", "pause", "resume", "skip"].includes(command) && !s.current)
-          throw new Error("Сейчас ничего не играет. Нажмите «Включить».");
+          throw new Error("Сейчас ничего не играет. Нажмите ▶️.");
         if (command === "toggle")
           command =
             s.player.state.status === AudioPlayerStatus.Paused ||
@@ -505,7 +788,7 @@ export function createDiscordMusic(
           try {
             url = musicUrl(argument);
           } catch {
-            throw new Error("Укажите HTTPS-ссылку на трек YouTube или SoundCloud.");
+            throw new Error("Укажите HTTPS-ссылку на трек поддерживаемого сервиса.");
           }
           if (s.tracks.length >= 100) throw new Error("В плейлисте уже 100 треков.");
           const playlist = youtubePlaylistUrl(url);
@@ -562,6 +845,12 @@ export function createDiscordMusic(
             break;
           }
           case "remove": {
+            if (
+              message.expectedTracks &&
+              (message.expectedTracks.length !== s.tracks.length ||
+                message.expectedTracks.some((url, i) => url !== s.tracks[i]))
+            )
+              throw new Error("Плейлист изменился. Откройте удаление заново.");
             const index = Number(argument);
             if (!/^\d+$/.test(argument) || index < 1 || index > s.tracks.length)
               throw new Error("Укажите номер трека из !music list.");
@@ -569,8 +858,26 @@ export function createDiscordMusic(
             await reply("Трек удалён из плейлиста.");
             break;
           }
+          case "jump":
           case "play": {
-            if (s.current) throw new Error("Музыка уже играет. Используйте add, skip или stop.");
+            const position = Number(argument) - 1;
+            if (command === "jump") {
+              if (
+                message.expectedTracks &&
+                (message.expectedTracks.length !== s.tracks.length ||
+                  message.expectedTracks.some((url, i) => url !== s.tracks[i]))
+              )
+                throw new Error("Плейлист изменился. Откройте его заново.");
+              if (
+                !/^\d+$/.test(argument) ||
+                !Number.isInteger(position) ||
+                position < 0 ||
+                position >= s.tracks.length
+              )
+                throw new Error("Укажите номер трека из !music list.");
+            }
+            if (command === "play" && s.current)
+              throw new Error("Музыка уже играет. Используйте add, skip или stop.");
             if (!s.tracks.length)
               throw new Error("Плейлист пуст. Добавьте трек: !music add <ссылка>.");
             if (!Bun.which("yt-dlp") || !Bun.which("ffmpeg"))
@@ -612,7 +919,16 @@ export function createDiscordMusic(
               return;
             }
             s.connection.subscribe(s.player);
-            startQueue(s, argument ? added : s.tracks);
+            if (command === "jump") {
+              s.replacing = true;
+              try {
+                cleanup(s);
+                s.player.stop(true);
+              } finally {
+                s.replacing = false;
+              }
+              startQueueAt(s, s.tracks, position);
+            } else startQueue(s, argument ? added : s.tracks);
             s.advanceReason = "finished";
             next(s, (text) => {
               void reply(text).catch(() => {});
@@ -658,12 +974,15 @@ export function createDiscordMusic(
       refresh(guild.id);
       if (locks.get(guild.id) === task) locks.delete(guild.id);
     }
+    await listingTask;
     return true;
   }
   /** Check voice access before opening forms; route submissions through the shared command handler. */
   async function handleInteraction(interaction: Interaction): Promise<boolean> {
     if (
-      (!interaction.isButton() && !interaction.isModalSubmit()) ||
+      (!interaction.isButton() &&
+        !interaction.isModalSubmit() &&
+        !interaction.isStringSelectMenu?.()) ||
       !interaction.customId.startsWith("music:")
     )
       return false;
@@ -675,11 +994,224 @@ export function createDiscordMusic(
         });
         return true;
       }
-      if (interaction.isButton() && !panels.has(interaction.guild.id) && interaction.message?.id) {
+      if (
+        interaction.isButton() &&
+        !interaction.customId.startsWith("music:pick:") &&
+        !interaction.customId.startsWith("music:delete:") &&
+        !panels.has(interaction.guild.id) &&
+        interaction.message?.id
+      ) {
         panels.set(interaction.guild.id, interaction.message);
       }
-      const action = interaction.customId.slice("music:".length);
-      if (interaction.isButton() && (action === "add" || action === "remove")) {
+      let action = interaction.customId.slice("music:".length);
+      if (interaction.isStringSelectMenu?.() && action.startsWith("jump:")) {
+        const [, token, offsetText] = action.split(":");
+        const menu = playlistMenus.get(token ?? "");
+        const value = interaction.values[0] ?? "";
+        const index = Number(value),
+          offset = Number(offsetText);
+        if (
+          !menu ||
+          menu.userId !== interaction.user.id ||
+          menu.guildId !== interaction.guild.id ||
+          menu.expires <= Date.now()
+        ) {
+          await interaction.reply({
+            content: "Этот плейлист недоступен. Откройте свой плейлист заново.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return true;
+        }
+        if (
+          !/^\d+$/.test(value) ||
+          !Number.isInteger(offset) ||
+          offset < 0 ||
+          offset % 25 !== 0 ||
+          index < offset ||
+          index >= Math.min(offset + 25, menu.tracks.length)
+        ) {
+          await interaction.reply({
+            content: "Некорректный выбор трека.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return true;
+        }
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await handle({
+          content: `!music jump ${index + 1}`,
+          guild: interaction.guild,
+          author: interaction.user,
+          expectedTracks: menu.tracks,
+          reply: async (payload) => {
+            await interaction.editReply(payload);
+          },
+        });
+        return true;
+      }
+      if ((interaction.isButton() && action === "remove") || action.startsWith("delete:")) {
+        try {
+          await requireVoiceChannel(interaction.guild, interaction.user.id);
+        } catch (error) {
+          await interaction.reply({
+            content:
+              error instanceof Error ? error.message : "Не удалось проверить голосовой канал.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return true;
+        }
+        const [, token, pageText = "0"] = action.split(":");
+        let menu = token ? removalMenus.get(token) : undefined;
+        if (
+          token &&
+          (!menu ||
+            menu.userId !== interaction.user.id ||
+            menu.guildId !== interaction.guild.id ||
+            menu.expires <= Date.now())
+        ) {
+          await interaction.reply({
+            content: "Список удаления недоступен. Откройте его заново.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return true;
+        }
+        if (token && (interaction.isButton() || interaction.isStringSelectMenu()))
+          await interaction.deferUpdate();
+        else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        if (!states.has(interaction.guild.id))
+          await handle({
+            content: "!music list",
+            guild: interaction.guild,
+            author: interaction.user,
+            reply: async () => {},
+          });
+        const tracks = states.get(interaction.guild.id)?.tracks ?? [];
+        if (!menu) {
+          menu = {
+            userId: interaction.user.id,
+            guildId: interaction.guild.id,
+            tracks: [...tracks],
+            expires: Date.now() + 300_000,
+          };
+        }
+        if (
+          menu.tracks.length !== tracks.length ||
+          menu.tracks.some((url, i) => url !== tracks[i])
+        ) {
+          await interaction.editReply({ content: "Плейлист изменился. Откройте удаление заново." });
+          return true;
+        }
+        if (interaction.isStringSelectMenu?.()) {
+          const value = interaction.values[0] ?? "";
+          const index = Number(value);
+          const page = Number(pageText);
+          if (
+            !/^\d+$/.test(value) ||
+            !Number.isInteger(page) ||
+            index < page * 25 ||
+            index >= Math.min(menu.tracks.length, (page + 1) * 25)
+          ) {
+            await interaction.editReply({ content: "Некорректный выбор трека." });
+            return true;
+          }
+          await handle({
+            content: `!music remove ${index + 1}`,
+            guild: interaction.guild,
+            author: interaction.user,
+            expectedTracks: menu.tracks,
+            reply: async (payload) => {
+              await interaction.editReply(payload);
+            },
+          });
+          return true;
+        }
+        if (!tracks.length) {
+          await interaction.editReply({ content: "Плейлист пуст." });
+          return true;
+        }
+        const page = Number(pageText);
+        if (!Number.isInteger(page) || page < 0 || page * 25 >= menu.tracks.length) {
+          await interaction.editReply({ content: "Такой страницы нет." });
+          return true;
+        }
+        for (const [key, value] of removalMenus)
+          if (value.expires <= Date.now()) removalMenus.delete(key);
+        while (removalMenus.size >= 100) removalMenus.delete(removalMenus.keys().next().value!);
+        const menuToken = token ?? crypto.randomUUID();
+        removalMenus.set(menuToken, menu);
+        const slice = menu.tracks.slice(page * 25, (page + 1) * 25);
+        const metadata = new Map<string, MusicMetadata | null>();
+        let cursor = 0;
+        await Promise.all(
+          Array.from({ length: Math.min(3, slice.length) }, async () => {
+            while (cursor < slice.length) {
+              const url = slice[cursor++];
+              metadata.set(url, await listingMetadata(url));
+            }
+          }),
+        );
+        const select = new StringSelectMenuBuilder()
+          .setCustomId(`music:delete:${menuToken}:${page}`)
+          .setPlaceholder("Выберите трек для удаления")
+          .addOptions(
+            slice.map((url, i) => {
+              const info = metadata.get(url);
+              return {
+                label: `${page * 25 + i + 1}. ${info?.title ?? url}`.slice(0, 100),
+                value: String(page * 25 + i),
+                description: formatMusicTrack(url, info ?? null)
+                  .split(" · ")
+                  .at(-1)!
+                  .slice(0, 100),
+              };
+            }),
+          );
+        await interaction.editReply({
+          content: `Выберите трек для удаления · страница ${page + 1}/${Math.ceil(menu.tracks.length / 25)}`,
+          components: [
+            new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`music:delete:${menuToken}:${page - 1}`)
+                .setLabel("←")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(page === 0),
+              new ButtonBuilder()
+                .setCustomId(`music:delete:${menuToken}:${page + 1}`)
+                .setLabel("→")
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled((page + 1) * 25 >= menu.tracks.length),
+            ),
+          ],
+        });
+        return true;
+      }
+      let selectedUrl = "";
+      if (interaction.isStringSelectMenu?.() && action.startsWith("pick:")) {
+        const choice = searchChoices.get(action.slice(5));
+        if (
+          !choice ||
+          choice.expires <= Date.now() ||
+          choice.userId !== interaction.user.id ||
+          choice.guildId !== interaction.guild.id
+        ) {
+          await interaction.reply({
+            content: "Этот результат недоступен. Выполните свой поиск заново.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return true;
+        }
+        const value = interaction.values[0] ?? "";
+        if (!/^\d+$/.test(value) || !choice.urls[Number(value)]) {
+          await interaction.reply({
+            content: "Некорректный выбор трека.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return true;
+        }
+        selectedUrl = choice.urls[Number(value)];
+        action = "add";
+      }
+      if (interaction.isButton() && !selectedUrl && ["add", "remove", "search"].includes(action)) {
         try {
           await requireVoiceChannel(interaction.guild, interaction.user.id);
         } catch (error) {
@@ -693,30 +1225,44 @@ export function createDiscordMusic(
         const input = new TextInputBuilder()
           .setCustomId("value")
           .setLabel(
-            action === "add" ? "Ссылка на трек или YouTube-плейлист" : "Номер трека из плейлиста",
+            action === "search"
+              ? "Название трека (sc: для SoundCloud)"
+              : action === "add"
+                ? "Ссылка на трек или YouTube-плейлист"
+                : "Номер трека из плейлиста",
           )
           .setStyle(TextInputStyle.Short)
           .setRequired(true)
-          .setMaxLength(action === "add" ? 500 : 3)
+          .setMaxLength(action === "search" ? 200 : action === "add" ? 500 : 3)
           .setPlaceholder(
-            action === "add" ? "https://www.youtube.com/playlist?list=…" : "Например: 3",
+            action === "search"
+              ? "Исполнитель — название"
+              : action === "add"
+                ? "https://www.youtube.com/playlist?list=…"
+                : "Например: 3",
           );
         await interaction.showModal(
           new ModalBuilder()
             .setCustomId(`music:${action}`)
-            .setTitle(action === "add" ? "Добавить музыку" : "Удалить трек")
+            .setTitle(
+              action === "search"
+                ? "Поиск музыки"
+                : action === "add"
+                  ? "Добавить музыку"
+                  : "Удалить трек",
+            )
             .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input)),
         );
         return true;
       }
       if (
         ![
+          "search",
           "play",
           "toggle",
           "skip",
           "stop",
           "list",
-          "panel",
           "add",
           "remove",
           "repeat",
@@ -724,7 +1270,7 @@ export function createDiscordMusic(
           "mix",
           "queue",
         ].includes(action) ||
-        (interaction.isModalSubmit() && !["add", "remove"].includes(action))
+        (interaction.isModalSubmit() && !["add", "remove", "search"].includes(action))
       ) {
         await interaction.reply({
           content: "Неизвестное действие. Откройте !music заново.",
@@ -736,19 +1282,13 @@ export function createDiscordMusic(
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const argument = interaction.isModalSubmit()
         ? interaction.fields.getTextInputValue("value").trim()
-        : "";
+        : selectedUrl;
       let first = true;
       await handle({
         content: `!music ${action}${argument ? ` ${argument}` : ""}`,
         guild: interaction.guild,
         author: interaction.user,
         reply: async (payload) => {
-          // Refresh the shared panel; private confirmations never replace it.
-          if (action === "panel")
-            payload = {
-              content: "Панель обновлена. Чтобы опубликовать новую, отправьте !music.",
-              allowedMentions: { parse: [], repliedUser: false },
-            };
           if (first) {
             first = false;
             await interaction.editReply(payload);
@@ -780,8 +1320,16 @@ export function createDiscordMusic(
       for (const timer of refreshTimers.values()) clearTimeout(timer);
       refreshTimers.clear();
       panels.clear();
+      searchChoices.clear();
+      removalMenus.clear();
+      playlistMenus.clear();
       for (const s of states.values()) disconnect(s);
-      shutdownTask = Promise.allSettled([...pipelines, ...locks.values()]).then(() => {});
+      shutdownTask = Promise.allSettled([
+        ...pipelines,
+        ...locks.values(),
+        ...metadataTasks,
+        ...listingTasks,
+      ]).then(() => {});
       return shutdownTask;
     },
   };

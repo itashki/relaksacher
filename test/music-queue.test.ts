@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   createPlaybackQueue,
   startQueue,
+  startQueueAt,
   advanceQueue,
   shuffled,
 } from "../src/core/music-queue.ts";
@@ -57,4 +58,25 @@ test("failed duplicate tracks are skipped and disabling repeat finishes the rema
   expect(advanceQueue(queue, "failed")).toBe("b");
   queue.repeat = "off";
   expect(advanceQueue(queue)).toBe("");
+});
+
+test("playlist selection replaces playback and keeps selected track first under shuffle", () => {
+  const tracks = ["before", "chosen", "later", "chosen", "last"];
+  for (const shuffle of [false, true]) {
+    const queue = createPlaybackQueue();
+    queue.repeat = "track";
+    queue.shuffle = shuffle;
+    queue.current = "old";
+    queue.pending = ["old-next"];
+    queue.failedTracks.add("chosen");
+    startQueueAt(queue, tracks, 1);
+    expect(advanceQueue(queue)).toBe("chosen");
+    expect(advanceQueue(queue)).toBe("chosen");
+    expect(queue.cycle).toEqual(tracks.slice(1));
+    expect([...queue.pending].sort()).toEqual(["later", "chosen", "last"].sort());
+    expect(queue.failedTracks.size).toBe(0);
+    expect(tracks).toEqual(["before", "chosen", "later", "chosen", "last"]);
+    for (const index of [-1, 5, 0.5, NaN])
+      expect(() => startQueueAt(queue, tracks, index)).toThrow("Invalid track index");
+  }
 });

@@ -32,6 +32,17 @@ export function startQueue(queue: Queue, tracks: string[]) {
   queue.failedTracks.clear();
   queue.pending = queue.shuffle ? shuffled(tracks) : [...tracks];
 }
+/** Start from a saved playlist position, keeping the chosen track first even with shuffle.
+ * Repeat-all cycles the selected suffix; the saved playlist is never mutated. */
+export function startQueueAt(queue: Queue, tracks: string[], index: number) {
+  if (!Number.isInteger(index) || index < 0 || index >= tracks.length)
+    throw new Error("Invalid track index");
+  startQueue(queue, tracks.slice(index));
+  const selected = tracks[index];
+  const occurrence = queue.pending.indexOf(selected);
+  queue.pending.splice(occurrence, 1);
+  queue.pending.unshift(selected);
+}
 /** Choose the next track, repeating only on natural completion in track mode.
  * Failed URLs are excluded until the next start; repeat-all uses the original playback selection.
  * @returns The next URL, or an empty string when no playable entries remain. */
