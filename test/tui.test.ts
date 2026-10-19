@@ -221,5 +221,240 @@ test("music telemetry stays visible alongside generation, fits resizing and sani
     },
   );
   expect(multi.indexOf("Playing")).toBeLessThan(multi.indexOf("Import"));
-  expect(multi).toContain("Ещё серверов: 1");
+  expect(multi).toContain("Stopped");
+  expect(multi).toContain("/12");
+});
+
+test("real TUI keys scroll panels, hold log position and resume following without breaking exit", async () => {
+  const module = Bun.resolveSync("../src/adapters/tui.ts", import.meta.dir);
+  const script = `
+    import { createTui } from ${JSON.stringify(module)};
+    const target = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
+    const entries = Array.from({ length: 80 }, (_, i) => String(i).padStart(3, "0"));
+    const ui = createTui({ consoleTarget: target, assistant: {
+      subscribeTerminal(listener) {
+        listener({ current: { id: 1, text: entries.map((i) => "ANSWER-" + i).join("\\n") },
+          queue: entries.map((i, id) => ({ id, prompt: "QUEUE-" + i })) });
+        return () => {};
+      },
+      stopCurrentGeneration() { return false; },
+    } });
+    for (const i of entries) target.log("LOG-" + i);
+    process.stdin.on("data", (data) => {
+      if (data.toString() === "a") target.log("LOG-080");
+      if (data.toString() === "b") for (let i = 0; i <= 1000; i++) target.log("EVICT-" + String(i).padStart(4, "0"));
+    });
+    process.once("SIGINT", () => { ui.close(); void Bun.write(Bun.stdout, "CLOSED"); });
+    await Bun.write(Bun.stdout, "READY");
+  `;
+  let rendered = "";
+  const child = Bun.spawn([Bun.argv[0], "-e", script], {
+    terminal: {
+      cols: 100,
+      rows: 30,
+      data(_terminal, data) {
+        rendered += new TextDecoder().decode(data);
+      },
+    },
+  });
+  onTestFinished(async () => {
+    child.kill();
+    await child.exited;
+    child.terminal.close();
+  });
+  const frame = () => rendered.split("\x1b[H\x1b[2J").at(-1);
+  const waitFor = async (condition: () => boolean) => {
+    for (let i = 0; i < 200; i++) {
+      if (condition()) return;
+      await Bun.sleep(10);
+    }
+    throw new Error(`Expected terminal frame not found: ${frame()}`);
+  };
+  await waitFor(() => rendered.includes("READY"));
+  child.terminal.write("\t\t\r");
+  await waitFor(() => frame().includes("▶ Логи") && frame().includes("LOG-079"));
+  child.terminal.write("\x1b[H");
+  await waitFor(() => frame().includes("LOG-000") && !frame().includes("LOG-079"));
+  child.terminal.write("a");
+  await waitFor(() => frame().includes("/81"));
+  expect(frame()).toContain("LOG-000");
+  expect(frame()).not.toContain("LOG-080");
+  child.terminal.write("\x1b[B");
+  await waitFor(() => frame().includes("LOG-001") && !frame().includes("LOG-000"));
+  child.terminal.write("\x1b[6~");
+  await waitFor(() => !frame().includes("LOG-001"));
+  child.terminal.write("\x1b[F");
+  await waitFor(() => frame().includes("LOG-080"));
+  child.terminal.write("\t\x1b[H");
+  await waitFor(() => frame().includes("▶ Очередь") && frame().includes("QUEUE-000"));
+  child.terminal.write("\x1b[F");
+  await waitFor(() => frame().includes("QUEUE-079"));
+  child.terminal.write("\x1b[Z");
+  await waitFor(() => frame().includes("▶ Логи") && frame().includes("LOG-080"));
+  child.terminal.write("b");
+  await waitFor(() => frame().includes("EVICT-1000"));
+  expect(frame()).toContain("/1000");
+  child.terminal.write("\x1b[H");
+  await waitFor(() => frame().includes("EVICT-0001"));
+  child.terminal.resize(40, 12);
+  await waitFor(() => frame().split(/\r+\n/).length === 11);
+  expect(
+    frame()
+      .split(/\r+\n/)
+      .every((line) => Bun.stringWidth(line) < 40),
+  ).toBe(true);
+  child.terminal.write("\x03");
+  await waitFor(() => rendered.includes("CLOSED"));
+  expect(await Promise.race([child.exited, Bun.sleep(500).then(() => "still-running")])).toBe(0);
+});
+
+test("real TUI mouse selects and scrolls the pointed panel and disables tracking on exit", async () => {
+  const module = Bun.resolveSync("../src/adapters/tui.ts", import.meta.dir);
+  const script = `
+    import { createTui, buildDashboard } from ${JSON.stringify(module)};
+    const target = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
+    const rows = Array.from({ length: 80 }, (_, i) => String(i).padStart(3, "0"));
+    const state = { current: { id: 1, text: rows.map((i) => "ANSWER-" + i).join("\\n"), thinking: "thought" }, queue: [] };
+    const logs = rows.map((i) => "LOG-" + i);
+    const ui = createTui({ consoleTarget: target, assistant: {
+      subscribeTerminal(listener) { listener(state); return () => {}; },
+      stopCurrentGeneration() { throw new Error("Mouse must not trigger stop"); },
+    } });
+    for (const log of logs) target.log(log);
+    process.once("SIGINT", () => { ui.close(); void Bun.write(Bun.stdout, "CLOSED"); });
+    await Bun.write(Bun.stdout, "REGIONS" + JSON.stringify(buildDashboard(state, { logs }).regions) + "READY");
+  `;
+  let rendered = "";
+  const child = Bun.spawn([Bun.argv[0], "-e", script], {
+    terminal: {
+      cols: 100,
+      rows: 30,
+      data(_terminal, data) {
+        rendered += new TextDecoder().decode(data);
+      },
+    },
+  });
+  onTestFinished(async () => {
+    child.kill();
+    await child.exited;
+    child.terminal.close();
+  });
+  const frame = () => rendered.split("\x1b[H\x1b[2J").at(-1);
+  const waitFor = async (condition: () => boolean) => {
+    for (let i = 0; i < 200; i++) {
+      if (condition()) return;
+      await Bun.sleep(10);
+    }
+    throw new Error(`Expected mouse frame not found: ${frame()}`);
+  };
+  await waitFor(() => rendered.includes("READY"));
+  const regions = JSON.parse(
+    rendered.match(/REGIONS(.*?)READY/s)[1],
+  ) as import("../src/adapters/tui-mouse.ts").PanelRegion[];
+  const thinking = regions.find((region) => region.id === "thinking");
+  const logs = regions.find((region) => region.id === "logs");
+  expect(rendered).toContain("\x1b[?1000h\x1b[?1006h");
+  child.terminal.write(`\x1b[<0;2;${thinking.y}M`);
+  await waitFor(() => frame().includes("▶ Мысли"));
+  child.terminal.write("\x1b[<64;2;");
+  await Bun.sleep(10);
+  child.terminal.write(`${logs.y}M`);
+  await waitFor(() => frame().includes("▶ Логи") && frame().includes("LOG-076"));
+  expect(frame()).not.toContain("LOG-079");
+  child.terminal.write(`\x1b[<65;2;${logs.y}M`);
+  await waitFor(() => frame().includes("LOG-079"));
+  child.terminal.write("\r\x1b[H");
+  await waitFor(() => frame().includes("LOG-000"));
+  child.terminal.resize(40, 12);
+  await waitFor(() => frame().split(/\r+\n/).length === 11);
+  child.terminal.write("\x1b[<65;2;5M");
+  await waitFor(() => frame().includes("LOG-003") && !frame().includes("LOG-000"));
+  child.terminal.write("\x03");
+  await waitFor(() => rendered.includes("CLOSED"));
+  expect(rendered).toContain("\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l");
+  expect(await Promise.race([child.exited, Bun.sleep(500).then(() => "still-running")])).toBe(0);
+});
+
+test("real TUI supports hjkl, slash search editing and navigation, and exits on q", async () => {
+  const module = Bun.resolveSync("../src/adapters/tui.ts", import.meta.dir);
+  const script = `
+    import { createTui } from ${JSON.stringify(module)};
+    const target = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
+    const rows = Array.from({ length: 80 }, (_, i) => i === 5 || i === 55 ? "needle qshjkl" : "ROW-" + String(i).padStart(3, "0"));
+    const ui = createTui({ consoleTarget: target, assistant: {
+      subscribeTerminal(listener) { listener({ current: { id: 1, text: rows.join("\\n"), thinking: "thought" }, queue: [] }); return () => {}; },
+      stopCurrentGeneration() { throw new Error("Search text must not trigger stop"); },
+    } });
+    process.once("SIGINT", () => { ui.close(); void Bun.write(Bun.stdout, "CLOSED"); });
+    await Bun.write(Bun.stdout, "READY");
+  `;
+  let rendered = "";
+  const child = Bun.spawn([Bun.argv[0], "-e", script], {
+    terminal: {
+      cols: 100,
+      rows: 30,
+      data(_terminal, data) {
+        rendered += new TextDecoder().decode(data);
+      },
+    },
+  });
+  onTestFinished(async () => {
+    child.kill();
+    await child.exited;
+    child.terminal.close();
+  });
+  const rawFrame = () => rendered.split("\x1b[H\x1b[2J").at(-1);
+  const frame = () => Bun.stripANSI(rawFrame());
+  const waitFor = async (condition: () => boolean) => {
+    for (let i = 0; i < 200; i++) {
+      if (condition()) return;
+      await Bun.sleep(10);
+    }
+    throw new Error(`Expected search frame not found: ${frame()}`);
+  };
+  await waitFor(() => rendered.includes("READY"));
+  child.terminal.write("\r\x1b[H");
+  await waitFor(() => frame().includes("ROW-000"));
+  child.terminal.write("j");
+  await waitFor(() => frame().includes("ROW-001") && !frame().includes("ROW-000"));
+  child.terminal.write("k");
+  await waitFor(() => frame().includes("ROW-000"));
+  child.terminal.write("l");
+  await waitFor(() => frame().includes("▶ Мысли"));
+  child.terminal.write("h");
+  await waitFor(() => frame().includes("▶ Ответ") && frame().includes("ROW-000"));
+  child.terminal.write("?");
+  await waitFor(() => frame().includes("h/l — панели"));
+  child.terminal.write("/needle qshjkl");
+  await waitFor(() => frame().includes("/needle qshjkl█") && frame().includes("1/2"));
+  expect(frame()).toContain("▶ Ответ");
+  expect(rawFrame()).toContain("\x1b[1;30;43mneedle qshjkl\x1b[0m");
+  expect(rendered).not.toContain("CLOSED");
+  child.terminal.write("\r");
+  await waitFor(() => frame().includes("n/N далее/назад"));
+  child.terminal.write("n");
+  await waitFor(() => frame().includes("2/2"));
+  expect(frame()).toContain("ROW-056");
+  child.terminal.write("n");
+  await waitFor(() => frame().includes("1/2"));
+  child.terminal.write("N");
+  await waitFor(() => frame().includes("2/2"));
+  child.terminal.write("/needleX");
+  await waitFor(() => frame().includes("нет совпадений"));
+  child.terminal.write("\x7f");
+  await waitFor(() => frame().includes("/needle█") && frame().includes("1/2"));
+  child.terminal.resize(40, 12);
+  await waitFor(() => frame().split(/\r+\n/).length === 11);
+  expect(
+    frame()
+      .split(/\r+\n/)
+      .every((line) => Bun.stringWidth(line) < 40),
+  ).toBe(true);
+  child.terminal.write("\x1b");
+  await waitFor(() => !frame().includes("/needle"));
+  expect(frame()).toContain("ROW-056");
+  child.terminal.write("q");
+  await waitFor(() => rendered.includes("CLOSED"));
+  expect(rendered).toContain("\x1b[?1000l\x1b[?1006l");
+  expect(await Promise.race([child.exited, Bun.sleep(500).then(() => "still-running")])).toBe(0);
 });

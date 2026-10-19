@@ -373,3 +373,46 @@ test("music telemetry publishes playlist, import, error and shutdown changes wit
     music.stop();
   }
 });
+
+test("music shutdown cancels a running import and waits for the command to settle", async () => {
+  const directory = await temporaryDirectory("music-shutdown-test-");
+  let began: () => void;
+  let signal: AbortSignal;
+  const started = new Promise<void>((resolve) => {
+    began = resolve;
+  });
+  const music = createDiscordMusic(directory, {
+    loadPlaylist: async (_url, _limit, cancellation) => {
+      signal = cancellation;
+      began();
+      return new Promise((_resolve, reject) => {
+        cancellation.addEventListener("abort", () => reject(new Error("Import cancelled")), {
+          once: true,
+        });
+      });
+    },
+  });
+  const message = {
+    content: "!music add https://youtube.com/playlist?list=PL_test",
+    author: { id: "user" },
+    guild: {
+      id: "123",
+      members: {
+        fetch: async () => ({ voice: { channel: { id: "voice", type: ChannelType.GuildVoice } } }),
+      },
+    },
+    reply: async () => {},
+  } as unknown as Message;
+  try {
+    const command = music.handle(message);
+    await started;
+    const stopped = music.stop();
+    expect(signal.aborted).toBe(true);
+    expect(music.stop()).toBe(stopped);
+    await stopped;
+    await command;
+    expect(await Bun.file(resolvePath("music_123.json", directory)).exists()).toBe(false);
+  } finally {
+    await music.stop();
+  }
+});

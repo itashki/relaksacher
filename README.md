@@ -1,101 +1,172 @@
-# Relaksacher
+# Релаксачер
 
-A Discord and Telegram assistant backed by Ollama, with streamed replies, web tools,
-persistent shared memory and Discord music playback.
+Русскоязычный бот для Discord и Telegram на базе Ollama: потоковые ответы,
+поиск в интернете, общая память групп и воспроизведение музыки в Discord.
 
-Use Bun 1.4.2 or newer. Install dependencies and copy the commented configuration template:
+## Установка и запуск
+
+Нужен Bun 1.4.2 или новее. Установите зависимости и скопируйте шаблон настроек:
 
 ```sh
 bun install
 cp .env.example .env
 ```
 
-Edit `.env`: select `BOT_ADAPTERS` and fill in the credentials for the enabled
-platforms. Discord needs `BOT_TOKEN`, `APPLICANT_ID`, and `PUBLIC_KEY`; Telegram
-needs `TELEGRAM_BOT_TOKEN`. Set `OLLAMA_URL`, `OLLAMA_MODEL`, and
-`OLLAMA_TIMEOUT` (milliseconds). Install the main and supervisor models on your
-Ollama server; the names in the template are examples.
+В `.env` выберите платформы через `BOT_ADAPTERS` и заполните их параметры:
 
-Before the first start, create `facts.json5` and `personality.json5`, each containing
-`[]` (an empty array), or your own JSON5 array of strings. These local files and
-`.env` are ignored by Git. Then run `bun start`.
+- Discord: `BOT_TOKEN`, `APPLICANT_ID`, `PUBLIC_KEY`.
+- Telegram: `TELEGRAM_BOT_TOKEN`.
+- Ollama: `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT` — тайм-аут в миллисекундах.
 
-Optional: `OLLAMA_API_KEY` enables the primary Ollama web provider, `OLLAMA_NUM_CTX` sets the context
-window (default 16384), and `MEMORY_DIR` overrides the memory directory.
-Relative memory paths resolve from the repository root.
+Установите основную и вспомогательную модели на сервере Ollama. Имена моделей
+в шаблоне приведены для примера.
 
-Mention the bot, reply to it, or write in a thread it owns. `/think` enables
-thinking immediately. Web tools are available automatically.
-Natural-language requests also work: the model can call `enable_thinking` before
-answering and use web tools automatically when an API key is configured. Replies include a
-stop button available to the requester and moderators.
+Перед первым запуском создайте `facts.json5` и `personality.json5`. Каждый файл
+должен содержать JSON5-массив строк; для начала достаточно `[]`. Эти файлы и `.env`
+исключены из Git. Запустите бота:
 
-When started in an interactive terminal with `bun start`, a full-screen TUI shows
-the current author and request, streaming thoughts and answer, queued requests,
-and recent logs. Long streams show their latest lines. Press `S` to cancel the
-current reply from either messenger while keeping the bot running. Queued
-requests continue in order. Press `H` for help. Thoughts are shown locally only,
-and are never included in messenger updates. Cancellation uses the same mechanism as the messenger stop button;
-an in-flight tool operation may need to finish before the reply is finalized.
-Terminal controls are disabled when standard input is not a TTY (for example,
-when running as a service). Ctrl+C shuts down the bot.
+```sh
+bun start
+```
 
-## Documentation
+Дополнительные настройки:
 
-- [Commands and controls](docs/COMMANDS.md)
-- [Architecture and module responsibilities](docs/ARCHITECTURE.md)
-- [Development, formatting and verification](docs/DEVELOPMENT.md)
+- `OLLAMA_API_KEY` — ключ основного провайдера веб-поиска Ollama. Без него работает резервный поиск.
+- `OLLAMA_NUM_CTX` — размер контекстного окна, по умолчанию 16384.
+- `MEMORY_DIR` — каталог памяти. Относительный путь отсчитывается от корня проекта.
 
-## Structure
+Bun запускает TypeScript напрямую, отдельная сборка не требуется. Команда
+`bun run dev` включает перезапуск при изменении файлов. После изменения настроек
+или локальных JSON5-файлов перезапустите бота.
 
-- `index.ts` wires configuration, Ollama clients, storage, and the Discord adapter.
-- `src/adapters/discord.ts` owns Discord events, permissions, history retrieval,
-  thread creation, message formatting, attachments, and stop buttons.
-- `src/core/assistant.ts` orchestrates streaming, bounded tool rounds,
-  cancellation, and timeouts using injected dependencies.
-- `src/core/prompt.ts` builds prompts from plain conversation records and
-  optional platform instructions.
-- `src/core/tools.ts` exposes memory and web tools using injected services.
-- `src/core/memory.ts` stores facts with atomic writes and per-scope write queues.
-- `src/core/text.ts` contains command parsing and shared text utilities.
+## Общение с ботом
 
-The core imports neither Discord nor environment configuration, and importing it
-starts no clients. To add another interface, construct an assistant and call:
+Упомяните бота, ответьте на его сообщение или напишите в созданной им Discord-ветке.
+В личных сообщениях Telegram упоминание не нужно. Добавьте `/think` к запросу,
+чтобы сразу включить обдумывание. Просьбы подумать или поискать можно писать
+обычным языком. Веб-инструменты доступны автоматически.
+
+У текстового ответа есть кнопка остановки. В Discord её могут нажать автор запроса
+и модераторы с правом управления сообщениями; в Telegram — автор и администраторы.
+Остановить можно и запрос, который ещё ждёт своей очереди.
+
+## Панель в терминале
+
+При запуске `bun start` в интерактивном терминале открывается TUI — полноэкранная
+операторская панель. Она показывает автора и текст запроса, поток рассуждений
+и ответа, очередь, музыкальные состояния и журнал.
+
+| Клавиша                    | Действие                                                     |
+| -------------------------- | ------------------------------------------------------------ |
+| `h` / `l`                  | Предыдущая / следующая панель                                |
+| `j` / `k`                  | Прокрутка вниз / вверх на строку                             |
+| Tab / Shift+Tab            | Следующая / предыдущая панель                                |
+| ↑ / ↓, Page Up / Page Down | Прокрутка выбранной панели                                   |
+| Home                       | Начало содержимого                                           |
+| End                        | Конец содержимого и слежение за новыми строками              |
+| Enter                      | Развернуть панель или вернуться к общему виду                |
+| `/`                        | Поиск по выбранной панели                                    |
+| `n` / `N`                  | Следующее / предыдущее совпадение                            |
+| Escape                     | Отменить ввод поиска или закрыть подсветку                   |
+| `?`                        | Справка                                                      |
+| `S`                        | Остановить текущую генерацию, сохранив работу бота и очереди |
+| `q` / Ctrl+C               | Завершить бота                                               |
+
+Левый клик выбирает панель. Колёсико прокручивает панель под курсором на три строки.
+При выходе режим мыши выключается. У каждой панели своя позиция прокрутки;
+новые данные не сдвигают просмотр старых строк. Доступны полный текст запроса,
+вся очередь и музыкальные состояния всех инициализированных серверов.
+Журнал хранит последние 1000 записей, до 4000 символов в каждой, включая переносы строк.
+
+Поиск буквальный, без учёта регистра, с подсветкой совпадений. Enter подтверждает
+запрос, Backspace удаляет символ, Ctrl+U очищает ввод. При вводе поиска буквы
+считаются текстом, а не горячими клавишами. Перенос длинной строки на экране
+не мешает поиску.
+
+Рассуждения показываются только локально и не отправляются в чаты. Остановка
+генерации работает так же, как кнопка в мессенджере; уже запущенному инструменту
+может потребоваться время на завершение операции.
+
+Если стандартный ввод не является TTY, например при запуске как службы,
+терминальное управление не включается. Выход через `q`, Ctrl+C или SIGTERM отменяет
+активные задачи и ожидает отключения адаптеров. Если сетевой клиент зависнет
+при закрытии, процесс завершится не позднее чем через две секунды.
+
+## Документация
+
+- [Команды и управление](docs/COMMANDS.md).
+- [Архитектура и назначение модулей](docs/ARCHITECTURE.md).
+- [Разработка, форматирование и проверки](docs/DEVELOPMENT.md).
+
+## Структура проекта
+
+- `index.ts` — конфигурация, клиенты Ollama, хранилище, адаптеры и завершение приложения.
+- `src/adapters/discord.ts` — события Discord, разрешения, история, ветки, вложения и потоковая доставка.
+- `src/adapters/telegram.ts` — Telegram, получение обновлений, кэш цепочек ответов и доставка.
+- `src/adapters/discord-music.ts` — музыкальные команды, формы, кнопки и голосовое подключение.
+- `src/adapters/music-process.ts` — процессы Bun для метаданных и аудиопотоков.
+- `src/adapters/tui.ts` — отрисовка и управление терминальной панелью.
+- `src/core/assistant.ts` — потоковая генерация, ограниченные раунды инструментов, отмена и тайм-ауты.
+- `src/core/prompt.ts` — сборка запросов к модели из диалога, памяти и инструкций платформы.
+- `src/core/tools.ts` — инструменты памяти, веб-поиска, истории и медиа.
+- `src/core/memory.ts` — атомарное сохранение фактов и последовательные изменения внутри группы.
+- `src/core/music-queue.ts` — очередь музыки, повтор и перемешивание.
+- `src/core/text.ts` — разбор команд и общие текстовые операции.
+
+Ядро не импортирует Discord или конфигурацию окружения. Импорт модулей не запускает
+клиентов. Чтобы добавить другой интерфейс, создайте помощника и вызовите:
 
 ```js
 const session = assistant.createSession({
   conversation: [{ role: "user", content: "Привет!" }],
-  context: { scopeId: "my-group", authorName: "Alice" },
+  context: { scopeId: "my-group", authorName: "Алиса" },
   think: false,
   platformInstructions: "Ты общаешься через терминал.",
   onUpdate: async ({ text, status, final }) => {
-    // Render the accumulated answer and optional tool status.
-    // status is a tool call object while a tool runs; otherwise an empty string.
+    // Здесь можно отобразить накопленный ответ и состояние инструмента.
+    // Во время работы инструмента status содержит его вызов, иначе — пустую строку.
     console.log(text);
   },
 });
 await session.run();
-// session.stop() cancels an active or pending generation.
+// session.stop() отменяет активную генерацию или запрос в очереди.
 ```
 
-Each session runs once. Its result includes `text`, `thinkingLog`, `failed`,
-`stopped`, and `timedOut`. Updates are awaited, allowing the adapter to apply
-backpressure. Reasoning is exposed only through local terminal monitoring and logs. The application sets the update interval to 1200 ms for Discord.
+Каждая сессия запускается один раз. В результате доступны `text`, `thinkingLog`,
+`failed`, `stopped` и `timedOut`. Ядро ожидает завершения обработчика обновления,
+поэтому адаптер может регулировать темп доставки. Рассуждения доступны только
+локальному мониторингу и журналу. Интервал обновлений Discord — 1200 мс.
 
-Memory scopes use safe filename identifiers (letters, digits, `_`, `-`). Discord
-passes the guild ID, preserving existing `memory/<guildId>.json` files and their
-schema. Omit `scopeId` to disable memory for a conversation.
+Идентификаторы областей памяти могут содержать латинские буквы, цифры, `_` и `-`.
+Discord использует ID сервера и файлы `memory/<guildId>.json`. Чтобы отключить
+постоянную память для диалога, не передавайте `scopeId`.
 
-## Verification
+## Проверки
 
-Run `bun run format` to format the project, and `bun run format:check` to verify formatting.
-Run `bun run typecheck` to check application and test types with `noImplicitAny`, and `bun test` to run the tests. Tests use fake model streams and temporary memory directories;
-they require no credentials or external services. Live Discord/Ollama connectivity
-is separate from these tests.
+```sh
+bun run lint
+bun run format:check
+bun run typecheck
+bun test
+```
 
-## Model configuration
+`bun run lint` проверяет исходники и тесты через Oxlint. Ошибки и предупреждения
+завершают проверку с ненулевым кодом. `bun run lint:fix` применяет доступные
+безопасные исправления. `bun run format` форматирует проект через Prettier.
+Проверка типов приложения и тестов настроена в `tsconfig.json` с `noImplicitAny`.
 
-Configure one fixed response model in `.env`:
+Тесты используют имитации потоков модели, частичные типизированные двойники
+внешних API и временные каталоги. Реальные токены и внешние сервисы им не нужны.
+Проверки процессов и терминала запускают дочерние процессы Bun; проверка звука
+использует FFmpeg, если он установлен. Подключение к настоящим Discord, Telegram
+и Ollama проверяется отдельно.
+
+При изменении зависимостей сохраняйте `bun.lock`. Для воспроизводимой установки
+используйте `bun install --frozen-lockfile`.
+
+## Настройки модели
+
+Основная модель задаётся в `.env`:
 
 ```dotenv
 OLLAMA_MODEL=qwen3:8b
@@ -103,196 +174,181 @@ OLLAMA_NUM_CTX=16384
 OLLAMA_SUPERVISOR_MODEL=qwen3:0.6b
 ```
 
-`OLLAMA_MODEL` is required and is used for every response and tool round.
-`OLLAMA_NUM_CTX` is a positive integer (default 16384); larger context windows
-increase memory use. The separate supervisor model routes thinking and handles
-background decisions. All model settings live in `.env`; restart after editing.
-Responses have no model signature.
+`OLLAMA_MODEL` обязателен и используется для всех ответов и раундов инструментов.
+`OLLAMA_NUM_CTX` — положительное целое число, по умолчанию 16384. Увеличение
+контекстного окна повышает расход памяти. Отдельная вспомогательная модель
+выбирает режим обдумывания и принимает фоновые решения. Все настройки моделей
+находятся в `.env`; изменения требуют перезапуска. Подпись с названием модели
+к ответам не добавляется.
 
-Both adapters pass only the current message and its explicit reply chain to the
-model. Nearby channel messages, thread starters and other thread history are not
-included automatically. A message without a reply starts a fresh dialogue context.
-Persistent group memory and owner facts are still included.
+Оба адаптера передают модели текущее сообщение и явную цепочку ответов на него.
+Соседние сообщения канала, начало ветки и прочая история автоматически
+не добавляются. Сообщение без ссылки на предыдущее начинает новый контекст
+диалога. При этом общая память группы и факты владельца остаются доступны.
 
-Thinking starts off unless `/think` is used. The model can enable it through an
-`enable_thinking` tool call, which applies to subsequent rounds of the same request.
-Web tools are offered by default when available; the prompt directs the model to
-honor requests to search or avoid searching, and to ignore requests found only in
-background chatter. Web tools are always offered when a provider is available;
-there is no per-session search switch.
+Без решения вспомогательной модели обдумывание изначально выключено, если
+не указан `/think`. Когда вспомогательная модель не используется, основная может
+вызвать `enable_thinking`: это включает обдумывание в следующих раундах запроса.
+Веб-инструменты предлагаются при наличии провайдера; отдельного переключателя
+поиска на сессию нет. Инструкции требуют учитывать просьбы пользователя искать
+или не искать, а запросы из фоновой переписки не считать текущим заданием.
 
 ## Telegram
 
-Set these variables in `.env` and run `bun start`:
+Задайте в `.env` и выполните `bun start`:
 
 ```dotenv
 BOT_ADAPTERS=telegram
 TELEGRAM_BOT_TOKEN=your_botfather_token
 ```
 
-Use `BOT_ADAPTERS=discord,telegram` to run both adapters with the same main model
-and core. Discord credentials are required only when Discord is enabled. Existing
-Discord setups keep their default behavior. Do not reuse the Discord token for
-Telegram. The adapter uses the [Telegram Bot API](https://core.telegram.org/bots/api)
-through grammY, with long polling managed by `@grammyjs/runner` (no public webhook server needed).
-An existing webhook must be removed before using long polling; only one polling
-process should run per Telegram token.
+`BOT_ADAPTERS=discord,telegram` запускает обе платформы с общей основной моделью
+и ядром. Параметры Discord нужны только при его включении. Для Telegram требуется
+отдельный токен от BotFather, а не Discord-токен.
 
-The bot answers text messages in private chats. In groups it responds to its
-@username, replies to its messages, and `/think` commands (including
-`/think@botname`). Natural-language requests to think/search use the same core as
-Discord. It converts Markdown to Telegram-compatible HTML while streaming, splits long answers and provides a stop button
-for the requester or a group administrator. Photos, voice messages and files are
-not processed.
+Адаптер использует [Telegram Bot API](https://core.telegram.org/bots/api) через
+[grammY](https://grammy.dev/guide/api). Получением обновлений через long polling
+управляет `@grammyjs/runner`; публичный сервер для webhook не нужен. Перед запуском
+long polling нужно удалить ранее установленный webhook. Для одного токена должен
+работать только один процесс получения обновлений.
 
-Telegram maintains a bounded in-memory message cache, separated by chat and forum
-topic, solely to reconstruct explicit reply ancestors received since startup.
-Unrelated cached messages are not passed to the model, including in private chats.
-Persistent facts use `memory/telegram_<chatId>.json`, separate from Discord guild
-files. Private chats have no persistent shared memory.
+Бот отвечает на текст в личных сообщениях. В группах он реагирует на свой
+@username, ответы на свои сообщения и `/think`, включая `/think@botname`.
+Просьбы подумать и поискать обычным языком обрабатываются тем же ядром, что
+в Discord. Потоковый Markdown преобразуется в поддерживаемый Telegram HTML,
+длинные ответы разбиваются на сообщения. Есть кнопка остановки для автора
+и администратора группы. Поддержка изображений описана ниже; голосовые сообщения
+и произвольные файлы не обрабатываются.
 
-Tests inject a fake Bot API and need no real Telegram token. Live connectivity
-requires configuring your own token and starting the bot.
+Ограниченный кэш сообщений в памяти разделён по чатам и темам форума. Он нужен
+только для восстановления явных цепочек ответов, полученных после запуска.
+Посторонние сообщения из кэша не передаются модели, в том числе в личных чатах.
+Факты групп хранятся в `memory/telegram_<chatId>.json`, отдельно от серверов Discord.
+В личных чатах постоянной общей памяти нет.
 
-`TELEGRAM_TIMEOUT_MS` controls Bot API request timeouts (default 60000 ms).
-Network/5xx failures during `editMessageText` are retried once via `p-retry`.
-`@grammyjs/auto-retry` handles explicit rate limits with one retry and a maximum
-30-second retry delay, within the request deadline. Ambiguous network/5xx failures
-when sending a new message are not retried to avoid duplicates. Temporary intermediate
-edit failures preserve generation and retry the latest text on a later update;
-final delivery failures are reported separately by the Telegram adapter.
+Тесты подставляют имитацию Bot API и не требуют токена. Для настоящего подключения
+укажите свой токен и запустите бота.
 
-Requests share one FIFO generation queue across Discord and Telegram. A waiting
-request receives a message naming its author and showing its position at enqueue
-time (1 means next after the active generation). Only one session runs at a time;
-its generation timeout begins after waiting. Queue notifications are replaced by
-the streamed answer. Stop buttons remain available, including for queued requests.
+### Тайм-ауты и доставка
 
-Telegram formatting uses `marked` to parse Markdown, then emits only supported
-HTML tags for bold, italic, strikethrough, inline/block code, and HTTP(S) links.
-Headings become bold text; lists and tables become simple text layouts. Raw HTML
-is escaped. Long replies split on visible text length with balanced formatting
-in every message, including during unfinished streamed code blocks.
+`TELEGRAM_TIMEOUT_MS` задаёт тайм-аут запросов Bot API, по умолчанию 60000 мс.
+Сетевые ошибки и ответы 5xx при `editMessageText` повторяются один раз через
+`p-retry`. `@grammyjs/auto-retry` обрабатывает явные ограничения частоты: один
+повтор с ожиданием не более 30 секунд в пределах общего тайм-аута запроса.
+Отправка нового сообщения после неоднозначной сетевой ошибки или 5xx
+не повторяется, чтобы избежать дубликатов.
 
-## Context guards
+Временная ошибка промежуточного редактирования не останавливает генерацию:
+следующее обновление повторяет доставку актуального текста. Ошибки финальной
+доставки адаптер сообщает отдельно.
 
-Before each model round, the core estimates prompt and tool-schema size and
-reserves space for generation. It removes background first, then complete oldest
-dialogue turns, preserving system instructions, the current request and its tool
-calls/results. The model is told when history was removed. If the required context
-alone exceeds the budget, the bot reports that it cannot complete the request
-instead of silently dropping it. Estimation uses UTF-8 bytes, not the model's exact
-tokenizer; it reduces overflow risk but cannot guarantee recall or fit.
+Discord и Telegram используют одну очередь генерации FIFO. Ожидающий запрос
+получает сообщение с именем автора и позицией на момент постановки: 1 означает
+следующий после активного. Одновременно выполняется одна сессия; её тайм-аут
+начинается после ожидания. Уведомление очереди заменяется ответом модели.
 
-Telegram follows explicit reply ancestors only, using its cache when needed.
-Discord reply-chain traversal is bounded and detects repeated message IDs;
-bot-owned threads follow the same reply-only context rule.
+`TELEGRAM_UPDATE_INTERVAL_MS=5000` ограничивает промежуточную отрисовку одним
+обновлением за пять секунд; минимум — 1000 мс. Первое сообщение, уведомление
+очереди, начало генерации и финальный ответ отправляются сразу. Пропущенные
+снимки не накапливаются: следующее обновление использует последнее состояние.
+Одна отрисовка может обновить несколько сообщений длинного ответа. После успешной
+финальной доставки лишний запрос удаления уже убранных кнопок не отправляется.
+Частота обновлений Discord настраивается отдельно.
 
-## Images
+### Форматирование и цитаты
 
-Discord image attachments and Telegram photos or JPEG/PNG/WebP documents are sent
-to Ollama as image inputs alongside their caption. In a private Telegram chat, a
-picture without text defaults to a description request. In groups/Discord, existing
-mention/reply trigger rules still apply. Pictures from retained dialogue and reply
-chains can be reused. Arbitrary image URLs in text and generated images are not
-supported. Telegram albums arrive as separate messages.
+Markdown разбирается через `marked` и преобразуется только в разрешённые HTML-теги:
+жирный, курсив, зачёркивание, строчный и блочный код, HTTP(S)-ссылки. Заголовки
+становятся жирным текстом, списки и таблицы — простыми текстовыми представлениями.
+Исходный HTML экранируется. Длинные ответы делятся по длине видимого текста
+с корректным закрытием тегов, даже при незавершённом потоковом блоке кода.
 
-Up to four images are loaded per request, newest first, at most 10 MB each. Downloads
-use timeouts, known platform hosts, and image signature checks. Failed or omitted
-images are explicitly marked for the model. The context guard reserves an estimated
-4096 tokens per image instead of counting base64 characters; actual vision token
-usage depends on the model and resolution. Use a vision-capable Ollama model.
+Ответы длиннее 600 видимых символов или восьми оценочных строк оформляются
+сворачиваемыми цитатами. Пустые строки учитываются; переносы оцениваются из расчёта
+60 символов на строку. Фактические переносы зависят от клиента, ширины экрана
+и шрифта. В каждом сообщении теги цитаты сбалансированы. Код остаётся вне цитат,
+чтобы избежать несовместимых вложенных сущностей. Короткие ответы сохраняют
+обычное оформление.
 
-## Owner facts
+При ответе на выделенный фрагмент `message.quote` передаётся отдельно перед
+текстом текущего запроса. Инструкции отличают ручное выделение от автоматического
+превью и направляют ответ на выбранный текст. Цитата считается данными, а не
+командой; недоступный оригинал не восстанавливается и не выдумывается.
 
-Edit `facts.json5` to provide a JSON5 array of strings. The default file contains
-commented examples only. These facts are injected into the system prompt for both
-adapters and every chat, independently of per-group memory. The prompt treats them
-as owner-provided truths, uses them only when relevant, and gives them precedence
-over conflicting participant memory. Memory tools cannot edit this file.
+## Ограничение контекста
 
-Optional `.env` setting: `FACTS_FILE=facts.json5`. Relative paths resolve from the
-repository root. Empty arrays are allowed; malformed or missing files cause a
-startup error. Restart the bot after editing. Facts count toward the context budget.
+Перед каждым раундом модели ядро оценивает размер запроса и схем инструментов,
+оставляя место для генерации. Сначала удаляется фон, затем самые старые полные
+ходы диалога. Системные инструкции, текущий запрос и его вызовы инструментов
+с результатами сохраняются. Модель получает отметку об удалённой истории.
 
-## Library choices
+Если даже обязательная часть превышает бюджет, бот сообщает, что не может
+выполнить запрос, вместо незаметного удаления необходимого контекста. Оценка
+использует UTF-8-байты, а не точный токенизатор модели: она снижает риск
+переполнения, но не гарантирует, что контекст поместится или будет полностью учтён.
 
-| Responsibility                                           | Library                                                       |
-| -------------------------------------------------------- | ------------------------------------------------------------- |
-| Discord client and events                                | `discord.js`                                                  |
-| Telegram API, multipart uploads, API error types         | [grammY](https://grammy.dev/guide/api)                        |
-| Concurrent Telegram polling, offsets and polling backoff | [@grammyjs/runner](https://grammy.dev/plugins/runner)         |
-| Telegram flood-limit responses                           | [@grammyjs/auto-retry](https://grammy.dev/plugins/auto-retry) |
-| Bounded retries for idempotent Telegram edits            | [p-retry](https://github.com/sindresorhus/p-retry)            |
-| Single-concurrency FIFO generation queue                 | [p-queue](https://github.com/sindresorhus/p-queue)            |
-| Markdown parsing                                         | `marked`                                                      |
-| Commented configuration                                  | `Bun.JSON5`                                                   |
-| Model API                                                | `ollama`                                                      |
+Telegram следует только явным цепочкам ответов, при необходимости используя кэш.
+В Discord длина обхода ограничена, повторяющиеся ID обнаруживаются. Для веток
+бота действует то же правило контекста по цепочке ответов.
 
-`src/adapters/telegram-api.ts` is a small compatibility layer around grammY so
-platform behavior remains testable with an injected API. It keeps request deadlines,
-sanitized errors and the existing image download policy. The custom HTTP payload
-builder, multipart encoder, retry loops and Telegram polling loop have been removed.
+## Изображения на входе
 
-The Markdown-to-Telegram renderer, bounded image downloader and context-budget
-guard remain application code: they enforce this bot's formatting, size limits
-and history priorities. They already delegate parsing to `marked` and platform
-calls to the respective SDKs.
+Изображения во вложениях Discord, фотографии Telegram и документы JPEG/PNG/WebP
+передаются в Ollama вместе с подписью. В личном чате Telegram картинка без текста
+по умолчанию считается просьбой описать её. В группах и Discord сохраняются
+обычные правила упоминаний и ответов. Изображения из сохранённой цепочки диалога
+могут использоваться повторно. Произвольные ссылки на картинки в тексте
+и генерация изображений не поддерживаются. Альбомы Telegram приходят отдельными сообщениями.
 
-Telegram intermediate updates are throttled to one render every 5 seconds by
-`TELEGRAM_UPDATE_INTERVAL_MS=5000` (minimum 1000). The first placeholder, queue
-notification, transition from waiting to generation, and final answer are immediate.
-Skipped snapshots are not queued: the next update renders the latest state. A render
-can update multiple messages for long answers. Successful final delivery also avoids
-a redundant request to remove already-removed stop buttons. Discord timing is unchanged.
+На запрос загружается до четырёх изображений, начиная с новых, размером не более
+10 МБ каждое. Используются тайм-ауты, известные хосты платформ и проверка сигнатур.
+Неудачные или пропущенные загрузки явно отмечаются для модели. При оценке контекста
+на изображение резервируется 4096 токенов вместо подсчёта байтов base64;
+фактический расход зависит от модели и разрешения. Нужна модель Ollama с поддержкой зрения.
 
-Telegram answers over 600 visible characters or 8 estimated lines use expandable
-blockquotes. Blank lines count; soft wrapping is estimated at 60 characters per
-line. Actual wrapping depends on the client, screen width and font.
-Each split message has balanced quote tags. Inline/code blocks remain outside quotes to avoid nested
-entity compatibility issues. Short answers keep their regular appearance.
+## Факты владельца
 
-Telegram partial replies pass `message.quote` separately as quoted-fragment metadata
-before the current user's text. The prompt distinguishes manually selected fragments
-from automatic previews and focuses the answer on the selected text. Quote contents
-are data, not commands; unavailable originals are not reconstructed or invented.
+`facts.json5` содержит JSON5-массив строк с фактами владельца. Примерный локальный
+файл может содержать закомментированные примеры; пустой массив тоже допустим.
+Эти сведения добавляются в системный запрос для обеих платформ и всех чатов,
+независимо от памяти отдельной группы. Инструкции требуют использовать их
+по необходимости и отдавать им приоритет перед противоречащими записями участников.
+Инструменты памяти не могут менять этот файл.
 
-Thinking output is no longer streamed to chats or sent as an attachment. The core
-writes the accumulated reasoning once per session to the server's standard output
-with a `[thinking]` marker and model/scope/author metadata, including partial
-reasoning on errors or cancellation. Capture stdout with your process manager if
-persistent log files are needed. Answer text continues streaming normally.
+Путь можно задать через `FACTS_FILE=facts.json5` в `.env`. Относительный путь
+отсчитывается от корня проекта. Отсутствующий или некорректный файл вызывает ошибку
+старта. Изменения требуют перезапуска. Факты учитываются в бюджете контекста.
 
-## Local personality
+## Локальная личность
 
-`personality.json5` contains a JSON5 array of personality instruction strings.
-Comment out individual entries with `//` or `/* ... */` to disable them. Active
-entries are joined into the prompt at startup. Optional `.env`: `PERSONALITY_FILE=personality.json5`; relative paths
-resolve from the repository root. The core receives these instructions through
-injection, without reading configuration files itself.
+`personality.json5` — JSON5-массив строк с инструкциями личности. Отдельные записи
+можно выключить комментариями `//` или `/* ... */`. Активные строки соединяются
+при запуске. Настройка пути: `PERSONALITY_FILE=personality.json5` в `.env`;
+относительные пути отсчитываются от корня проекта. Ядро получает готовые инструкции
+через зависимости и само конфигурационные файлы не читает.
 
-`personality.json5` and `facts.json5` are ignored by Git. Create these local files
-on a fresh checkout (`facts.json5` may contain `[]`; `personality.json5` may contain `[]`
-for a neutral style). Restart after changes.
+`personality.json5` и `facts.json5` исключены из Git. При первом клонировании
+создайте их самостоятельно. В обоих допустим `[]`; для личности это означает
+нейтральный стиль. После изменений нужен перезапуск.
 
-## On-demand history tool
+## История по запросу
 
-`read_history` is available when an adapter supplies a scoped reader. The model may
-request it when asked to inspect earlier messages or when reply-chain context is
-insufficient. History is never fetched or injected automatically. The tool reads
-up to 20 messages (default 10), truncating each to 800 characters, from the current
-chat/topic only and before the current request. Results are contextual data, not
-additional instructions or requests.
+Инструмент `read_history` доступен, если адаптер передал функцию чтения истории
+текущего чата. Модель может вызвать его по просьбе посмотреть прежние сообщения
+или при недостаточной цепочке ответов. История не загружается автоматически.
+За вызов читается до 20 сообщений, по умолчанию 10, каждое сокращается до
+800 символов. Источник — только текущий чат или тема до текущего запроса.
+Результат считается контекстом, а не новым набором инструкций.
 
-Discord fetches through channel permissions. Telegram reads the bounded cache of
-messages received since startup, including only the same chat/topic; deleted
-messages may remain cached and unavailable updates cannot be recovered. Tool calls
-remain subject to the normal round limit and context guard.
+Discord читает историю с учётом разрешений канала. Telegram использует ограниченный
+кэш полученных после запуска сообщений того же чата и темы. Удалённые сообщения
+могут оставаться в кэше; недоступные обновления восстановить нельзя. Действуют
+общий предел раундов инструментов и ограничения контекста.
 
-## Small supervisor model
+## Вспомогательная модель
 
-The application uses `qwen3:0.6b` as a separate, non-thinking JSON classifier.
-Install it with `ollama pull qwen3:0.6b`. Settings:
+По умолчанию `qwen3:0.6b` используется как отдельный JSON-классификатор без
+обдумывания. Установите его командой `ollama pull qwen3:0.6b`. Настройки:
 
 ```dotenv
 OLLAMA_SUPERVISOR_MODEL=qwen3:0.6b
@@ -300,36 +356,58 @@ OLLAMA_SUPERVISOR_TIMEOUT_MS=30000
 AUTO_MEMORY=true
 ```
 
-Before each normal response the supervisor chooses whether the main model should
-think. `/think` bypasses classification and forces thinking. With a supervisor,
-`enable_thinking` is no longer offered to the main model. Routing failures fall
-back to non-thinking mode and are logged. Only a bounded portion of the reply
-chain is classified; images and large local prompts are not sent to the router.
+Перед обычным ответом классификатор выбирает, нужно ли основной модели думать.
+`/think` пропускает классификацию и принудительно включает обдумывание. Когда
+классификатор подключён, инструмент `enable_thinking` основной модели
+не предлагается. При ошибке используется режим без обдумывания, ошибка журналируется.
+Классифицируется ограниченная часть цепочки ответов, без изображений и больших
+локальных инструкций.
 
-Group messages also enter bounded per-room buffers, even without mentioning the
-bot. After a five-second batch delay, the supervisor extracts at most one explicit,
-stable, high-confidence fact; validated results go into that group's usual memory
-file. It cannot change owner facts or personality. Private messages and bot
-messages are excluded. Telegram must actually receive group messages for this to
-work; privacy mode/permissions still apply. Set `AUTO_MEMORY=false` to disable it.
+Сообщения групп попадают в ограниченные буферы отдельных каналов или тем даже
+без обращения к боту. После пятисекундного накопления классификатор извлекает
+не более одного явного устойчивого факта с высокой уверенностью. Проверенный
+результат сохраняется в обычную память группы. Факты владельца и личность
+не меняются. Личные сообщения и сообщения ботов исключены. Для Telegram бот
+должен действительно получать сообщения группы: режим приватности и разрешения
+по-прежнему важны. `AUTO_MEMORY=false` отключает автоматическое извлечение.
 
-Background extraction and normal responses share the same inference queue, with
-background jobs at lower priority; model calls do not overlap. Each extraction
-reads at most four recent buffered statements, with truncation, and uses a 4096
-context window (routing uses 2048). Pending buffers are bounded and may discard
-old messages under load. The extractor is instructed to reject sensitive data,
-commands, questions, quotes and insults; additional code checks reject uncertain,
-unattributed or obvious contact/secret-like output. Semantic extraction remains
-model-dependent and is not a perfect filter. Changes are silent in chats; accepted
-facts are logged by count and saved with source-author attribution.
+Фоновые задачи и обычные ответы используют общую очередь модели, фоновые —
+с меньшим приоритетом. Вызовы не перекрываются. Для извлечения берутся не более
+четырёх последних сокращённых высказываний с окном контекста 4096; для выбора
+обдумывания используется 2048. Буферы ограничены и могут отбрасывать старые сообщения.
+Инструкции запрещают сохранять чувствительные данные, команды, вопросы, цитаты
+и оскорбления; дополнительные проверки отклоняют неуверенные, неатрибутированные
+или похожие на контакты и секреты результаты. Качество всё равно зависит от
+модели, фильтрация не идеальна. Изменения не объявляются в чате; в журнал попадает
+количество сохранённых фактов, в памяти остаётся авторство источника.
 
-## Occasional spontaneous replies
+### Дополнительные ограничения автоматической памяти
 
-The supervisor may propose a short humorous or interesting contribution to an
-unaddressed group message. It does not intervene in private chats, commands, or
-replies between other participants. Explicit mentions and replies to the bot still
-work normally. Discord spontaneous replies stay in the existing channel instead of
-creating a thread. Settings:
+До обращения к классификатору используется консервативный отбор по признакам
+устойчивых правил, расписаний и сведений о проектах. За обработку сохраняется
+не более одного факта разрешённой категории с уверенностью не ниже 0,99.
+Текст должен быть буквальной подстрокой реального источника: выдуманные даты,
+добавленные выводы и пересказы отклоняются. Обычные реакции без признаков
+устойчивого факта не отправляются на извлечение. Это уменьшает ложные записи,
+но может пропустить полезные сведения. Явные просьбы запомнить остаются доступны.
+
+Ограничения применяются ко всей группе, включая её каналы и темы:
+
+- `AUTO_MEMORY_CHECK_INTERVAL_MS=60000` — фоновая проверка не чаще раза в минуту.
+- `AUTO_MEMORY_COOLDOWN_MS=120000` — после принятого кандидата следующая попытка
+  автоматического сохранения не раньше чем через две минуты.
+
+Сообщения во время пауз отбрасываются из буферов, а не откладываются для
+последующего сохранения. Инструмент `remember` требует явной просьбы пользователя;
+такие операции обходят автоматическую паузу. После перезапуска интервалы сбрасываются.
+
+## Самостоятельные реплики
+
+Классификатор может предложить короткую шутку или интересную реплику в ответ
+на сообщение группы без обращения к боту. Он не вмешивается в личные чаты,
+команды и ответы участников друг другу. Обычные упоминания и ответы боту работают
+как раньше. В Discord такая реплика остаётся в исходном канале, без новой ветки.
+Настройки:
 
 ```dotenv
 SPONTANEOUS_REPLIES=true
@@ -337,163 +415,217 @@ SPONTANEOUS_CHANCE=0.05
 SPONTANEOUS_COOLDOWN_MS=300000
 ```
 
-The chance controls sampling for evaluation, not guaranteed responses. Eligible
-messages are evaluated at most once per room per 30 seconds, with only one global
-spontaneous decision pending. The model must provide a concrete angle and confidence
-of at least 0.95. Successful decisions impose a five-minute room cooldown. Decisions
-older than one minute are discarded. Classification runs at low priority in the
-shared inference queue, and failure means silence. The prompt requests a single
-short, non-aggressive contribution. Disabling `SPONTANEOUS_REPLIES` restores only
-explicit triggering (including the pre-existing bot-owned Discord thread behavior).
+Вероятность задаёт шанс рассмотрения сообщения, а не гарантированного ответа.
+Подходящие сообщения оцениваются не чаще раза за 30 секунд на канал или тему;
+одновременно ожидается не более одного такого решения во всём приложении.
+Модель должна предложить конкретную идею с уверенностью не ниже 0,95.
+После принятого решения действует пятиминутная пауза в этом канале.
+Решения старше минуты отбрасываются. Классификация идёт с низким приоритетом
+в общей очереди; при ошибке бот молчит. Инструкции требуют одну короткую
+неагрессивную реплику. `SPONTANEOUS_REPLIES=false` оставляет только явные обращения,
+включая обычную обработку сообщений в созданных ботом Discord-ветках.
 
-## Always-available web tools
+## Веб-поиск и чтение страниц
 
-Web search/fetch tools are offered by default, including without an Ollama API key.
-When configured, Ollama cloud search and fetching are tried first. Missing keys,
-errors, empty output or a 12-second primary timeout trigger the fallback: DuckDuckGo
-HTML search parsed with Cheerio, and direct public-page text extraction using got.
-The existing tool loop still preloads the first two search results.
-No command or per-session toggle is needed to enable search.
+Инструменты доступны по умолчанию, в том числе без `OLLAMA_API_KEY`. Если ключ
+настроен, сначала используется облачный поиск и чтение страниц Ollama.
+Отсутствующий ключ, ошибка, пустой результат или тайм-аут основного провайдера
+в 12 секунд включают резервный путь: HTML-поиск DuckDuckGo через Cheerio
+и извлечение текста публичной страницы через got. Цикл инструментов также
+предварительно читает первые два результата поиска. Отдельная команда включения не нужна.
 
-Fallback downloads have a 12-second timeout, a 2 MB decoded-body limit and at most
-three redirects. URL and actual DNS destination checks reject local/private hosts.
-DuckDuckGo CAPTCHA or unexpected markup is reported as a tool error, never a fake
-result; this is a best-effort scraper and cannot guarantee search uptime. No attempt
-is made to bypass challenges.
+Резервная загрузка ограничена 12 секундами, 2 МБ распакованного содержимого
+и тремя перенаправлениями. Проверяются URL и фактический DNS-адрес назначения;
+локальные и приватные адреса запрещены. CAPTCHA DuckDuckGo или неожиданная
+разметка сообщаются как ошибка, а не подменяются выдуманными результатами.
+Работа разбора страниц не гарантируется; обход проверок не выполняется.
 
-Automatic memory uses conservative lexical prefiltering for durable rules,
-schedules and project statements. A batch can save at most one fact with confidence
-at least 0.99 and an allowed category. Saved text must be a verbatim substring of
-the actual source supplied to the model; invented dates, extra conclusions and
-paraphrases are rejected. Casual reactions without durable-fact cues are not sent
-to the extractor. These checks reduce false memories at the cost of missing some
-useful facts; explicit memory tools remain available for intentional requests.
+## Ответы картинками
 
-Automatic memory is rate-limited per group across all its rooms/topics:
-`AUTO_MEMORY_CHECK_INTERVAL_MS=60000` limits background checks to once per minute,
-and `AUTO_MEMORY_COOLDOWN_MS=120000` allows at most one automatic save attempt every
-2 minutes after an accepted candidate. Messages arriving during either pause
-are discarded from auto-memory buffers rather than saved later. Main-model
-`remember` instructions now require an explicit user request; intentional memory
-operations bypass the automatic cooldown. Limits reset on process restart.
+Адаптеры предоставляют `search_images` и `send_image`. Поиск использует DuckDuckGo
+через `duck-duck-scrape`, а при ошибке или отсутствии результатов — Bing Images.
+Поддерживаются фотографии, иллюстрации и мемы. Для Bing берутся размещённые
+провайдером превью, чтобы снизить риск блокировки прямой загрузки исходным сайтом;
+ссылка на страницу-источник остаётся в метаданных инструмента.
 
-## Image replies
+Модель выбирает ID найденного кандидата для одной отправки медиа за сессию.
+Telegram отправляет фотографию, Discord — сообщение со встроенным изображением.
+У медиа нет подписи, заголовка, нижнего колонтитула или ссылки на источник.
+Авторство и лицензия не добавляются и не выводятся из предположений.
+Некорректные и непубличные URL отбрасываются, дубликаты удаляются,
+возвращается до пяти кандидатов. Произвольные URL от модели не принимаются;
+кандидаты принадлежат только текущей сессии. Модель видит метаданные поиска,
+а не пиксели скачанной картинки.
 
-Adapters expose `search_images` and `send_image`. Image search uses DuckDuckGo
-through the `duck-duck-scrape` library, with Bing Images as a fallback when
-DuckDuckGo fails or returns no results. Both support photos, illustrations and memes.
-Bing results use hosted previews to avoid hotlink blocking by source websites;
-the source-page link remains available in tool metadata.
-The model selects a returned id to send one image per session. Telegram sends a
-photo; Discord sends an image embed. Media messages have no captions, titles,
-footers or source links. Author and license information are not supplied or inferred. Invalid and non-public URLs
-are filtered, duplicate images removed, and at most five candidates returned.
-Model-supplied arbitrary image URLs are rejected; candidates belong only to the
-current session. The model sees search metadata, not downloaded pixels.
-Search can be used on explicit requests or occasionally when a picture suits the
-answer. Search providers may rate-limit or block automated searches; failures are
-reported to the model as tool errors.
+Поиск доступен по просьбе пользователя, а иногда — если картинка подходит
+к ответу. Провайдеры могут ограничить частоту или заблокировать автоматические
+запросы; ошибки возвращаются модели как ошибки инструмента.
 
-## GIF replies
+## Ответы GIF
 
-Set `KLIPY_API_KEY` in `.env` to enable `search_gifs` and `send_gif`, then restart.
-Get a key from [KLIPY](https://partner.klipy.com). Without a key GIF tools are hidden;
-ordinary image search remains available. The provider uses the
-[Tenor-compatible KLIPY API](https://docs.klipy.com/migrate-from-tenor).
-Telegram sends animations via `sendAnimation`; Discord embeds the animated GIF.
-Source/provider metadata stays in tool results; outgoing media has no caption.
-Images and GIFs share a one-send-attempt limit per request. The model sees
-metadata, not animation frames. The model may finish with an empty text response
-after successful delivery: adapters delete temporary text/status messages so
-only the image or GIF remains. Delivery and generation failures still show errors.
+Укажите `KLIPY_API_KEY` в `.env` и перезапустите бота, чтобы включить `search_gifs`
+и `send_gif`. Ключ можно получить у [KLIPY](https://partner.klipy.com).
+Без ключа GIF-инструменты скрыты, обычный поиск изображений остаётся доступен.
+Используется [совместимый с Tenor API KLIPY](https://docs.klipy.com/migrate-from-tenor).
 
-Bun runs TypeScript directly; no build step is required. Use `bun run dev` for watch mode. Application and test type checking is configured in `tsconfig.json`. Tests use typed partial doubles at external API boundaries. Commit `bun.lock` when dependencies change and use `bun install --frozen-lockfile` for reproducible installs.
+Telegram отправляет анимацию через `sendAnimation`, Discord встраивает GIF.
+Сведения о провайдере и источнике остаются в результатах инструмента;
+исходящее медиа не получает подпись. Изображения и GIF делят общий лимит:
+одна попытка отправки за запрос. Модель видит метаданные, а не кадры анимации.
 
-## Discord music
+После успешной отправки модель может завершить ответ с пустым текстом:
+адаптеры удаляют временные сообщения и статусы, оставляя только медиа.
+Ошибки доставки и генерации всё равно показываются.
 
-Use `!music help` in a server text channel (no mention required). Join a regular
-voice channel first to change the playlist or control playback:
+## Локальный журнал рассуждений
 
-- `!music add <https://youtu.be/...>` or a SoundCloud track URL saves a track.
-- `!music list` shows the current track and all saved entries.
-- `!music remove <number>` removes a saved entry.
-- `!music play` plays the saved playlist (once, in order by default).
-- `!music play <URL>` saves and plays that track when the player is idle.
-- `!music pause`, `!music resume`, `!music skip` control playback.
-- `!music stop` / `!music leave` stop playback and leave the voice channel.
+Рассуждения не отправляются в чаты и не прикрепляются файлом. Ядро один раз
+за сессию записывает накопленный текст в стандартный вывод с маркером `[thinking]`
+и сведениями о модели, области памяти и авторе. При ошибке или отмене сохраняется
+и частичный текст. Для постоянного журнала настройте сохранение stdout
+в менеджере процессов. Сам ответ продолжает передаваться в чат потоком.
 
-Install [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation) and
-[FFmpeg](https://ffmpeg.org/download.html) on the bot host, available on PATH.
-Use an up-to-date yt-dlp with its recommended JavaScript runtime/components for
-YouTube. Source availability, region restrictions and provider challenges can
-prevent playback; failed tracks are skipped. YouTube URLs with a `list` parameter import the playlist in its original order
-(including watch links containing both `v` and `list`). Use `!music add <playlist URL>`
-to save it or `!music play <playlist URL>` to save and play the imported tracks.
-Imports fill the remaining capacity up to 100 tracks and report truncation or skipped
-unavailable entries. Empty, private or failed imports leave the saved playlist intact.
-Import has a 45-second timeout. SoundCloud playlist imports are not supported. There is a limit of 100 tracks per guild.
-Audio is piped through FFmpeg without saving media files. Process execution uses
-`Bun.spawn` with native streams; a Node readable adapter is used only at the
-`@discordjs/voice` audio-resource boundary. Playlist imports keep their timeout,
-4 MB output limit and cancellation on shutdown.
+## Музыка в Discord
 
-The bot needs View Channel, Connect and Speak permissions. GuildVoiceStates intent
-is enabled in code. Anyone in the bot's voice channel can control playback; when
-it is disconnected, playlist edits require joining a voice channel. Lists can be
-read without joining. Playlists are stored separately in `memory/music_<guildId>.json`;
-the playback position is not persisted. New additions apply on the next playlist
-start. The bot leaves 60 seconds after the queue ends and closes playback on shutdown.
-Telegram voice chats are not supported by this feature.
-Voice transport uses [@discordjs/voice](https://discordjs.dev/docs/packages/voice/main),
-with Opus encoding and DAVE support installed as dependencies.
+Команды работают в текстовом канале сервера без упоминания бота. Для изменения
+плейлиста и управления сначала зайдите в обычный голосовой канал:
 
-### Music control panel
+| Команда                          | Действие                                                                     |
+| -------------------------------- | ---------------------------------------------------------------------------- |
+| `!music` / `!music panel`        | Открыть панель с кнопками                                                    |
+| `!music help`                    | Показать справку                                                             |
+| `!music add <ссылка>`            | Сохранить трек YouTube/SoundCloud или импортировать YouTube-плейлист         |
+| `!music list`                    | Показать текущий трек и сохранённый плейлист                                 |
+| `!music remove <номер>`          | Удалить сохранённую запись                                                   |
+| `!music play`                    | Включить сохранённый плейлист; по умолчанию один раз по порядку              |
+| `!music play <ссылка>`           | Сохранить и включить трек или импортированный плейлист, когда плеер свободен |
+| `!music pause` / `!music resume` | Пауза / продолжение                                                          |
+| `!music skip`                    | Следующий трек                                                               |
+| `!music stop` / `!music leave`   | Остановить музыку и выйти из голосового канала                               |
 
-Send `!music` or `!music panel` to publish a shared control panel. It shows the
-current track, pause state, saved track count and remaining playback queue.
-Buttons start playback, toggle pause/resume, skip or stop and disconnect.
-Unavailable actions are disabled. Add opens a URL form (including YouTube
-playlists); Remove opens a track-number form. Playlist shows the full saved list
-privately to the person clicking. Refresh updates the shared panel.
-The latest panel per guild updates automatically when playback or the playlist
-changes; publishing a new panel removes buttons from the previous one.
-Button results and errors are private. All playback and playlist changes use the
-same voice-channel checks as text commands. Existing text commands still work.
+Установите на хосте бота [yt-dlp](https://github.com/yt-dlp/yt-dlp#installation)
+и [FFmpeg](https://ffmpeg.org/download.html), доступные через `PATH`.
+Для YouTube используйте свежий yt-dlp с рекомендованными им JavaScript-средой
+и компонентами. Недоступность источника, региональные ограничения и проверки
+провайдера могут помешать воспроизведению; неудачные треки пропускаются.
 
-### Music in the terminal dashboard
+### Импорт плейлистов
 
-When Discord is enabled, the TUI has a live music section showing the server,
-voice channel, current track URL, playback/pause/connection/import state, saved
-track count, remaining playback queue and latest error. Updates come directly
-from the music player, independently of assistant generation and Discord panels.
-Servers appear after their first music command; active players are listed first.
-The section shows one or two servers depending on terminal height, with a compact
-summary on small terminals. It updates automatically and unsubscribes on TUI exit.
+YouTube-ссылки с параметром `list` импортируют плейлист в исходном порядке,
+включая ссылки на видео, где есть одновременно `v` и `list`.
+`!music add <ссылка>` сохраняет записи, а `!music play <ссылка>` сохраняет
+и запускает импортированный набор.
 
-### Repeat and shuffle
+Лимит — 100 треков на сервер с учётом уже сохранённых. Импорт занимает оставшееся
+место и сообщает об обрезке и пропущенных недоступных записях. Пустой, приватный
+или неудачный импорт не меняет сохранённый плейлист. Тайм-аут — 45 секунд,
+предел вывода метаданных — 4 МБ. При завершении приложения импорт отменяется.
+Плейлисты SoundCloud не импортируются.
 
-- `!music repeat track` repeats the current track; `!music repeat all` repeats the
-  selection used for the current playback session; `!music repeat off` disables repeat.
-  With no argument, `repeat` cycles off → track → all → off, as does the panel button.
-- `!music shuffle on` enables random order and shuffles remaining queued tracks.
-  Each new start and each repeat-all cycle is shuffled too. `shuffle off` disables
-  future shuffling, keeping the current queue order. With no argument it toggles.
-- `!music mix` shuffles only the remaining queue once, leaving the current track
-  and shuffle mode unchanged. The panel has a separate shuffle-queue button.
-- `!music queue` (or the Queue button) shows the current track and remaining queue.
+Аудио передаётся через FFmpeg без сохранения медиафайлов. Процессы запускаются
+через `Bun.spawn`, данные между ними идут нативными потоками. Адаптация к Node
+readable требуется только на границе аудиоресурса `@discordjs/voice`.
 
-Skip advances even in repeat-track mode. Stop/leave clears the playback queue and
-prevents repetition. Tracks that fail playback are excluded from further repeat
-cycles until the next `play`, so an unavailable playlist cannot loop endlessly.
-Shuffle preserves every track occurrence and never rewrites the saved playlist.
-New saved tracks enter playback on the next start. Modes are separate per guild,
-remain selected across stop/start, and default to off after a process restart.
-Both the Discord panel and TUI display the selected repeat and shuffle modes.
+### Права и хранение
 
-## Runtime conventions
+Боту нужны права View Channel, Connect и Speak. События `GuildVoiceStates`
+включены в коде. Управлять может любой участник того же голосового канала.
+Если бот отключён, для изменения плейлиста достаточно зайти в обычный войсчат.
+Просматривать список можно без подключения.
 
-Prefer Bun-native APIs for file reads/writes, subprocesses, environment access and
-verification. Playlist files use `Bun.file().json()` and `Bun.write()`; writes create
-missing parent directories and replace the destination atomically via `rename`.
-Node compatibility APIs remain for atomic renames, terminal raw-mode/key handling
-and the readable-stream boundary required by Discord's voice library.
+Плейлисты разных серверов хранятся отдельно в `memory/music_<guildId>.json`.
+Позиция воспроизведения не сохраняется. Новые записи попадут в воспроизведение
+при следующем запуске плейлиста. Бот выходит из канала через 60 секунд после
+опустошения очереди и останавливает музыку при завершении приложения.
+Одновременно может играть разная музыка на нескольких серверах; внутри одного
+сервера используется один голосовой канал.
+
+Голосовые чаты Telegram не поддерживаются. Для передачи звука используется
+[@discordjs/voice](https://discordjs.dev/docs/packages/voice/main); кодирование
+Opus и поддержка DAVE установлены как зависимости.
+
+### Панель управления музыкой
+
+`!music` или `!music panel` публикует общую панель: текущий трек, пауза,
+число сохранённых записей, остаток очереди и режимы. Кнопки запускают музыку,
+переключают паузу, пропускают трек и останавливают воспроизведение с выходом
+из канала. Недоступные действия выключены.
+
+«Добавить» открывает форму ссылки, в том числе на YouTube-плейлист.
+«Удалить» — форму номера трека. «Плейлист» показывает сохранённые записи
+только нажавшему. «Обновить» обновляет общую панель. Последняя панель сервера
+автоматически меняется вместе с состоянием; при публикации новой кнопки
+предыдущей убираются. Результаты действий и ошибки видны только нажавшему.
+Кнопки и команды используют одни и те же проверки голосового канала.
+
+### Музыкальные состояния в TUI
+
+При включённом Discord терминальная панель показывает сервер, войсчат, ссылку
+на текущий трек, состояние воспроизведения, паузы, подключения или импорта,
+число сохранённых треков, остаток очереди и последнюю ошибку. Данные поступают
+напрямую из плеера, независимо от генерации ответов и панелей Discord.
+
+Сервер появляется после первой музыкальной команды, активные плееры идут первыми.
+Раздел прокручивается по всем инициализированным серверам. На маленьком терминале
+показывается выбранная панель: выберите музыку через Tab или `h/l`, нажмите Enter
+для разворачивания. При выходе TUI подписка на состояния снимается.
+
+### Повтор и случайный порядок
+
+- `!music repeat track` — повтор текущего трека.
+- `!music repeat all` — повтор набора треков текущего запуска.
+- `!music repeat off` — выключить повтор.
+- `!music repeat` без аргумента переключает off → track → all → off, как кнопка панели.
+- `!music shuffle on` — включить случайный порядок и перемешать остаток очереди.
+  Каждый следующий запуск и каждый круг повтора всей очереди тоже перемешиваются.
+- `!music shuffle off` — выключить дальнейшее перемешивание, сохранив текущий порядок.
+  Без аргумента `shuffle` переключает режим.
+- `!music mix` — один раз перемешать остаток очереди, не меняя текущий трек и режим.
+  Для этого есть отдельная кнопка.
+- `!music queue` — показать текущий трек и оставшуюся очередь; доступна и кнопка.
+
+Пропуск переключает трек даже в режиме повтора одного трека. Stop/leave очищает
+очередь и прекращает повтор. Неудачные источники исключаются из следующих кругов
+до нового `play`, поэтому недоступный плейлист не зацикливает ошибки.
+Перемешивание сохраняет все вхождения треков и не перезаписывает файл плейлиста.
+Новые сохранённые записи используются при следующем запуске.
+
+Режимы раздельны для каждого сервера, сохраняются между stop/play в текущем
+процессе и выключены после перезапуска. Выбранные режимы видны в Discord и TUI.
+
+## Используемые библиотеки
+
+| Задача                                                          | Библиотека                                                    |
+| --------------------------------------------------------------- | ------------------------------------------------------------- |
+| Клиент и события Discord                                        | `discord.js`                                                  |
+| Голосовое подключение и плеер                                   | `@discordjs/voice`                                            |
+| Telegram API, загрузки и типы ошибок                            | [grammY](https://grammy.dev/guide/api)                        |
+| Получение обновлений Telegram, смещения и ожидание после ошибок | [@grammyjs/runner](https://grammy.dev/plugins/runner)         |
+| Ограничения частоты запросов Telegram                           | [@grammyjs/auto-retry](https://grammy.dev/plugins/auto-retry) |
+| Ограниченные повторы безопасного редактирования                 | [p-retry](https://github.com/sindresorhus/p-retry)            |
+| Последовательная очередь генерации FIFO                         | [p-queue](https://github.com/sindresorhus/p-queue)            |
+| Разбор Markdown                                                 | `marked`                                                      |
+| Конфигурация с комментариями                                    | `Bun.JSON5`                                                   |
+| API модели                                                      | `ollama`                                                      |
+| Линтер                                                          | `oxlint`                                                      |
+| Форматирование                                                  | `prettier`                                                    |
+
+`src/adapters/telegram-api.ts` — небольшой слой совместимости поверх grammY,
+позволяющий подставлять API в тестах. Он сохраняет тайм-ауты, безопасное описание
+ошибок и правила загрузки изображений. Платформенные запросы, multipart-загрузки,
+получение обновлений и повторы делегированы библиотекам.
+
+Преобразователь Markdown в Telegram HTML, ограниченная загрузка изображений
+и контроль бюджета контекста остаются кодом приложения: они отвечают за правила
+форматирования, размеры и приоритеты истории. Разбор Markdown делегирован
+`marked`, вызовы платформ — соответствующим SDK.
+
+## Предпочтение API Bun
+
+Для файлов, процессов, переменных окружения и проверок используются прежде всего
+API Bun. Плейлисты читаются через `Bun.file().json()` и записываются через
+`Bun.write()`, который создаёт отсутствующие родительские каталоги. Временный
+файл атомарно заменяет назначение через `rename`.
+
+Node-совместимые API остаются для атомарного переименования, управления режимами
+и клавишами терминала, а также readable-потока, требуемого голосовой библиотекой Discord.

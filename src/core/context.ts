@@ -18,7 +18,7 @@ const estimateTokens = ({
   messages: import("../types.ts").ChatMessage[];
   tools: import("../types.ts").ToolDefinition[] | undefined;
 }) => {
-  const text = messages.map(({ images, ...entry }) => entry);
+  const text = messages.map(({ images: _images, ...entry }) => entry);
   const images = messages.reduce((sum, entry) => sum + (entry.images?.length ?? 0), 0);
   return (
     Math.ceil(new TextEncoder().encode(JSON.stringify({ messages: text, tools })).byteLength / 3) +

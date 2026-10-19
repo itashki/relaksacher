@@ -27,7 +27,7 @@ test("loads one main model and context from environment", async () => {
 });
 
 test("Telegram-only configuration does not require Discord credentials", async () => {
-  const { BOT_TOKEN, APPLICANT_ID, PUBLIC_KEY, ...telegramEnv } = env;
+  const { BOT_TOKEN: _token, APPLICANT_ID: _applicant, PUBLIC_KEY: _key, ...telegramEnv } = env;
   const config = await loadConfig({
     ...telegramEnv,
     BOT_ADAPTERS: "telegram",

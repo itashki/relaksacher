@@ -10,8 +10,8 @@ type TelegramPayload = {
   reply_parameters?: { message_id?: number };
   [key: string]: unknown;
 };
-import type { TestSessionOptions, Fixture } from "./fixtures.ts";
-import type { TelegramApi, AppConfig, ObservedMessage } from "../src/types.ts";
+import type { TestSessionOptions } from "./fixtures.ts";
+import type { AppConfig, ObservedMessage } from "../src/types.ts";
 import { spyOn, expect, test, onTestFinished } from "bun:test";
 import { createTelegramBot, createTelegramApi } from "./fixtures.ts";
 

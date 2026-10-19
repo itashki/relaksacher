@@ -175,6 +175,7 @@ export function createDiscordMusic(
   const states = new Map<string, ReturnType<typeof newState>>();
   const locks = new Map<string, Promise<unknown>>();
   let closed = false;
+  let shutdownTask: Promise<void> | undefined;
   const imports = new AbortController();
   const panels = new Map<string, Message>();
   const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -752,13 +753,20 @@ export function createDiscordMusic(
   return {
     handle,
     handleInteraction,
+    /** Cancel imports and playback immediately, then await process and command cleanup. */
     stop() {
+      if (shutdownTask) return shutdownTask;
+      const pipelines = [...states.values()].flatMap((s) =>
+        s.playback ? [s.playback.exited] : [],
+      );
       closed = true;
       imports.abort();
       for (const timer of refreshTimers.values()) clearTimeout(timer);
       refreshTimers.clear();
       panels.clear();
       for (const s of states.values()) disconnect(s);
+      shutdownTask = Promise.allSettled([...pipelines, ...locks.values()]).then(() => {});
+      return shutdownTask;
     },
   };
 }

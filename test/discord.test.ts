@@ -600,3 +600,22 @@ test("Discord removes the extra message when a temporary status disappears", asy
   expect(replies[0].payload.content).toBe("x".repeat(1990));
   expect(replies[0].payload.components).toStrictEqual([]);
 });
+
+test("Discord stop returns and reuses the pending client teardown promise", async () => {
+  const bot = createDiscordBot({ config: {}, assistant: {} });
+  let release: () => void;
+  let calls = 0;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  bot.client.destroy = async () => {
+    calls++;
+    await pending;
+  };
+  const stopped = bot.stop();
+  expect(stopped).toBeInstanceOf(Promise);
+  expect(bot.stop()).toBe(stopped);
+  expect(calls).toBe(1);
+  release();
+  await stopped;
+});

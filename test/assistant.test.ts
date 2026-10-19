@@ -7,7 +7,6 @@ import type {
   MemoryStore,
   GenerationUpdate,
   TerminalState,
-  ToolDefinition,
 } from "../src/types.ts";
 import type { Fixture } from "./fixtures.ts";
 import { spyOn, expect, test, onTestFinished } from "bun:test";
@@ -136,8 +135,12 @@ test("stop while awaiting the stream aborts it before consuming output", async (
           abort() {
             aborted = true;
           },
-          async *[Symbol.asyncIterator]() {
-            throw new Error("should not read");
+          [Symbol.asyncIterator]() {
+            return {
+              async next() {
+                throw new Error("should not read");
+              },
+            };
           },
         };
       },
@@ -163,8 +166,13 @@ test("timeout aborts a live stream and reports timeout", async () => {
           abort() {
             finish();
           },
-          async *[Symbol.asyncIterator]() {
-            await waiting;
+          [Symbol.asyncIterator]() {
+            return {
+              async next(): Promise<IteratorResult<ChatResponse, undefined>> {
+                await waiting;
+                return { done: true as const, value: undefined };
+              },
+            };
           },
         };
       },

@@ -1,4 +1,5 @@
 /** @file Application composition and adapter lifecycle entry point. */
+import { createShutdown } from "./src/core/shutdown.ts";
 import { createMusicMonitor } from "./src/core/music-status.ts";
 import { resolvePath } from "./src/core/paths.ts";
 import { Ollama } from "ollama";
@@ -57,16 +58,23 @@ const bots = config.adapters.map((adapter) =>
 const cli = process.stdin.isTTY
   ? createCliControls({ assistant, music: config.adapters.includes("discord") ? music : undefined })
   : null;
-for (const signal of ["SIGINT", "SIGTERM"])
-  process.once(signal, () => {
-    cli?.close();
-    assistant.stopObserving();
-    bots.forEach((bot) => bot.stop());
+const shutdown = createShutdown({
+  steps: [
+    () => cli?.close(),
+    () => process.stdin.pause(),
+    () => assistant.stopObserving(),
+    () => assistant.stopCurrentGeneration(),
+    () => modelClient.abort(),
+    () => searchClient?.abort(),
+    ...bots.map((bot) => () => bot.stop()),
+  ],
+});
+for (const signal of ["SIGINT", "SIGTERM"] as const)
+  process.on(signal, () => {
+    void shutdown.run();
   });
 Promise.all(bots.map((bot) => bot.start())).catch((error) => {
-  cli?.close();
-  assistant.stopObserving();
-  bots.forEach((bot) => bot.stop());
+  if (shutdown.started) return;
   console.error("Failed to login:", error);
-  process.exitCode = 1;
+  void shutdown.run(1);
 });

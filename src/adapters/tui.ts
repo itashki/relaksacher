@@ -1,21 +1,83 @@
-/** @file Dependency-free ANSI operator dashboard. */
+/** @file Dependency-free ANSI operator dashboard with independent scrollable panels. */
 import type { MusicStatus, MusicStatusSource } from "../core/music-status.ts";
+import { PassThrough } from "node:stream";
+import {
+  createMouseDecoder,
+  panelAt,
+  enableMouse,
+  disableMouse,
+  type PanelRegion,
+} from "./tui-mouse.ts";
+import {
+  createSearch,
+  searchLines,
+  searchIndex,
+  highlightMatches,
+  type SearchState,
+  type SearchMove,
+} from "./tui-search.ts";
 import { emitKeypressEvents } from "node:readline";
+import {
+  createNavigation,
+  visibleLines,
+  scrollPanel,
+  selectPanel,
+  panelOrder,
+  type PanelId,
+  type Navigation,
+  type Viewport,
+} from "./tui-scroll.ts";
 
 // Remove terminal commands from model output, prompts and logs.
 const clean = (value: unknown) =>
+  // oxlint-disable-next-line no-control-regex -- Strip terminal control bytes from untrusted text.
   Bun.stripANSI(String(value ?? "")).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "");
 const wrapLine = (line: string, width: number) =>
-  Bun.wrapAnsi(line, width, {
+  Bun.wrapAnsi(line, Math.max(1, width), {
     hard: true,
     wordWrap: false,
     trim: false,
   })
     .split("\n")
-    .map((row) => Bun.sliceAnsi(row, 0, width));
+    .map((row) => Bun.sliceAnsi(row, 0, Math.max(1, width)));
+const wrappedLines = (content: string[], width: number) =>
+  content.flatMap((line) =>
+    clean(line)
+      .split("\n")
+      .flatMap((part) => wrapLine(part, width)),
+  );
 
-/** Render a bounded screen; long streams show their most recent lines. */
+/** Terminal dimensions, local content and independent navigation state for one render. */
+export type DashboardOptions = {
+  columns?: number;
+  rows?: number;
+  logs?: string[];
+  notice?: string;
+  color?: boolean;
+  music?: MusicStatus[];
+  navigation?: Navigation;
+  search?: SearchState;
+  searchMove?: SearchMove;
+};
+const panelNames: Record<PanelId, string> = {
+  answer: "Ответ",
+  thinking: "Мысли",
+  logs: "Логи",
+  queue: "Очередь",
+  music: "Музыка",
+  prompt: "Запрос",
+};
+
+/** Render a bounded dashboard; scroll positions are independent and untrusted text is escaped. */
 export function renderDashboard(
+  state: import("../types.ts").TerminalState,
+  options: DashboardOptions = {},
+) {
+  return buildDashboard(state, options).screen;
+}
+
+/** Build the screen, scroll metrics and clipped mouse hit regions from the same layout. */
+export function buildDashboard(
   state: import("../types.ts").TerminalState,
   {
     columns = 100,
@@ -24,66 +86,45 @@ export function renderDashboard(
     notice = "",
     color = false,
     music,
-  }: {
-    columns?: number;
-    rows?: number;
-    logs?: string[];
-    notice?: string;
-    color?: boolean;
-    music?: MusicStatus[];
-  } = {},
+    navigation = createNavigation(),
+    search = createSearch(),
+    searchMove,
+  }: DashboardOptions = {},
 ) {
   const width = Math.max(1, Math.floor(columns) - 1);
   const height = Math.max(1, Math.floor(rows) - 1);
+  const bordered = width >= 8;
+  const inner = bordered ? width - 4 : width;
   const lines: string[] = [];
-  const paint = (text: string, code: string) => (color ? `\x1b[${code}m${text}\x1b[0m` : text);
+  const viewports: Partial<Record<PanelId, Viewport>> = {};
+  const regions: PanelRegion[] = [];
+  const paint = (value: string, code: string) => (color ? `\x1b[${code}m${value}\x1b[0m` : value);
   const fit = (value: unknown, size = width) =>
     Bun.sliceAnsi(clean(value).replace(/\n/g, " "), 0, Math.max(1, size));
-  const cells = Bun.stringWidth;
   const add = (value = "", code = "0") => lines.push(paint(fit(value), code));
   const current = state.current ?? state.last;
-  const footer = " S стоп   H помощь   Ctrl+C выход";
-  add(" РЕЛАКСАЧЕР  /  операторская панель", "1;36");
-  add(
-    state.current
-      ? ` ● ${current?.status}  ·  #${current?.id}  ·  ${current?.model}`
-      : " ○ Ожидание запроса",
-    state.current ? "1;32" : "2",
-  );
-  if (current) {
-    add(` ${current.author}  /  ${current.scope}`, "36");
-    add(` › ${current.prompt}`);
-  }
-  const panel = (title: string, content: string[], count: number, code: string) => {
-    if (width < 8) {
-      add(title, code);
-      content.slice(-count).forEach((line) => add(line));
-      return;
-    }
-    const inner = width - 4;
-    const label = fit(` ${title} `, width - 2);
-    add(`╭${label}${"─".repeat(Math.max(0, width - cells(label) - 2))}╮`, code);
-    const wrapped = content.flatMap((line) =>
-      clean(line)
-        .split("\n")
-        .flatMap((part) => wrapLine(part, inner)),
+  add(" РЕЛАКСАЧЕР / операторская панель", "1;36");
+  if (height > 3)
+    add(
+      state.current
+        ? ` ● ${current?.status} · #${current?.id} · ${current?.model}`
+        : " ○ Ожидание запроса",
+      state.current ? "1;32" : "2",
     );
-    const visible = wrapped.slice(-count);
-    while (visible.length < count) visible.push("");
-    for (const line of visible) {
-      const text = fit(line, inner);
-      lines.push(
-        paint("│", code) +
-          " " +
-          text +
-          " ".repeat(Math.max(0, inner - cells(text))) +
-          " " +
-          paint("│", code),
-      );
-    }
-    add(`╰${"─".repeat(width - 2)}╯`, code);
+  if (current && height > 7) add(` ${current.author} / ${current.scope}`, "36");
+  const content: Record<PanelId, string[]> = {
+    prompt: [String(current?.prompt || "Запрос появится здесь…")],
+    thinking: [current?.thinking || "Пока нет мыслей…"],
+    answer: [current?.text || "Ответ появится здесь…"],
+    logs: logs.length ? logs : ["Пока нет логов…"],
+    queue: state.queue.length
+      ? state.queue.map(
+          (request, index) => `${index + 1}. #${request.id} ${request.author} · ${request.prompt}`,
+        )
+      : ["Очередь пуста"],
+    music: ["нет активных плееров"],
   };
-  if (music) {
+  if (music?.length) {
     const labels: Record<MusicStatus["status"], string> = {
       stopped: "Остановлено",
       connecting: "Подключение",
@@ -93,95 +134,121 @@ export function renderDashboard(
       idle: "Очередь закончилась",
       importing: "Импорт плейлиста",
     };
-    const modes = (s: MusicStatus) =>
-      `Повтор: ${{ off: "выкл", track: "трек", all: "всё" }[s.repeat ?? "off"]} · Случайно: ${s.shuffle ? "вкл" : "выкл"}`;
     const sorted = [...music].sort(
       (a, b) =>
         Number(Boolean(b.current || b.channelId || b.status === "importing")) -
         Number(Boolean(a.current || a.channelId || a.status === "importing")),
     );
-    if (!sorted.length) add(" Музыка · нет активных плееров", "35");
-    else if (height < 22) {
-      const s = sorted[0];
-      add(` Музыка · ${labels[s.status]} · ${s.guildName}`, "35");
-      if (height >= 10) {
-        add(
-          ` ${s.channelName || s.channelId || "Не в войсчате"} · сохранено ${s.saved} · очередь ${s.queued}`,
-          "35",
-        );
-        add(` ${s.current || s.error || "Трек не выбран"}`);
-        add(` ${modes(s)}`, "35");
-      }
-    } else {
-      const shown = sorted.slice(0, height >= 34 ? 2 : 1);
-      const content = shown.flatMap((s) =>
-        [
-          `${labels[s.status]} · ${s.guildName} / ${s.channelName || s.channelId || "Не в войсчате"}`,
-          `Трек: ${s.current || "—"}`,
-          modes(s),
-          `Сохранено: ${s.saved}/100 · В очереди: ${s.queued}${s.error ? ` · Ошибка: ${s.error}` : ""}`,
-        ].map((line) => fit(line, width - 4)),
-      );
-      if (sorted.length > shown.length)
-        content.push(`Ещё серверов: ${sorted.length - shown.length}`);
-      panel(`Музыка · серверов: ${music.length}`, content, content.length, "35");
-    }
+    content.music = sorted.flatMap((s) => [
+      `${labels[s.status]} · ${s.guildName} / ${s.channelName || s.channelId || "Не в войсчате"}`,
+      `Трек: ${s.current || "—"}`,
+      `Повтор: ${{ off: "выкл", track: "трек", all: "всё" }[s.repeat ?? "off"]} · Случайно: ${s.shuffle ? "вкл" : "выкл"}`,
+      `Сохранено: ${s.saved}/100 · В очереди: ${s.queued}`,
+      ...(s.error ? [`Ошибка: ${s.error}`] : []),
+    ]);
   }
-  const queueRows = Math.min(3, state.queue.length);
-  const logRows = Math.min(2, logs.length);
-  // Reserve panel borders, metadata, notices and the pinned keyboard shortcuts.
-  const budget =
-    height - lines.length - 8 - Math.max(1, queueRows) - logRows - (notice ? 1 : 0) - 1;
-  if (budget >= 2) {
-    panel(
-      state.current ? "Мысли · поток" : "Мысли · последний запрос",
-      [current?.thinking || "Пока нет мыслей…"],
-      Math.max(1, Math.floor(budget / 2)),
-      "2;36",
+  const searched = search.panel
+    ? searchLines(
+        content[search.panel].flatMap((line) => clean(line).split("\n")),
+        search.query,
+        (line) => wrapLine(line, inner),
+      )
+    : null;
+  const matchIndex = searchIndex(search.match, searched?.matches.length ?? 0, searchMove);
+  const matchRow = searched?.matches[matchIndex]?.row;
+  const available = panelOrder.filter((id) => id !== "music" || music !== undefined);
+  const selected = available.includes(navigation.selected) ? navigation.selected : "answer";
+  const bodyRows = Math.max(0, height - 1 - lines.length - (notice ? 1 : 0));
+  const order: PanelId[] = [
+    "prompt",
+    ...(music !== undefined ? ["music" as const] : []),
+    "thinking",
+    "answer",
+    "queue",
+    "logs",
+  ];
+  const overhead = bordered ? 2 : 1;
+  const focused = navigation.expanded || bodyRows < order.length * (overhead + 1);
+  const shown = focused ? [selected] : order;
+  const sizes = Object.fromEntries(shown.map((id) => [id, 1])) as Partial<Record<PanelId, number>>;
+  let extra = Math.max(0, bodyRows - shown.length * (overhead + 1));
+  const priorities: PanelId[] = focused
+    ? [selected]
+    : [
+        ...(music !== undefined ? (["music", "music", "music"] as PanelId[]) : []),
+        "answer",
+        "thinking",
+        "logs",
+        "answer",
+        "queue",
+      ];
+  for (let i = 0; extra > 0; i++, extra--) {
+    const id = priorities[i % priorities.length];
+    sizes[id] = (sizes[id] ?? 1) + 1;
+  }
+  for (const id of shown) {
+    if (lines.length >= height - 1 - (notice ? 1 : 0)) break;
+    const top = lines.length + 1;
+    const count = sizes[id] ?? 1;
+    const searching = search.panel === id;
+    const position =
+      searching && searchMove && matchRow !== undefined ? matchRow : navigation.positions[id];
+    const view = visibleLines(
+      searching ? searched.lines : wrappedLines(content[id], inner),
+      count,
+      position,
     );
-    panel(
-      "Ответ · поток",
-      [current?.text || "Ответ появится здесь…"],
-      Math.max(1, Math.ceil(budget / 2)),
-      "36",
-    );
-    panel(
-      `Очередь: ${state.queue.length}`,
-      state.queue.length
-        ? state.queue
-            .slice(0, queueRows)
-            .map(
-              (request, index) =>
-                `${index + 1}. #${request.id} ${request.author} · ${request.prompt}` +
-                (index === queueRows - 1 && state.queue.length > queueRows
-                  ? `  (+${state.queue.length - queueRows})`
-                  : ""),
-            )
-        : ["Очередь пуста"],
-      Math.max(1, queueRows),
-      "33",
-    );
-    if (logRows) {
-      add(" Логи", "2");
-      logs.slice(-logRows).forEach((line) => add(` ${line}`, "2"));
+    viewports[id] = { start: view.start, total: view.total, rows: view.rows };
+    const range = `${view.start + 1}–${Math.min(view.total, view.start + count)}/${view.total}`;
+    const title = `${id === selected ? "▶ " : ""}${panelNames[id]}${id === "queue" ? `: ${state.queue.length}` : ""} · ${range}${position === "tail" ? " ↓" : ""}`;
+    const code = id === selected ? "1;36" : id === "music" ? "35" : "2;36";
+    if (bordered) {
+      const label = fit(` ${title} `, width - 2);
+      add(`╭${label}${"─".repeat(Math.max(0, width - Bun.stringWidth(label) - 2))}╮`, code);
+      for (let index = 0; index < count; index++) {
+        const text = fit(view.lines[index] ?? "", inner);
+        lines.push(
+          paint("│", code) +
+            " " +
+            (color && searching
+              ? highlightMatches(text, searched.spans[view.start + index], matchIndex)
+              : text) +
+            " ".repeat(Math.max(0, inner - Bun.stringWidth(text))) +
+            " " +
+            paint("│", code),
+        );
+      }
+      add(`╰${"─".repeat(width - 2)}╯`, code);
+    } else {
+      add(title, code);
+      view.lines.forEach((line, index) => {
+        const text = fit(line);
+        if (color && searching)
+          lines.push(highlightMatches(text, searched.spans[view.start + index], matchIndex));
+        else add(text);
+      });
     }
-  } else {
-    add(` Очередь: ${state.queue.length}`, "33");
-    const available = Math.max(0, height - lines.length - 2 - (notice ? 1 : 0));
-    if (available) {
-      add(" Ответ", "36");
-      if (available > 1)
-        clean(current?.text || "Ответ появится здесь…")
-          .split("\n")
-          .flatMap((line) => wrapLine(line, width))
-          .slice(-(available - 1))
-          .forEach((line) => add(line));
-    }
+    regions.push({
+      id,
+      x: 1,
+      y: top,
+      width,
+      height: Math.max(0, Math.min(lines.length, height - 1 - (notice ? 1 : 0)) - top + 1),
+    });
   }
   if (notice) add(` ◆ ${notice}`, "33");
   const body = lines.slice(0, height - 1);
   while (body.length < height - 1) body.push("");
-  return [...body, paint(fit(footer), "7")].join("\r\n");
+  const footer = search.panel
+    ? ` /${search.query}${search.editing ? "█" : ""} · ${matchIndex >= 0 ? `${matchIndex + 1}/${searched.matches.length}` : search.query ? "нет совпадений" : "введите запрос"} | ${search.editing ? "Enter искать Esc отмена" : "n/N далее/назад Esc закрыть q выход"}`
+    : " q выход Ctrl+C | hjkl навигация / поиск ? помощь S стоп | Enter развернуть Tab панель";
+  return {
+    screen: [...body, paint(fit(footer), "7")].join("\r\n"),
+    viewports,
+    regions,
+    available,
+    searchResult: { index: matchIndex, row: matchRow, total: searched?.matches.length ?? 0 },
+  };
 }
 
 /** Start full-screen terminal monitoring and restore terminal state on close. */
@@ -207,6 +274,11 @@ export function createTui({
   let state: import("../types.ts").TerminalState = { current: null, last: null, queue: [] };
   let musicState: MusicStatus[] | undefined = music ? [] : undefined;
   const logs: string[] = [];
+  const navigation = createNavigation();
+  let search = createSearch();
+  let searchMove: SearchMove | undefined;
+  let viewports: Partial<Record<PanelId, Viewport>> = {};
+  let regions: PanelRegion[] = [];
   const original = new Map<
     "log" | "info" | "warn" | "error" | "debug",
     (...args: unknown[]) => void
@@ -221,17 +293,38 @@ export function createTui({
   const draw = () => {
     if (closed || !dirty) return;
     dirty = false;
-    const screen = renderDashboard(state, {
+    const rendered = buildDashboard(state, {
       columns: output.columns,
       rows: output.rows,
       logs,
       notice,
       color: true,
       music: musicState,
+      navigation,
+      search,
+      searchMove,
     });
-    output.write(`\x1b[H\x1b[2J${screen}`);
+    if (searchMove && search.panel && rendered.searchResult.row !== undefined) {
+      navigation.positions[search.panel] = rendered.searchResult.row;
+    }
+    search.match = rendered.searchResult.index;
+    searchMove = undefined;
+    viewports = rendered.viewports;
+    regions = rendered.regions;
+    for (const [id, view] of Object.entries(viewports)) {
+      if (navigation.positions[id as PanelId] !== "tail")
+        navigation.positions[id as PanelId] = view.start;
+    }
+    output.write(`\x1b[H\x1b[2J${rendered.screen}`);
   };
   const unsubscribe = assistant.subscribeTerminal((next) => {
+    if ((next.current ?? next.last)?.id !== (state.current ?? state.last)?.id) {
+      navigation.positions.answer = "tail";
+      navigation.positions.thinking = "tail";
+      navigation.positions.prompt = 0;
+      if (search.panel && ["answer", "thinking", "prompt"].includes(search.panel))
+        search = createSearch();
+    }
     state = next;
     dirty = true;
   });
@@ -253,16 +346,41 @@ export function createTui({
                 : Bun.inspect(value, { colors: false, compact: true }),
             )
             .join(" "),
-        )
-          .replace(/\n/g, " ")
-          .slice(0, 1000),
+        ).slice(0, 4000),
       );
-      if (logs.length > 50) logs.shift();
+      if (logs.length > 1000) {
+        const removed = logs.shift();
+        if (typeof navigation.positions.logs === "number") {
+          const screenWidth = Math.max(1, (output.columns ?? 100) - 1);
+          const width = screenWidth >= 8 ? screenWidth - 4 : screenWidth;
+          navigation.positions.logs = Math.max(
+            0,
+            navigation.positions.logs - wrappedLines([removed], width).length,
+          );
+        }
+      }
       dirty = true;
     };
   }
-  output.write("\x1b[?1049h\x1b[?25l");
-  emitKeypressEvents(input);
+  output.write(`\x1b[?1049h\x1b[?25l${enableMouse}`);
+  // readline requires a Node stream; feed it only bytes which are not mouse reports.
+  const keyboard = new PassThrough();
+  emitKeypressEvents(keyboard);
+  const mouse = createMouseDecoder(
+    (event) => {
+      if (dirty) draw();
+      const id = panelAt(regions, event.x, event.y);
+      if (!id) return;
+      if (id !== navigation.selected) search = createSearch();
+      navigation.selected = id;
+      if (event.kind !== "click") scrollPanel(navigation, viewports[id], event.kind, 3);
+      dirty = true;
+    },
+    (data) => {
+      if (!closed) keyboard.write(data);
+    },
+  );
+  const onData = (data: Uint8Array | string) => mouse.write(data);
   input.setRawMode?.(true);
   input.resume();
   const onKey = (text: string, key: import("node:readline").Key = {}) => {
@@ -270,19 +388,75 @@ export function createTui({
       onInterrupt();
       return;
     }
-    if (key.name === "s" || text === "s" || text === "S") {
+    if (search.editing) {
+      if (key.name === "escape") {
+        if (search.panel) navigation.positions[search.panel] = search.savedPosition;
+        search = createSearch();
+      } else if (key.name === "return") {
+        search.editing = false;
+      } else if (key.name === "backspace" || key.name === "delete") {
+        search.query = Array.from(search.query).slice(0, -1).join("");
+        searchMove = "first";
+      } else if (key.ctrl && key.name === "u") {
+        search.query = "";
+        searchMove = "first";
+      } else if (text && !key.ctrl && !key.meta && !/\p{Cc}/u.test(text)) {
+        search.query = Array.from(search.query + text)
+          .slice(0, 256)
+          .join("");
+        searchMove = "first";
+      }
+      dirty = true;
+      return;
+    }
+    if (key.name === "q" && !key.ctrl && !key.meta) {
+      onInterrupt();
+      return;
+    }
+    if (text === "/") {
+      search = {
+        ...createSearch(),
+        panel: navigation.selected,
+        editing: true,
+        savedPosition: navigation.positions[navigation.selected],
+      };
+      notice = "";
+    } else if (key.name === "escape") {
+      search = createSearch();
+    } else if (key.name === "n" && search.query) {
+      if (dirty) draw();
+      searchMove = key.shift ? "previous" : "next";
+    } else if (key.name === "tab" || key.name === "h" || key.name === "l") {
+      selectPanel(
+        navigation,
+        panelOrder.filter((id) => id !== "music" || musicState !== undefined),
+        key.name === "h" || (key.name === "tab" && key.shift),
+      );
+      search = createSearch();
+    } else if (key.name === "return") {
+      navigation.expanded = !navigation.expanded;
+    } else if (["up", "down", "pageup", "pagedown", "home", "end", "j", "k"].includes(key.name)) {
+      if (dirty) draw();
+      scrollPanel(
+        navigation,
+        viewports[navigation.selected],
+        key.name === "j" ? "down" : key.name === "k" ? "up" : key.name,
+      );
+    } else if (key.name === "s" || text === "s" || text === "S") {
       notice = assistant.stopCurrentGeneration()
         ? "Остановка запрошена."
         : "Нет активной генерации.";
-    } else if (key.name === "h" || text === "h") {
-      notice = "S — остановить текущий ответ; очередь продолжится. Ctrl+C — выход.";
+    } else if (text === "?") {
+      notice =
+        "q — выход; h/l — панели; j/k — вниз/вверх; / — поиск; n/N — совпадения; Enter — развернуть; мышь — клик/скролл.";
     }
     dirty = true;
   };
   const onResize = () => {
     dirty = true;
   };
-  input.on("keypress", onKey);
+  keyboard.on("keypress", onKey);
+  input.on("data", onData);
   output.on("resize", onResize);
   const timer = setInterval(draw, 80);
   timer.unref?.();
@@ -294,13 +468,16 @@ export function createTui({
     clearInterval(timer);
     unsubscribe();
     unsubscribeMusic?.();
-    input.off("keypress", onKey);
+    input.off("data", onData);
+    keyboard.off("keypress", onKey);
+    mouse.close();
+    keyboard.destroy();
     input.off("end", close);
     output.off("resize", onResize);
     input.setRawMode?.(wasRaw);
     if (!wasFlowing) input.pause();
     for (const [level, method] of original) consoleTarget[level] = method;
-    output.write("\x1b[?25h\x1b[?1049l");
+    output.write(`${disableMouse}\x1b[?25h\x1b[?1049l`);
   }
   input.once("end", close);
   return { close };

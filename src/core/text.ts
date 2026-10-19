@@ -19,7 +19,7 @@ export function parseCommands(content: string) {
   const flags = { think: false };
   let found = false;
 
-  let cleaned = content.replace(/(^|\s)\/(think)(?=\s|$)/giu, (_match, prefix, command) => {
+  let cleaned = content.replace(/(^|\s)\/(think)(?=\s|$)/giu, (_match, prefix) => {
     flags.think = true;
     found = true;
     return prefix;

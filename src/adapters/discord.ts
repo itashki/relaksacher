@@ -168,17 +168,22 @@ export function createDiscordBot({
     console.log("Memory dir:", memoryDirectory);
   });
 
+  let shutdownTask: Promise<void> | undefined;
+
   /**
-   * Stop active/queued sessions and destroy the Discord connection.
+   * Stop active/queued sessions and await music and Discord transport cleanup.
    * @param signal Shutdown reason for logging.
+   * @returns Shared shutdown promise; repeated calls do not destroy clients again.
    */
   function shutdown(signal: string) {
+    if (shutdownTask) return shutdownTask;
     console.log(`Received ${signal}, shutting down.`);
     for (const generation of activeGenerations.values()) {
       generation.stop();
     }
-    music.stop();
-    client.destroy();
+    const musicStopped = music.stop();
+    shutdownTask = Promise.all([musicStopped, client.destroy()]).then(() => {});
+    return shutdownTask;
   }
 
   // Обработка нажатия кнопки «Остановить генерацию»
