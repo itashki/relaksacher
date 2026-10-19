@@ -39,6 +39,96 @@ Bun запускает TypeScript напрямую, отдельная сбор�
 `bun run dev` включает перезапуск при изменении файлов. После изменения настроек
 или локальных JSON5-файлов перезапустите бота.
 
+## Запуск через Nix
+
+В репозитории есть закреплённое окружение для Linux x86_64 и ARM64:
+
+```sh
+nix develop path:.
+bun install --frozen-lockfile
+bun start
+```
+
+Или запуск одной командой после установки зависимостей:
+
+```sh
+nix develop path:. --command bun start
+```
+
+Для Nix без flakes доступен `nix-shell`: он использует ту же ревизию nixpkgs
+из `flake.lock`. Для `nix develop` должны быть включены `nix-command` и `flakes`.
+
+Окружение содержит Bun, Ollama CUDA, Piper TTS, whisper.cpp (CPU), FFmpeg/ffprobe,
+yt-dlp, Deno для извлечения YouTube, Python, Node.js, Git, curl, CA-сертификаты
+и инструменты сборки нативных зависимостей. Отдельная установка этих программ
+в системный конфиг не требуется. `PIPER_BIN` внутри shell автоматически указывает
+на синтезатор речи из Nix store, даже если в `.env` остался старый путь или
+системная команда `piper` занята приложением настройки мыши.
+
+Создайте `.env`, `facts.json5` и `personality.json5` по инструкции выше.
+Модели не входят в shell: скачайте их отдельно и укажите `WHISPER_MODEL`,
+`PIPER_MODEL` и модели Ollama. Соседний файл `<PIPER_MODEL>.json` также нужен.
+Whisper запускается самим ботом при `WHISPER_AUTO_START=true` и завершается вместе
+с ним; уже работающий сервер используется повторно. Piper вызывается по запросу.
+Отдельные системные сервисы для Whisper и Piper не нужны. Их логи не нарушают TUI.
+Python самостоятельный, Piper запускается через свой CLI, а не `python -m piper`.
+
+Версии пакетов закреплены в `flake.lock`. Обновление: `nix flake update nixpkgs`.
+После обновления проверьте версии инструментов и выполните проверки разработки.
+
+### Что настроить в системе вне Nix shell
+
+На NixOS нужны Nix, настроенный драйвер NVIDIA для CUDA и системный сервис
+Ollama. В свой `configuration.nix` добавьте недостающие параметры:
+
+```nix
+{ pkgs, ... }:
+{
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nixpkgs.config.allowUnfree = true;
+
+  services.ollama = {
+    enable = true;
+    package = pkgs.ollama-cuda;
+  };
+}
+```
+
+Если эти параметры уже настроены, повторно добавлять их не нужно. Настройки
+драйвера NVIDIA относятся к конфигурации самого компьютера, включая PRIME
+на ноутбуках: сохраните свою работающую конфигурацию. Shell предоставляет
+CUDA-программы, но не устанавливает драйвер ядра. После изменения системного
+конфига примените его и проверьте сервис:
+
+```sh
+sudo nixos-rebuild switch
+systemctl status ollama
+```
+
+Bun, Python, Piper, whisper.cpp, FFmpeg и yt-dlp отдельно в
+`environment.systemPackages` добавлять не требуется — они входят в shell.
+Shell не запускает второй сервер Ollama и не меняет системный сервис.
+
+В `.env` бота оставьте:
+
+```dotenv
+OLLAMA_URL=http://localhost:11434
+WHISPER_AUTO_START=true
+WHISPER_URL=http://127.0.0.1:8080/inference
+```
+
+Модели скачиваются отдельно от системных пакетов. Для Ollama выполните
+`ollama pull <имя>` внутри shell для основной и вспомогательной моделей из
+`.env`: команды обращаются к системному серверу. `ollama ps` показывает
+загруженные модели и использование GPU. Пути к уже скачанным моделям Whisper
+и Piper укажите в `WHISPER_MODEL` и `PIPER_MODEL`; Piper нужен также соседний
+файл `.onnx.json`. Токены платформ и локальные JSON5-файлы настраиваются по
+основной инструкции запуска. После этого достаточно:
+
+```sh
+nix-shell --run 'bun start'
+```
+
 ## Документация
 
 - [Команды и управление](docs/COMMANDS.md): общение с ботом, кнопки остановки,

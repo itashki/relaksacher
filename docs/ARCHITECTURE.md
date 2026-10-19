@@ -244,3 +244,7 @@ IsVoiceMessage, duration и waveform; Telegram использует sendVoice и
 Piper запускается с `--output-raw`: частота mono PCM читается из
 `audio.sample_rate` соседнего файла `<PIPER_MODEL>.json`. Это обходит
 проблему пустого WAV при выводе Piper через `-f -` на коротких фразах.
+
+В Nix shell Whisper по умолчанию запускается ботом (`WHISPER_AUTO_START=true`),
+Piper вызывается как CLI на запрос. Ollama работает независимо как системный
+сервис NixOS с CUDA; системные требования описаны в README.

@@ -2,7 +2,10 @@
 
 ## Подготовка
 
-Нужен Bun версии из `package.json` или новее.
+Нужен Bun версии из `package.json` или новее. Для полного окружения на Linux
+выполните `nix develop path:.` или `nix-shell` из корня проекта. Обе команды используют
+закреплённый `flake.lock` и общий список пакетов в `nix/dev-shell.nix`.
+Nix-файлы форматируются через `nix fmt`; остальные файлы — через Prettier.
 
 ```sh
 bun install --frozen-lockfile
