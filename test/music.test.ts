@@ -213,7 +213,9 @@ test("playlist imports persist ordered tracks, respect remaining capacity and pr
     fail = true;
     await music.handle(message("!music add https://youtube.com/playlist?list=PL_test"));
     expect(replies.at(-1)).toBe("Playlist unavailable");
-    expect(await Bun.file(resolvePath("music_456.json", directory)).json()).toEqual([
+    expect(
+      (await Bun.file(resolvePath("music_456.json", directory)).json()).playlists[0].tracks,
+    ).toEqual([
       "https://youtu.be/one",
       "https://www.youtube.com/watch?v=abcdefghijk",
       "https://www.youtube.com/watch?v=zyxwvutsrqp",
@@ -315,10 +317,12 @@ test("music panel buttons, modal submissions and voice checks share command beha
       "music:remove",
       "music:list",
       "music:search",
+      "music:playlists",
       "music:repeat",
       "music:shuffle",
       "music:mix",
       "music:queue",
+      "music:dismiss",
     ]);
     await music.handleInteraction(interaction("add"));
     expect(modal.toJSON().custom_id).toBe("music:add");
@@ -369,7 +373,7 @@ test("music panel buttons, modal submissions and voice checks share command beha
     expect(responses.at(-1).content).toContain("Неизвестное действие");
     await music.handle(request("!music panel"));
     expect(posted.at(-1).content).toContain("Музыкальный плеер");
-    expect(posted.at(-1).components).toHaveLength(3);
+    expect(posted.at(-1).components).toHaveLength(4);
     inVoice = true;
     voiceType = ChannelType.GuildStageVoice;
     calls.length = 0;
@@ -380,7 +384,7 @@ test("music panel buttons, modal submissions and voice checks share command beha
     expect(calls).toEqual([]);
     voiceType = ChannelType.GuildVoice;
     await music.handleInteraction(interaction("remove"));
-    expect(responses.at(-1).content).toContain("Выберите трек для удаления");
+    expect(responses.at(-1).content).toContain("Удаление треков");
     await music.handleInteraction(interaction("remove", "999"));
     expect(responses.at(-1).content).toContain("Укажите номер трека");
     await music.handleInteraction(interaction("remove", "1"));
@@ -402,7 +406,7 @@ test("music panel buttons, modal submissions and voice checks share command beha
     await music.handleInteraction(interaction("search"));
     expect(modal.toJSON().custom_id).toBe("music:search");
     await music.handleInteraction(interaction("search", "artist song"));
-    expect(responses.at(-1).content).toContain("Выберите трек");
+    expect(responses.at(-1).content).toContain("Поиск");
     const pick = (
       responses.at(-1).components[0]
         .components[0] as unknown as import("discord.js").StringSelectMenuBuilder
@@ -717,9 +721,9 @@ test("removal menu paginates, protects ownership and rejects stale playlist sele
     expect(responses.at(-1)!.content).toContain("Некорректный выбор");
     await music.handleInteraction(interaction(select.custom_id!, "25"));
     expect(responses.at(-1)!.content).toContain("Трек удалён");
-    expect(await Bun.file(resolvePath("music_remove-menu.json", directory)).json()).toEqual(
-      tracks.slice(0, 25),
-    );
+    expect(
+      (await Bun.file(resolvePath("music_remove-menu.json", directory)).json()).playlists[0].tracks,
+    ).toEqual(tracks.slice(0, 25));
     await music.handleInteraction(interaction(select.custom_id!, "25"));
     expect(responses.at(-1)!.content).toContain("Плейлист изменился");
   } finally {
@@ -779,7 +783,7 @@ test("playlist playback choices cover all entries and enforce ownership, voice a
   try {
     await music.handle(request("!music list"));
     const rows = replies.at(-1)!.components!;
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     const menu = rows[1].components[0].toJSON();
     expect(menu.options).toEqual([{ label: "26. track-25", value: "25", description: "2:03" }]);
     await music.handleInteraction(choose(menu.custom_id, "25", "other"));

@@ -5,6 +5,7 @@ import { createDiscordTts } from "./discord-tts.ts";
 import { createTranscriptHistory } from "../core/transcript-history.ts";
 import { downloadVoice } from "./voice.ts";
 import { createDiscordMusic } from "./discord-music.ts";
+import { musicMessageComponents } from "./music-messages.ts";
 import { attachImages, downloadImage } from "./images.ts";
 import {
   AttachmentBuilder,
@@ -254,12 +255,23 @@ export function createDiscordBot({
     if (
       tts.busy(interaction.guildId) &&
       "customId" in interaction &&
-      interaction.customId.startsWith("music:")
+      interaction.customId.startsWith("music:") &&
+      interaction.customId !== "music:dismiss" &&
+      !interaction.customId.startsWith("music:back:")
     ) {
-      await interaction.reply({
+      const payload = {
         content: "Дождитесь озвучки или используйте !tts stop.",
-        flags: MessageFlags.Ephemeral,
-      });
+        components: musicMessageComponents([], "music:back:panel"),
+      };
+      if (
+        (interaction.isButton() ||
+          interaction.isStringSelectMenu() ||
+          interaction.isModalSubmit()) &&
+        interaction.message?.flags.has(MessageFlags.Ephemeral)
+      ) {
+        await interaction.deferUpdate();
+        await interaction.editReply({ ...payload, attachments: [] });
+      } else await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
       return;
     }
     if (await music.handleInteraction(interaction)) return;
@@ -381,6 +393,7 @@ export function createDiscordBot({
     if (/^!music(?:\s|$)/iu.test(message.content ?? "") && tts.busy(message.guildId)) {
       await message.reply({
         content: "Дождитесь озвучки или используйте !tts stop.",
+        components: musicMessageComponents(),
         allowedMentions: { parse: [], repliedUser: false },
       });
       return;
