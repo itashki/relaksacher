@@ -67,7 +67,7 @@ export function createTelegramApi(
     timer.unref?.();
     const deadline = controller.signal;
     try {
-      const prepared =
+      const prepared: Record<string, unknown> =
         payload.document instanceof Blob
           ? {
               ...payload,
@@ -76,7 +76,12 @@ export function createTelegramApi(
                 "thinking.md",
               ),
             }
-          : payload;
+          : { ...payload };
+      if (payload.voice instanceof Blob)
+        prepared.voice = new InputFile(
+          new Uint8Array(await payload.voice.arrayBuffer()),
+          "voice.ogg",
+        );
       // grammY binds an empty payload for getMe, so its only argument is signal.
       const call = () =>
         method === "getMe"

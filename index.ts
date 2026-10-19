@@ -1,4 +1,5 @@
 /** @file Application composition and adapter lifecycle entry point. */
+import { createVoiceSynthesizer } from "./src/adapters/piper.ts";
 import { createWhisperServer } from "./src/core/whisper-server.ts";
 import { createTranscriber } from "./src/core/transcription.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
@@ -16,6 +17,7 @@ import { createDiscordBot } from "./src/adapters/discord.ts";
 import { createCliControls } from "./src/adapters/cli.ts";
 
 const config = await loadConfig();
+const voice = createVoiceSynthesizer({ binary: config.piperBin, model: config.piperModel });
 const whisper = createWhisperServer({
   url: config.whisperUrl,
   model: config.whisperModel,
@@ -63,11 +65,12 @@ const assistant = createAssistant({
 const music = createMusicMonitor();
 const bots = config.adapters.map((adapter) =>
   adapter === "telegram"
-    ? createTelegramBot({ config, assistant, transcribe })
+    ? createTelegramBot({ config, assistant, transcribe, generateVoice: voice.generate })
     : createDiscordBot({
         config,
         assistant,
         transcribe,
+        generateVoice: voice.generate,
         memoryDirectory,
         onMusicStatus: music.publish,
       }),
@@ -79,6 +82,7 @@ const shutdown = createShutdown({
   steps: [
     () => cli?.close(),
     () => whisper.stop(),
+    () => voice.stop(),
     () => process.stdin.pause(),
     () => assistant.stopObserving(),
     () => assistant.stopCurrentGeneration(),

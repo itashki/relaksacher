@@ -127,6 +127,8 @@ export type AssistantOptions = {
 };
 /** Validated startup configuration shared with enabled platform adapters. */
 export type AppConfig = {
+  piperBin?: string;
+  piperModel?: string;
   whisperModel?: string;
   whisperAutoStart?: boolean;
   whisperUrl?: string;
@@ -235,3 +237,6 @@ export type WebClient = {
 
 /** Injectable Web-standard HTTP transport used at network boundaries. */
 export type HttpFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+/** Encoded voice message with actual duration and a base64 amplitude preview for Discord. */
+export type VoiceRecording = { audio: Blob; duration: number; waveform: string };

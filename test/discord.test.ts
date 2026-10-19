@@ -619,3 +619,37 @@ test("Discord stop returns and reuses the pending client teardown promise", asyn
   release();
   await stopped;
 });
+
+test("TTS reply to the bot never reaches model generation or observation even on voice access error", async () => {
+  const bot = createDiscordBot({
+    config: {},
+    assistant: {
+      createSession() {
+        throw new Error("TTS must not invoke the model");
+      },
+      observeMessage() {
+        throw new Error("TTS must not be observed");
+      },
+      considerMessage() {
+        throw new Error("TTS must not trigger spontaneous replies");
+      },
+    },
+  });
+  onTestFinished(() => bot.client.destroy());
+  bot.client.user = fixture<ClientUser>({ id: "bot" });
+  const replies: string[] = [];
+  await bot.client.listeners(Events.MessageCreate)[0]({
+    id: "tts",
+    content: "!tts",
+    author: { id: "user", bot: false },
+    guild: { id: "guild", members: { fetch: async () => ({ voice: { channel: null as null } }) } },
+    reference: { messageId: "answer" },
+    fetchReference: async () => ({ content: "Мой ответ", author: { id: "bot" } }),
+    mentions: { has: () => true },
+    reply: async (payload: { content: string }) => {
+      replies.push(payload.content);
+    },
+  });
+  expect(replies).toHaveLength(1);
+  expect(replies[0]).toContain("голосовой канал");
+});

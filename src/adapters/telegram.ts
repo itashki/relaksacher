@@ -56,12 +56,14 @@ export function createTelegramBot({
   config,
   assistant,
   transcribe,
+  generateVoice,
   api = createTelegramApi(config.telegramToken, fetch, {
     timeoutMs: config.telegramTimeoutMs ?? 60000,
   }),
 }: {
   config: import("../types.ts").AppConfig;
   assistant: import("../types.ts").Assistant;
+  generateVoice?: (text: string) => Promise<import("../types.ts").VoiceRecording>;
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   api?: import("../types.ts").TelegramApi;
 }) {
@@ -129,12 +131,48 @@ export function createTelegramBot({
    * @returns Resolves after session execution and UI cleanup.
    */
   async function handleMessage(message: import("@grammyjs/types").Message) {
+    const voiceCommand = (message.text ?? "")
+      .trim()
+      .match(/^!voice(?:@(\w+))?(?:\s+([\s\S]*))?$/iu);
+    if (voiceCommand && message.from && !message.from.is_bot) {
+      if (voiceCommand[1] && voiceCommand[1].toLowerCase() !== me.username?.toLowerCase()) return;
+      const base = {
+        chat_id: message.chat.id,
+        ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
+        reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
+      };
+      try {
+        const text = (
+          voiceCommand[2]?.trim() ||
+          message.reply_to_message?.text ||
+          message.reply_to_message?.caption ||
+          ""
+        ).trim();
+        if (!text || text.length > 2000)
+          throw new Error(
+            "Используйте !voice <текст> или !voice ответом на сообщение, до 2000 символов.",
+          );
+        if (!generateVoice) throw new Error("Синтез голосовых сообщений недоступен.");
+        const recording = await generateVoice(text);
+        await api("sendVoice", {
+          ...base,
+          voice: recording.audio,
+          duration: Math.ceil(recording.duration),
+        });
+      } catch (error) {
+        await api("sendMessage", {
+          ...base,
+          text: error instanceof Error ? error.message : "Не удалось отправить голосовое.",
+        }).catch(() => {});
+      }
+      return;
+    }
     if (message.voice && message.from && !message.from.is_bot && transcribe) {
       let text: string;
       let transcript: string;
       try {
         transcript = await transcribe(() => api.downloadVoice(message.voice.file_id));
-        text = "🎙 Транскрипция:\n" + transcript;
+        text = "🎙\n" + transcript;
       } catch {
         text =
           "Не удалось расшифровать голосовое. Проверьте доступность Whisper и попробуйте ещё раз.";

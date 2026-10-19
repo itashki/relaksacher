@@ -135,6 +135,8 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   if (!Number.isSafeInteger(whisperTimeoutMs) || whisperTimeoutMs <= 0)
     throw new Error("Invalid WHISPER_TIMEOUT_MS");
   return {
+    piperBin: env.PIPER_BIN?.trim() || "piper",
+    piperModel: env.PIPER_MODEL?.trim() || "models/ru_RU-ruslan-medium.onnx",
     whisperModel: env.WHISPER_MODEL?.trim() || "models/ggml-small.bin",
     whisperAutoStart: env.WHISPER_AUTO_START !== "false",
     whisperUrl,

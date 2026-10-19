@@ -1,9 +1,11 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import { createDiscordTts } from "./discord-tts.ts";
 import { createTranscriptHistory } from "../core/transcript-history.ts";
 import { downloadVoice } from "./voice.ts";
 import { createDiscordMusic } from "./discord-music.ts";
 import { attachImages, downloadImage } from "./images.ts";
 import {
+  AttachmentBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -94,6 +96,7 @@ export function createDiscordBot({
   config,
   assistant,
   transcribe,
+  generateVoice,
   memoryDirectory,
   onMusicStatus,
   loadImage = (url) =>
@@ -101,6 +104,7 @@ export function createDiscordBot({
 }: {
   config: import("../types.ts").AppConfig;
   assistant: import("../types.ts").Assistant;
+  generateVoice?: (text: string) => Promise<import("../types.ts").VoiceRecording>;
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   memoryDirectory: string;
   onMusicStatus?: (statuses: import("../core/music-status.ts").MusicStatus[]) => void;
@@ -115,6 +119,7 @@ export function createDiscordBot({
     ],
   });
 
+  const tts = createDiscordTts({ binary: config.piperBin, model: config.piperModel });
   const transcripts = createTranscriptHistory();
   const music = createDiscordMusic(memoryDirectory, { onStatus: onMusicStatus });
 
@@ -187,12 +192,23 @@ export function createDiscordBot({
       generation.stop();
     }
     const musicStopped = music.stop();
-    shutdownTask = Promise.all([musicStopped, client.destroy()]).then(() => {});
+    shutdownTask = Promise.all([tts.stop(), musicStopped, client.destroy()]).then(() => {});
     return shutdownTask;
   }
 
   // Обработка нажатия кнопки «Остановить генерацию»
   client.on(Events.InteractionCreate, async (interaction) => {
+    if (
+      tts.busy(interaction.guildId) &&
+      "customId" in interaction &&
+      interaction.customId.startsWith("music:")
+    ) {
+      await interaction.reply({
+        content: "Дождитесь озвучки или используйте !tts stop.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
     if (await music.handleInteraction(interaction)) return;
     if (!interaction.isButton()) return;
     if (!interaction.customId.startsWith(STOP_PREFIX)) return;
@@ -230,6 +246,39 @@ export function createDiscordBot({
     if (message.author.bot) return;
 
     if (!client.user) return;
+    const voiceCommand = message.content?.trim().match(/^!voice(?:\s+([\s\S]*))?$/iu);
+    if (voiceCommand) {
+      try {
+        const text = (
+          voiceCommand[1]?.trim() ||
+          (message.reference ? (await message.fetchReference()).content : "")
+        ).trim();
+        if (!text || text.length > 2000)
+          throw new Error(
+            "Используйте !voice <текст> или !voice ответом на сообщение, до 2000 символов.",
+          );
+        if (!generateVoice) throw new Error("Синтез голосовых сообщений недоступен.");
+        const recording = await generateVoice(text);
+        const file = new AttachmentBuilder(Buffer.from(await recording.audio.arrayBuffer()), {
+          name: "voice.ogg",
+        })
+          .setDuration(recording.duration)
+          .setWaveform(recording.waveform);
+        await message.reply({
+          files: [file],
+          flags: MessageFlags.IsVoiceMessage,
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+      } catch (error) {
+        await message
+          .reply({
+            content: error instanceof Error ? error.message : "Не удалось отправить голосовое.",
+            allowedMentions: { parse: [], repliedUser: false },
+          })
+          .catch(() => {});
+      }
+      return;
+    }
     if (transcribe && message.flags?.has(MessageFlags.IsVoiceMessage)) {
       const file = message.attachments.first();
       let text: string;
@@ -239,7 +288,7 @@ export function createDiscordBot({
         transcript = await transcribe(() =>
           downloadVoice(file.url, { allowedHosts: ["cdn.discordapp.com", "media.discordapp.net"] }),
         );
-        text = "🎙 Транскрипция:\n" + transcript;
+        text = "🎙\n" + transcript;
       } catch {
         text =
           "Не удалось расшифровать голосовое. Проверьте доступность Whisper и попробуйте ещё раз.";
@@ -262,6 +311,14 @@ export function createDiscordBot({
           },
           replyIds,
         );
+      return;
+    }
+    if (await tts.handle(message)) return;
+    if (/^!music(?:\s|$)/iu.test(message.content ?? "") && tts.busy(message.guildId)) {
+      await message.reply({
+        content: "Дождитесь озвучки или используйте !tts stop.",
+        allowedMentions: { parse: [], repliedUser: false },
+      });
       return;
     }
     if (await music.handle(message)) return;
