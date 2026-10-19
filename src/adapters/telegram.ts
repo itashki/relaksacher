@@ -55,12 +55,14 @@ function author(user: import("@grammyjs/types").User) {
 export function createTelegramBot({
   config,
   assistant,
+  transcribe,
   api = createTelegramApi(config.telegramToken, fetch, {
     timeoutMs: config.telegramTimeoutMs ?? 60000,
   }),
 }: {
   config: import("../types.ts").AppConfig;
   assistant: import("../types.ts").Assistant;
+  transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   api?: import("../types.ts").TelegramApi;
 }) {
   let stopped = false;
@@ -127,6 +129,26 @@ export function createTelegramBot({
    * @returns Resolves after session execution and UI cleanup.
    */
   async function handleMessage(message: import("@grammyjs/types").Message) {
+    if (message.voice && message.from && !message.from.is_bot && transcribe) {
+      let text: string;
+      let transcript: string;
+      try {
+        transcript = await transcribe(() => api.downloadVoice(message.voice.file_id));
+        text = "🎙 Транскрипция:\n" + transcript;
+      } catch {
+        text =
+          "Не удалось расшифровать голосовое. Проверьте доступность Whisper и попробуйте ещё раз.";
+      }
+      for (const chunk of splitText(text))
+        await api("sendMessage", {
+          chat_id: message.chat.id,
+          ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
+          text: chunk,
+          reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
+        });
+      if (transcript) remember({ ...message, text: transcript });
+      return;
+    }
     if (
       (!message.text && !message.caption && !imageFiles(message).length) ||
       !message.from ||

@@ -1,4 +1,6 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import { createTranscriptHistory } from "../core/transcript-history.ts";
+import { downloadVoice } from "./voice.ts";
 import { createDiscordMusic } from "./discord-music.ts";
 import { attachImages, downloadImage } from "./images.ts";
 import {
@@ -91,6 +93,7 @@ function imageFiles(message: import("discord.js").Message<boolean>) {
 export function createDiscordBot({
   config,
   assistant,
+  transcribe,
   memoryDirectory,
   onMusicStatus,
   loadImage = (url) =>
@@ -98,6 +101,7 @@ export function createDiscordBot({
 }: {
   config: import("../types.ts").AppConfig;
   assistant: import("../types.ts").Assistant;
+  transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   memoryDirectory: string;
   onMusicStatus?: (statuses: import("../core/music-status.ts").MusicStatus[]) => void;
   loadImage?: (arg0: string) => Promise<string>;
@@ -111,6 +115,7 @@ export function createDiscordBot({
     ],
   });
 
+  const transcripts = createTranscriptHistory();
   const music = createDiscordMusic(memoryDirectory, { onStatus: onMusicStatus });
 
   // Название треда: начало вопроса без упоминаний и команд (лимит Discord — 100).
@@ -225,6 +230,40 @@ export function createDiscordBot({
     if (message.author.bot) return;
 
     if (!client.user) return;
+    if (transcribe && message.flags?.has(MessageFlags.IsVoiceMessage)) {
+      const file = message.attachments.first();
+      let text: string;
+      let transcript: string;
+      const replyIds: string[] = [];
+      try {
+        transcript = await transcribe(() =>
+          downloadVoice(file.url, { allowedHosts: ["cdn.discordapp.com", "media.discordapp.net"] }),
+        );
+        text = "🎙 Транскрипция:\n" + transcript;
+      } catch {
+        text =
+          "Не удалось расшифровать голосовое. Проверьте доступность Whisper и попробуйте ещё раз.";
+      }
+      for (const content of splitMessage(text, 1900)) {
+        const reply = await message.reply({
+          content,
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        if (reply?.id) replyIds.push(reply.id);
+      }
+      if (transcript)
+        transcripts.remember(
+          {
+            id: message.id,
+            author: describeAuthor(message),
+            content: transcript,
+            channelId: message.channel.id,
+            channelName: "name" in message.channel ? message.channel.name : undefined,
+          },
+          replyIds,
+        );
+      return;
+    }
     if (await music.handle(message)) return;
 
     if (message.guildId && message.content.trim())
@@ -389,19 +428,18 @@ export function createDiscordBot({
             entries: Map<string, import("discord.js").Message>,
             channel: { id: string; name?: string },
           ) =>
-            [...entries.values()]
-              .reverse()
-              .filter(
-                (entry) =>
-                  entry.content && (!entry.author.bot || entry.author.id === client.user.id),
-              )
-              .map((entry) => ({
-                id: entry.id,
-                author: describeAuthor(entry),
-                content: entry.content,
-                channelId: channel.id,
-                channelName: channel.name,
-              }));
+            transcripts.normalize(
+              [...entries.values()]
+                .reverse()
+                .filter((entry) => !entry.author.bot || entry.author.id === client.user.id)
+                .map((entry) => ({
+                  id: entry.id,
+                  author: describeAuthor(entry),
+                  content: entry.content,
+                  channelId: channel.id,
+                  channelName: channel.name,
+                })),
+            );
           const history: {
             source: string;
             messages: import("../types.ts").BackgroundMessage[];

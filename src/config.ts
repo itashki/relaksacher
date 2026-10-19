@@ -127,7 +127,18 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   if (isNaN(OLLAMA_TIMEOUT)) {
     throw new Error("OLLAMA_TIMEOUT is not a valid number.");
   }
+  const whisperUrl = env.WHISPER_URL?.trim() || "http://127.0.0.1:8080/inference";
+  const whisperAddress = new URL(whisperUrl);
+  if (!["http:", "https:"].includes(whisperAddress.protocol))
+    throw new Error("Invalid WHISPER_URL");
+  const whisperTimeoutMs = Number(env.WHISPER_TIMEOUT_MS ?? 300000);
+  if (!Number.isSafeInteger(whisperTimeoutMs) || whisperTimeoutMs <= 0)
+    throw new Error("Invalid WHISPER_TIMEOUT_MS");
   return {
+    whisperModel: env.WHISPER_MODEL?.trim() || "models/ggml-small.bin",
+    whisperAutoStart: env.WHISPER_AUTO_START !== "false",
+    whisperUrl,
+    whisperTimeoutMs,
     facts,
     gifApiKey: env.KLIPY_API_KEY?.trim() || null,
     supervisorModel,

@@ -127,6 +127,10 @@ export type AssistantOptions = {
 };
 /** Validated startup configuration shared with enabled platform adapters. */
 export type AppConfig = {
+  whisperModel?: string;
+  whisperAutoStart?: boolean;
+  whisperUrl?: string;
+  whisperTimeoutMs?: number;
   token: string | undefined;
   telegramToken: string | undefined;
   telegramTimeoutMs: number;
@@ -166,6 +170,7 @@ export type TelegramRequest = (
 /** Telegram request boundary with a trusted-platform image downloader. */
 export type TelegramApi = TelegramRequest & {
   downloadImage: (arg0: string) => Promise<string>;
+  downloadVoice?: (fileId: string) => Promise<Blob>;
 };
 /** Telegram update routing and polling lifecycle; stop may await runner shutdown. */
 export type TelegramBot = {

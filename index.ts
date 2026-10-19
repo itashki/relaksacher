@@ -1,4 +1,6 @@
 /** @file Application composition and adapter lifecycle entry point. */
+import { createWhisperServer } from "./src/core/whisper-server.ts";
+import { createTranscriber } from "./src/core/transcription.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
 import { createMusicMonitor } from "./src/core/music-status.ts";
 import { resolvePath } from "./src/core/paths.ts";
@@ -14,6 +16,15 @@ import { createDiscordBot } from "./src/adapters/discord.ts";
 import { createCliControls } from "./src/adapters/cli.ts";
 
 const config = await loadConfig();
+const whisper = createWhisperServer({
+  url: config.whisperUrl,
+  model: config.whisperModel,
+  enabled: config.whisperAutoStart,
+});
+const transcribe = createTranscriber({
+  url: config.whisperUrl,
+  timeoutMs: config.whisperTimeoutMs,
+});
 const memoryDirectory = resolvePath(Bun.env.MEMORY_DIR || "memory", import.meta.dir);
 const memory = createMemoryStore(memoryDirectory);
 const searchClient = config.OLLAMA_API_KEY
@@ -52,8 +63,14 @@ const assistant = createAssistant({
 const music = createMusicMonitor();
 const bots = config.adapters.map((adapter) =>
   adapter === "telegram"
-    ? createTelegramBot({ config, assistant })
-    : createDiscordBot({ config, assistant, memoryDirectory, onMusicStatus: music.publish }),
+    ? createTelegramBot({ config, assistant, transcribe })
+    : createDiscordBot({
+        config,
+        assistant,
+        transcribe,
+        memoryDirectory,
+        onMusicStatus: music.publish,
+      }),
 );
 const cli = process.stdin.isTTY
   ? createCliControls({ assistant, music: config.adapters.includes("discord") ? music : undefined })
@@ -61,6 +78,7 @@ const cli = process.stdin.isTTY
 const shutdown = createShutdown({
   steps: [
     () => cli?.close(),
+    () => whisper.stop(),
     () => process.stdin.pause(),
     () => assistant.stopObserving(),
     () => assistant.stopCurrentGeneration(),
@@ -73,8 +91,14 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     void shutdown.run();
   });
-Promise.all(bots.map((bot) => bot.start())).catch((error) => {
-  if (shutdown.started) return;
-  console.error("Failed to login:", error);
-  void shutdown.run(1);
-});
+whisper
+  .start()
+  .then(() => {
+    if (shutdown.started) return;
+    return Promise.all(bots.map((bot) => bot.start()));
+  })
+  .catch((error) => {
+    if (shutdown.started) return;
+    console.error("Failed to start application:", error);
+    void shutdown.run(1);
+  });
