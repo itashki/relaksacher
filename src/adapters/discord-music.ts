@@ -121,6 +121,7 @@ export async function loadYouTubePlaylist(
           "--ignore-config",
           "--flat-playlist",
           "--yes-playlist",
+          "--ignore-errors",
           "--dump-single-json",
           "--skip-download",
           "--socket-timeout",
@@ -144,11 +145,13 @@ export async function loadYouTubePlaylist(
   const tracks: string[] = [];
   let skipped = 0;
   for (const value of data.entries.slice(0, limit)) {
-    const entry = value as { id?: unknown; availability?: string } | null;
+    const entry = value as { id?: unknown; availability?: string; title?: unknown } | null;
     if (
       !entry ||
       typeof entry.id !== "string" ||
       !/^[A-Za-z0-9_-]{11}$/.test(entry.id) ||
+      (typeof entry.title === "string" &&
+        /^\[(?:deleted|private) video\]$/i.test(entry.title.trim())) ||
       ["private", "premium_only", "subscriber_only", "needs_auth"].includes(
         entry.availability ?? "",
       )
@@ -564,7 +567,8 @@ export function createDiscordMusic(
       if (failed || (playback && s.playback !== playback)) return;
       failed = true;
       s.advanceReason = "failed";
-      s.error = "Не удалось проиграть трек. Проверьте ссылку, yt-dlp и FFmpeg.";
+      s.error =
+        "Не удалось проиграть трек: источник недоступен или произошла ошибка yt-dlp/FFmpeg. Пропускаю трек.";
       publish();
       notify(s.error);
       cleanup(s);

@@ -88,6 +88,7 @@ test("YouTube playlist extraction canonicalizes watch links, bounds imports and 
     new AbortController().signal,
     async (args) => {
       expect(args).toContain("--flat-playlist");
+      expect(args).toContain("--ignore-errors");
       expect(args[args.indexOf("--playlist-end") + 1]).toBe("4");
       expect(args.at(-1)).toBe("https://www.youtube.com/playlist?list=PL_test");
       return JSON.stringify({
@@ -134,6 +135,38 @@ test("YouTube playlist extraction canonicalizes watch links, bounds imports and 
       },
     ),
   ).rejects.toThrow("Не удалось загрузить");
+});
+
+test("YouTube imports skip deleted and private placeholders without availability metadata", async () => {
+  const { loadYouTubePlaylist } = await import("../src/adapters/discord-music.ts");
+  const result = await loadYouTubePlaylist(
+    "https://youtube.com/playlist?list=PL_test",
+    10,
+    new AbortController().signal,
+    async () =>
+      JSON.stringify({
+        entries: [
+          { id: "abcdefghijk", title: "[Deleted video]" },
+          { id: "12345678901", title: "[Private video]" },
+          null,
+          { id: "abcdefghijk", availability: "needs_auth" },
+          { id: "zyxwvutsrqp", title: "Available song", availability: "unlisted" },
+        ],
+      }),
+  );
+  expect(result).toEqual({
+    tracks: ["https://www.youtube.com/watch?v=zyxwvutsrqp"],
+    skipped: 4,
+    truncated: false,
+  });
+  await expect(
+    loadYouTubePlaylist(
+      "https://youtube.com/playlist?list=PL_test",
+      10,
+      new AbortController().signal,
+      async () => JSON.stringify({ entries: [{ id: "abcdefghijk", title: "[Deleted video]" }] }),
+    ),
+  ).rejects.toThrow("нет доступных треков");
 });
 
 test("playlist imports persist ordered tracks, respect remaining capacity and preserve state on failure", async () => {

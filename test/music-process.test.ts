@@ -93,6 +93,34 @@ test("stopping a Bun pipeline terminates both children without reporting playbac
   expect(errors).toBe(0);
 });
 
+test("audio EOF waits for source failure and empty output never completes successfully", async () => {
+  for (const script of [
+    "await Bun.stdout.writer().end(); await Bun.sleep(50); process.exit(1)",
+    "process.exit(0)",
+  ]) {
+    let failures = 0;
+    let completed = false;
+    const pipeline = createMusicPipeline(command(script), passthrough, () => {
+      expect(completed).toBe(false);
+      failures++;
+    });
+    try {
+      try {
+        for await (const _chunk of pipeline.stream) {
+          // Drain the stream exactly as the audio player would.
+        }
+        completed = true;
+      } catch {
+        // Failure destroys the Discord-facing stream before it can signal natural completion.
+      }
+      await pipeline.exited;
+      expect(failures).toBe(1);
+    } finally {
+      pipeline.stop();
+    }
+  }
+});
+
 test("Bun pipeline reports launch errors synchronously", () => {
   expect(() =>
     createMusicPipeline(["/tmp/relaksacher-missing-command"], passthrough, () => {}),

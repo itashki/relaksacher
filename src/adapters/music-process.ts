@@ -62,8 +62,20 @@ export function createMusicPipeline(
     source.kill("SIGKILL");
     throw error;
   }
-  const stream = Readable.from(encoder.stdout, { objectMode: false });
+  const exited = Promise.all([source.exited, encoder.exited]);
+  // Discord must see process failures before EOF, otherwise repeat can restart a broken source.
+  const stream = Readable.from(audio(), { objectMode: false });
   let stopped = false;
+  /** End audio only after successful child exits; an empty source is a playback failure too. */
+  async function* audio() {
+    let bytes = 0;
+    for await (const chunk of encoder.stdout) {
+      bytes += chunk.byteLength;
+      yield chunk;
+    }
+    const codes = await exited;
+    if (!bytes || codes.some((code) => code !== 0)) fail();
+  }
   /** Idempotently terminate both subprocesses and destroy the Discord-facing readable stream. */
   function stop() {
     if (stopped) return;
@@ -84,5 +96,5 @@ export function createMusicPipeline(
       if (code !== 0) fail();
     }, fail);
   }
-  return { stream, stop, exited: Promise.all([source.exited, encoder.exited]) };
+  return { stream, stop, exited };
 }
