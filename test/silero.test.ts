@@ -27,7 +27,6 @@ test("Silero routes the original language before expanding speech text without a
     ["Hello мир", silero.model, silero.speaker, "Hello мир"],
     ["123", silero.model, silero.speaker, "сто двадцать три"],
     ["Ёж", silero.model, silero.speaker, "Ёж"],
-    ["", silero.model, silero.speaker, ""],
     ["@", silero.model, silero.speaker, "собака"],
     ["Hello @user 50%", silero.englishModel, silero.englishSpeaker, "Hello at user fifty percent"],
   ]) {
@@ -36,6 +35,14 @@ test("Silero routes the original language before expanding speech text without a
     expect(source.command[0]).toBe(silero.python);
     expect(source.command.slice(2)).toEqual(["--model", model, "--speaker", speaker, "--", spoken]);
   }
+});
+
+test("Silero rejects text without pronounceable content before starting a process", () => {
+  for (const text of ["", "...?!", "😀", "   "])
+    expect(() => speechSource(text, {})).toThrow("нет произносимых");
+  expect(speechSource("^^^^^^ъьъьъьъьъьъьъьъъь", {}).command.at(-1)).toBe(
+    "крышка крышка крышка крышка крышка крышка твёрдый знак мягкий знак твёрдый знак мягкий знак твёрдый знак мягкий знак твёрдый знак мягкий знак твёрдый знак мягкий знак твёрдый знак мягкий знак твёрдый знак мягкий знак твёрдый знак твёрдый знак мягкий знак",
+  );
 });
 
 test("short Silero recordings preserve duration and encode OGG/Opus", async () => {

@@ -48,6 +48,9 @@ export function speechSource(text: string, options: SpeechOptions, requestedSpea
     englishSpeaker: "random",
   };
   const english = /[a-z]/iu.test(text) && !/[а-яё]/iu.test(text);
+  const spokenText = normalizeSpeechText(text, english);
+  if (!/[a-zа-яё]/iu.test(spokenText))
+    throw new Error("В тексте нет произносимых слов или поддерживаемых символов для озвучки.");
   const available = english ? englishSpeakers : russianSpeakers;
   const configured = requestedSpeaker ?? (english ? silero.englishSpeaker : silero.speaker);
   const speaker =
@@ -67,7 +70,7 @@ export function speechSource(text: string, options: SpeechOptions, requestedSpea
       "--speaker",
       speaker,
       "--",
-      normalizeSpeechText(text, english),
+      spokenText,
     ],
     sampleRate: 48000,
   };

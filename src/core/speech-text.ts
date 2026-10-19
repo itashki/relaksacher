@@ -146,6 +146,7 @@ export function normalizeSpeechText(text: string, english: boolean): string {
         "<": "less than",
         ">": "greater than",
         _: "underscore",
+        "^": "caret",
       }
     : {
         "@": "собака",
@@ -167,13 +168,22 @@ export function normalizeSpeechText(text: string, english: boolean): string {
         "<": "меньше",
         ">": "больше",
         _: "нижнее подчёркивание",
+        "^": "крышка",
       };
-  return text
-    .replace(/\d+(?:[.,]\d+)?/gu, (number) => {
-      const [whole, fraction] = number.split(/[.,]/u);
-      return ` ${integerWords(whole, english)}${fraction ? ` ${english ? "point" : "запятая"} ${[...fraction].map((digit) => units[Number(digit)]).join(" ")}` : ""} `;
-    })
-    .replace(/[@%+−=*×/÷№#&$€₽<>_]|(?<!\p{L})-|-(?!\p{L})/gu, (symbol) => ` ${symbols[symbol]} `)
-    .replace(/\s+/gu, " ")
-    .trim();
+  return (
+    text
+      // These letters have no sound alone; preserve their normal spelling inside words.
+      .replace(/(?<!\p{L})[ъь]+(?!\p{L})/giu, (signs) =>
+        [...signs.toLowerCase()]
+          .map((sign) => (sign === "ъ" ? "твёрдый знак" : "мягкий знак"))
+          .join(" "),
+      )
+      .replace(/\d+(?:[.,]\d+)?/gu, (number) => {
+        const [whole, fraction] = number.split(/[.,]/u);
+        return ` ${integerWords(whole, english)}${fraction ? ` ${english ? "point" : "запятая"} ${[...fraction].map((digit) => units[Number(digit)]).join(" ")}` : ""} `;
+      })
+      .replace(/[@%+−=*×/÷№#&$€₽<>_^]|(?<!\p{L})-|-(?!\p{L})/gu, (symbol) => ` ${symbols[symbol]} `)
+      .replace(/\s+/gu, " ")
+      .trim()
+  );
 }

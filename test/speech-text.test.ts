@@ -24,6 +24,14 @@ test("at signs are spoken alone, attached to names and inside email addresses", 
   expect(normalizeSpeechText("@user test@example.com", true)).toBe("at user test at example.com");
 });
 
+test("carets and isolated hard/soft sign runs are pronounced without changing words", () => {
+  expect(normalizeSpeechText("^^ Ъь", false)).toBe("крышка крышка твёрдый знак мягкий знак");
+  expect(normalizeSpeechText("^", true)).toBe("caret");
+  expect(normalizeSpeechText("Объезд, соль, подъём, мышь.", false)).toBe(
+    "Объезд, соль, подъём, мышь.",
+  );
+});
+
 test("common symbols are spoken while sentence punctuation and word hyphens remain", () => {
   expect(normalizeSpeechText("50% №2 3×4=12 6÷2 ₽ $ € # & / _ < >", false)).toBe(
     "пятьдесят процентов номер два три умножить четыре равно двенадцать шесть разделить на два рублей долларов евро решётка и слэш нижнее подчёркивание меньше больше",
