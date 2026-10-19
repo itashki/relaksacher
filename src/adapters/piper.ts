@@ -1,6 +1,65 @@
-/** @file Synthesize Piper speech as a live PCM stream or a bounded OGG/Opus voice recording. */
+/** @file Synthesize Piper or Silero speech as a live PCM stream or a bounded OGG/Opus voice recording. */
 import { createMusicPipeline } from "./music-process.ts";
 import PQueue from "p-queue";
+/** Local CPU Silero runtime and independent Russian/English models and speaker IDs. */
+export type SileroOptions = {
+  python: string;
+  model: string;
+  englishModel: string;
+  speaker: string;
+  englishSpeaker: string;
+};
+
+/** Shared backend settings for recordings and Discord live speech. Silero overrides Piper when supplied. */
+export type SpeechOptions = {
+  binary?: string;
+  model?: string;
+  englishModel?: string;
+  silero?: SileroOptions;
+};
+
+/** Resolve the source command and native PCM rate without starting synthesis. */
+export async function speechSource(text: string, options: SpeechOptions) {
+  const { silero } = options;
+  if (silero) {
+    const english = selectPiperModel(text, "ru", "en") === "en";
+    return {
+      command: [
+        silero.python,
+        Bun.fileURLToPath(new URL("../../scripts/silero-tts.py", import.meta.url)),
+        "--model",
+        english ? silero.englishModel : silero.model,
+        "--speaker",
+        english ? silero.englishSpeaker : silero.speaker,
+        "--",
+        text,
+      ],
+      sampleRate: 48000,
+    };
+  }
+  const model = selectPiperModel(
+    text,
+    options.model ?? "models/ru_RU-terra5871-medium.onnx",
+    options.englishModel,
+  );
+  return {
+    command: [
+      options.binary ?? "piper",
+      "-m",
+      model,
+      "--output-raw",
+      "--",
+      text.replace(/\s+/gu, " "),
+    ],
+    sampleRate: await piperSampleRate(model),
+  };
+}
+
+/** Use Russian for text containing Russian letters or no Latin letters; preserve single-model setups. */
+export function selectPiperModel(text: string, model: string, englishModel?: string): string {
+  return englishModel && /[a-z]/iu.test(text) && !/[а-яё]/iu.test(text) ? englishModel : model;
+}
+
 /** Read the model's native PCM rate; raw Piper output has no header to infer this from.
  * Rejects missing/invalid sidecar configuration before any subprocess is started. */
 export async function piperSampleRate(model: string): Promise<number> {
@@ -25,8 +84,17 @@ export function createPiperPipeline(
   onFailure: () => void,
   sampleRate: number,
 ) {
-  return createMusicPipeline(
+  return createSpeechPipeline(
     [binary, "-m", model, "--output-raw", "--", text.replace(/\s+/gu, " ")],
+    onFailure,
+    sampleRate,
+  );
+}
+
+/** Resample a backend's signed 16-bit mono PCM into Discord's 48 kHz stereo PCM. */
+export function createSpeechPipeline(command: string[], onFailure: () => void, sampleRate: number) {
+  return createMusicPipeline(
+    command,
     [
       "ffmpeg",
       "-nostdin",
@@ -75,10 +143,7 @@ export function voiceMetadata(pcm: ArrayBuffer) {
 
 /** Share one bounded synthesis worker between adapters; stop() cancels all pending work.
  * Recordings contain at most two minutes of mono OGG/Opus and are never stored on disk by the bot. */
-export function createVoiceSynthesizer({
-  binary = "piper",
-  model = "models/ru_RU-ruslan-medium.onnx",
-}: { binary?: string; model?: string } = {}) {
+export function createVoiceSynthesizer(options: SpeechOptions = {}) {
   const queue = new PQueue({ concurrency: 1 });
   const shutdown = new AbortController();
   return {
@@ -90,17 +155,15 @@ export function createVoiceSynthesizer({
       return queue.add(async () => {
         shutdown.signal.throwIfAborted();
         const deadline = AbortSignal.any([shutdown.signal, AbortSignal.timeout(120000)]);
-        const sampleRate = await piperSampleRate(model);
+        const source = await speechSource(text, options);
         deadline.throwIfAborted();
         let failed = false;
-        const pipeline = createPiperPipeline(
-          binary,
-          model,
-          text,
+        const pipeline = createSpeechPipeline(
+          source.command,
           () => {
             failed = true;
           },
-          sampleRate,
+          source.sampleRate,
         );
         const abort = () => pipeline.stop();
         deadline.addEventListener("abort", abort, { once: true });
@@ -116,8 +179,8 @@ export function createVoiceSynthesizer({
           const codes = await pipeline.exited;
           deadline.throwIfAborted();
           if (failed || codes.some((code) => code !== 0))
-            throw new Error("Piper не смог синтезировать речь. Проверьте PIPER_BIN и модель.");
-          if (!size) throw new Error("Piper вернул пустое аудио. Попробуйте текст со словами.");
+            throw new Error("Не удалось синтезировать речь. Проверьте TTS, Python/Piper и модели.");
+          if (!size) throw new Error("TTS вернул пустое аудио. Попробуйте текст со словами.");
           pcm = Bun.concatArrayBuffers(chunks);
         } finally {
           deadline.removeEventListener("abort", abort);

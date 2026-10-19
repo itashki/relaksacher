@@ -2,7 +2,12 @@
 import { expect, test } from "bun:test";
 import { chmod } from "node:fs/promises";
 import { temporaryDirectory } from "./temp.ts";
-import { createVoiceSynthesizer, piperSampleRate } from "../src/adapters/piper.ts";
+import {
+  createVoiceSynthesizer,
+  piperSampleRate,
+  selectPiperModel,
+  speechSource,
+} from "../src/adapters/piper.ts";
 
 test("native sample rate comes from the model sidecar and invalid metadata rejects", async () => {
   const directory = await temporaryDirectory("piper-rate-");
@@ -37,5 +42,36 @@ test("short utterances use raw Piper output and preserve native-rate duration th
     }
   } finally {
     await service.stop();
+  }
+});
+
+test("voice selection handles English, Russian, mixed and nonletter text", () => {
+  for (const text of ["Hello world", "Don't panic!", "42 English"]) {
+    expect(selectPiperModel(text, "ru", "en")).toBe("en");
+  }
+  for (const text of ["Привет", "Ёж", "Hello мир", "123!", ""]) {
+    expect(selectPiperModel(text, "ru", "en")).toBe("ru");
+  }
+  expect(selectPiperModel("Hello", "custom")).toBe("custom");
+});
+
+test("Silero routes language to independent model/speaker and passes text literally", async () => {
+  const silero = {
+    python: "/runtime/python3",
+    model: "/voices/ru.pt",
+    englishModel: "/voices/en.pt",
+    speaker: "xenia",
+    englishSpeaker: "en_0",
+  };
+  for (const [text, model, speaker] of [
+    ["Привет $HOME `echo`", silero.model, silero.speaker],
+    ["Hello $(echo hello)", silero.englishModel, silero.englishSpeaker],
+    ["Hello мир", silero.model, silero.speaker],
+    ["123", silero.model, silero.speaker],
+  ]) {
+    const source = await speechSource(text, { silero });
+    expect(source.sampleRate).toBe(48000);
+    expect(source.command[0]).toBe(silero.python);
+    expect(source.command.slice(2)).toEqual(["--model", model, "--speaker", speaker, "--", text]);
   }
 });

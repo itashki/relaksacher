@@ -11,7 +11,7 @@ import {
   joinVoiceChannel,
 } from "@discordjs/voice";
 import PQueue from "p-queue";
-import { createPiperPipeline, piperSampleRate } from "./piper.ts";
+import { createSpeechPipeline, speechSource, type SpeechOptions } from "./piper.ts";
 export { createPiperPipeline } from "./piper.ts";
 
 /** Verify the requester is in a regular channel and shares any existing bot connection. */
@@ -30,12 +30,9 @@ async function voiceChannel(message: Message) {
 /** Create per-guild speech queues. A stop cancels synthesis, playback and queued requests.
  * execute is injectable for command tests; production borrows the existing connection and restores music. */
 export function createDiscordTts({
-  binary = "piper",
-  model = "models/ru_RU-ruslan-medium.onnx",
   execute,
-}: {
-  binary?: string;
-  model?: string;
+  ...options
+}: SpeechOptions & {
   execute?: (message: Message, text: string, signal: AbortSignal) => Promise<void>;
 } = {}) {
   const rooms = new Map<string, { queue: PQueue; controller: AbortController }>();
@@ -47,7 +44,7 @@ export function createDiscordTts({
     const me = await message.guild.members.fetchMe();
     if (!channel.permissionsFor(me)?.has([PermissionFlagsBits.Connect, PermissionFlagsBits.Speak]))
       throw new Error("Боту нужны права Connect и Speak.");
-    const sampleRate = await piperSampleRate(model);
+    const source = await speechSource(text, options);
     signal.throwIfAborted();
     const existing = getVoiceConnection(message.guild.id);
     const connection =
@@ -65,7 +62,7 @@ export function createDiscordTts({
         ? connection.state.subscription?.player
         : undefined;
     let paused = false;
-    let pipeline: ReturnType<typeof createPiperPipeline> | undefined;
+    let pipeline: ReturnType<typeof createSpeechPipeline> | undefined;
     let subscription: ReturnType<typeof connection.subscribe>;
     try {
       await entersState(connection, VoiceConnectionStatus.Ready, deadline);
@@ -82,7 +79,7 @@ export function createDiscordTts({
         };
         const idle = () => finish();
         const fail = () =>
-          finish(new Error("Не удалось воспроизвести речь. Проверьте PIPER_BIN, модель и FFmpeg."));
+          finish(new Error("Не удалось воспроизвести речь. Проверьте TTS, модель и FFmpeg."));
         const abort = () =>
           finish(
             signal.aborted
@@ -94,7 +91,7 @@ export function createDiscordTts({
         deadline.addEventListener("abort", abort, { once: true });
         try {
           deadline.throwIfAborted();
-          pipeline = createPiperPipeline(binary, model, text, fail, sampleRate);
+          pipeline = createSpeechPipeline(source.command, fail, source.sampleRate);
           player.play(createAudioResource(pipeline.stream, { inputType: StreamType.Raw }));
         } catch {
           fail();

@@ -59,7 +59,7 @@ nix develop path:. --command bun start
 из `flake.lock`. Для `nix develop` должны быть включены `nix-command` и `flakes`.
 
 Окружение содержит Bun, Ollama CUDA, Piper TTS, whisper.cpp (CPU), FFmpeg/ffprobe,
-yt-dlp, Deno для извлечения YouTube, Python, Node.js, Git, curl, CA-сертификаты
+yt-dlp, Deno для извлечения YouTube, Python с PyTorch и NumPy (CPU), Node.js, Git, curl, CA-сертификаты
 и инструменты сборки нативных зависимостей. Отдельная установка этих программ
 в системный конфиг не требуется. `PIPER_BIN` внутри shell автоматически указывает
 на синтезатор речи из Nix store, даже если в `.env` остался старый путь или
@@ -67,7 +67,8 @@ yt-dlp, Deno для извлечения YouTube, Python, Node.js, Git, curl, CA
 
 Создайте `.env`, `facts.json5` и `personality.json5` по инструкции выше.
 Модели не входят в shell: скачайте их отдельно и укажите `WHISPER_MODEL`,
-`PIPER_MODEL` и модели Ollama. Соседний файл `<PIPER_MODEL>.json` также нужен.
+`SILERO_MODEL`, `SILERO_MODEL_EN` и модели Ollama. Для Piper укажите `PIPER_MODEL`
+и соседний файл `<PIPER_MODEL>.json`.
 Whisper запускается самим ботом при `WHISPER_AUTO_START=true` и завершается вместе
 с ним; уже работающий сервер используется повторно. Piper вызывается по запросу.
 Отдельные системные сервисы для Whisper и Piper не нужны. Их логи не нарушают TUI.
@@ -523,24 +524,54 @@ WHISPER_MODEL=/home/ktrd/ai/ggml-small.bin
 BotFather или назначьте бота администратором. Discord требует доступ к каналу,
 чтению сообщений и отправке ответов, включая Message Content Intent.
 
-## Озвучка текста (Piper TTS)
+## Озвучка текста (Silero / Piper TTS)
 
 Discord-команды `!tts <текст>`, `!tts` ответом на сообщение и `!tts stop`
 описаны в [справочнике](docs/COMMANDS.md#озвучка-в-discord).
 Для отправки голосового сообщением используйте `!voice` в Discord или `!voice`
 в Telegram: с текстом после команды или ответом на сообщение. Эти команды
-используют те же `PIPER_BIN` и `PIPER_MODEL`, подключаться к войсчату не требуется.
-Распознавание Whisper
-и озвучка Piper независимы. Здесь Piper вызывается как CLI на каждый запрос,
-отдельный HTTP-сервер не требуется.
+используют тот же движок `TTS_ENGINE`, подключаться к войсчату не требуется.
+Распознавание Whisper и синтез речи независимы. HTTP-сервер для TTS не требуется.
+
+Для Silero установите Python с CPU-версией PyTorch и NumPy (они уже входят в Nix shell).
+Скачайте [русскую v5_6_ru](https://models.silero.ai/models/tts/ru/v5_6_ru.pt)
+и [английскую v3_en](https://models.silero.ai/models/tts/en/v3_en.pt) в каталог голосов:
+
+```dotenv
+TTS_ENGINE=silero
+SILERO_PYTHON=python3
+SILERO_MODEL=/home/ktrd/ai/piper-voices/silero-v5_6_ru.pt
+SILERO_MODEL_EN=/home/ktrd/ai/piper-voices/silero-v3_en.pt
+SILERO_SPEAKER=xenia
+SILERO_SPEAKER_EN=en_0
+```
+
+Для русского доступны `aidar`, `baya`, `kseniya`, `xenia`, `eugene`, для английского —
+`en_0`–`en_117`. Текст с латинскими буквами без русских получает английский голос;
+смешанный текст и текст без букв — русский. Правило действует для `!voice` и `!tts`.
+`SILERO_PYTHON` принимает имя программы или абсолютный путь. В локальной установке
+можно использовать `.silero-python/bin/python3` с PyTorch из Nix.
+
+`scripts/silero-tts.py` загружает локальную модель на CPU для каждого запроса,
+разбивает длинный текст на фрагменты и выдаёт PCM 48 кГц. При первом звуке есть
+задержка загрузки Python и модели. Во время озвучки скачивание не требуется.
+FFmpeg преобразует звук для Discord и Telegram; лимит — две минуты.
+
+Для возврата к Piper установите `TTS_ENGINE=piper` (это также значение по умолчанию,
+если переменная отсутствует).
 
 Установите `piper-tts` и FFmpeg, скачайте модель русского голоса вместе с
 соседним файлом `.onnx.json`. В `.env` укажите:
 
 ```dotenv
 PIPER_BIN=piper
-PIPER_MODEL=/home/ktrd/ai/piper-voices/ru_RU-ruslan-medium.onnx
+PIPER_MODEL=/home/ktrd/ai/piper-voices/ru_RU-terra5871-medium.onnx
+PIPER_MODEL_EN=/home/ktrd/ai/piper-voices/en_US-lessac-medium.onnx
 ```
+
+При наличии `PIPER_MODEL_EN` текст с латинскими буквами без русских озвучивается английской моделью; смешанный текст и текст без букв — русской из `PIPER_MODEL`. Правило действует для голосовых сообщений и `!tts`. Без `PIPER_MODEL_EN` используется один голос.
+
+Модели: [русский terra5871](https://huggingface.co/rraaww/ru_piper), [английский Lessac medium](https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/lessac/medium). Для каждой нужен соседний файл `.onnx.json`.
 
 `PIPER_BIN` — имя программы в PATH или абсолютный путь. Проверьте `piper --help`:
 должны присутствовать параметры `--model` и `--output-file`. В NixOS программа

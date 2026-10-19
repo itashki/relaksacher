@@ -17,7 +17,12 @@ import { createDiscordBot } from "./src/adapters/discord.ts";
 import { createCliControls } from "./src/adapters/cli.ts";
 
 const config = await loadConfig();
-const voice = createVoiceSynthesizer({ binary: config.piperBin, model: config.piperModel });
+const voice = createVoiceSynthesizer({
+  binary: config.piperBin,
+  model: config.piperModel,
+  englishModel: config.piperEnglishModel,
+  silero: config.silero,
+});
 const whisper = createWhisperServer({
   url: config.whisperUrl,
   model: config.whisperModel,

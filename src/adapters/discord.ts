@@ -119,7 +119,12 @@ export function createDiscordBot({
     ],
   });
 
-  const tts = createDiscordTts({ binary: config.piperBin, model: config.piperModel });
+  const tts = createDiscordTts({
+    binary: config.piperBin,
+    model: config.piperModel,
+    englishModel: config.piperEnglishModel,
+    silero: config.silero,
+  });
   const transcripts = createTranscriptHistory();
   const music = createDiscordMusic(memoryDirectory, { onStatus: onMusicStatus });
 

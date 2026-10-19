@@ -75,3 +75,30 @@ test("JSON5 personality supports commented rules and validates active entries", 
     );
   }
 });
+
+test("TTS backend defaults to Piper and validates configurable bilingual Silero settings", async () => {
+  expect((await loadConfig(env)).silero).toBeUndefined();
+  const defaults = (await loadConfig({ ...env, TTS_ENGINE: "silero" })).silero;
+  expect(defaults.speaker).toBe("xenia");
+  expect(defaults.englishSpeaker).toBe("en_0");
+  expect(
+    (
+      await loadConfig({
+        ...env,
+        TTS_ENGINE: "silero",
+        SILERO_PYTHON: "/python",
+        SILERO_MODEL: "/ru.pt",
+        SILERO_MODEL_EN: "/en.pt",
+        SILERO_SPEAKER: "aidar",
+        SILERO_SPEAKER_EN: "en_10",
+      })
+    ).silero,
+  ).toEqual({
+    python: "/python",
+    model: "/ru.pt",
+    englishModel: "/en.pt",
+    speaker: "aidar",
+    englishSpeaker: "en_10",
+  });
+  await expect(loadConfig({ ...env, TTS_ENGINE: "unknown" })).rejects.toThrow("TTS_ENGINE");
+});

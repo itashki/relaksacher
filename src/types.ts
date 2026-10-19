@@ -127,8 +127,10 @@ export type AssistantOptions = {
 };
 /** Validated startup configuration shared with enabled platform adapters. */
 export type AppConfig = {
+  silero?: import("./adapters/piper.ts").SileroOptions;
   piperBin?: string;
   piperModel?: string;
+  piperEnglishModel?: string;
   whisperModel?: string;
   whisperAutoStart?: boolean;
   whisperUrl?: string;
