@@ -37,7 +37,7 @@ test("TTS reads explicit text and replied messages without invoking models", asy
       texts.push(text);
     },
   });
-  const first = message("!tts Привет!");
+  const first = message("!ОЗВУЧЬ Привет!");
   expect(await tts.handle(first.request)).toBe(true);
   await tts.handle(message("!tts").request);
   expect(texts).toEqual(["Привет!", "Текст исходного сообщения"]);
@@ -84,7 +84,7 @@ test("stop cancels active and queued speech and allows subsequent requests", asy
   const second = tts.handle(message("!tts второй").request);
   await Bun.sleep(1);
   expect(tts.busy("tts-test")).toBe(true);
-  await tts.handle(message("!tts stop").request);
+  await tts.handle(message("!озвучь стоп").request);
   await Promise.all([first, second]);
   await tts.handle(message("!tts третий").request);
   expect(texts).toEqual(["первый", "третий"]);

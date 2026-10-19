@@ -93,7 +93,8 @@ export function createTelegramBot({
       author: String(message.from?.id ?? message.sender_chat?.id),
       reply: message.reply_to_message ? String(message.reply_to_message.message_id) : undefined,
       boundary:
-        /^\s*[!/]\w/u.test(message.text ?? "") || Boolean(message.quote || message.external_reply),
+        /^\s*[!/][\p{L}\p{N}_]/u.test(message.text ?? "") ||
+        Boolean(message.quote || message.external_reply),
       immediate:
         Boolean(message.voice) ||
         (!message.text && !message.caption && !imageFiles(message).length),
@@ -182,7 +183,7 @@ export function createTelegramBot({
     }
     const voiceCommand = (message.text ?? "")
       .trim()
-      .match(/^!voice(?:@(\w+))?(?:\s+([\s\S]*))?$/iu);
+      .match(/^!(?:voice|голос)(?:@(\w+))?(?:\s+([\s\S]*))?$/iu);
     if (voiceCommand && message.from && !message.from.is_bot) {
       if (voiceCommand[1] && voiceCommand[1].toLowerCase() !== me.username?.toLowerCase()) return;
       const base = {
@@ -217,11 +218,36 @@ export function createTelegramBot({
       }
       return;
     }
-    if (message.voice && message.from && !message.from.is_bot && transcribe) {
+    const transcriptionCommand = (message.text ?? "")
+      .trim()
+      .match(/^!(?:transcribe|расшифруй)(?:@(\w+))?$/iu);
+    if (
+      transcriptionCommand?.[1] &&
+      transcriptionCommand[1].toLowerCase() !== me.username?.toLowerCase()
+    )
+      return;
+    const voiceMessage = transcriptionCommand ? message.reply_to_message : message;
+    if (transcriptionCommand && message.from && !message.from.is_bot) {
+      const error = !voiceMessage?.voice
+        ? "Используйте !transcribe ответом на голосовое сообщение."
+        : !transcribe
+          ? "Расшифровка голосовых сообщений недоступна."
+          : undefined;
+      if (error) {
+        await api("sendMessage", {
+          chat_id: message.chat.id,
+          ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
+          text: error,
+          reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
+        });
+        return;
+      }
+    }
+    if (voiceMessage?.voice && message.from && !message.from.is_bot && transcribe) {
       let text: string;
       let transcript: string;
       try {
-        transcript = await transcribe(() => api.downloadVoice(message.voice.file_id));
+        transcript = await transcribe(() => api.downloadVoice(voiceMessage.voice.file_id));
         text = "🎙\n" + transcript;
       } catch {
         text =
@@ -234,7 +260,7 @@ export function createTelegramBot({
           text: chunk,
           reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
         });
-      if (transcript) remember({ ...message, text: transcript });
+      if (transcript) remember({ ...voiceMessage, text: transcript });
       return;
     }
     if (

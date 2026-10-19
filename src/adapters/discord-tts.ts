@@ -125,9 +125,9 @@ export function createDiscordTts({
       const room = rooms.get(guildId);
       return Boolean(room && (room.queue.pending || room.queue.size));
     },
-    /** Recognize !tts text, reply-based !tts and !tts stop without involving the language model. */
+    /** Recognize !tts/!озвучь text, replies and stop/стоп without involving the language model. */
     async handle(message: Message): Promise<boolean> {
-      const match = message.content?.trim().match(/^!tts(?:\s+([\s\S]*))?$/iu);
+      const match = message.content?.trim().match(/^!(?:tts|озвучь)(?:\s+([\s\S]*))?$/iu);
       if (!match) return false;
       const reply = (content: string) =>
         message.reply({ content, allowedMentions: { parse: [] as never[], repliedUser: false } });
@@ -135,7 +135,7 @@ export function createDiscordTts({
         if (closed) return true;
         await voiceChannel(message);
         let room = rooms.get(message.guild.id);
-        if (match[1]?.trim().toLowerCase() === "stop") {
+        if (/^(?:stop|стоп)$/iu.test(match[1]?.trim() ?? "")) {
           room?.controller.abort();
           if (room) room.controller = new AbortController();
           await reply("⏹ Озвучка и очередь TTS остановлены.");

@@ -26,7 +26,7 @@ test("Discord !voice replies with a native voice message and requires no voice c
   bot.client.user = fixture<ClientUser>({ id: "bot" });
   const handle = bot.client.listeners(Events.MessageCreate)[0];
   await handle({
-    content: "!voice",
+    content: "!ГОЛОС",
     author: { id: "user" },
     reference: { messageId: "original" },
     fetchReference: async () => ({ content: "Ответ бота", author: { id: "bot" } }),
@@ -66,10 +66,10 @@ test("Telegram !voice preserves topic and reply, supports addressed commands and
     chat: { id: -10, type: "supergroup" as const },
   };
   await bot.handleUpdate({
-    message: { ...base, text: "!voice@testbot", reply_to_message: { caption: "Читай подпись" } },
+    message: { ...base, text: "!голос@testbot", reply_to_message: { caption: "Читай подпись" } },
   });
   await bot.handleUpdate({ message: { ...base, text: "!voice Явный текст" } });
-  await bot.handleUpdate({ message: { ...base, text: "!voice@otherbot Не читай" } });
+  await bot.handleUpdate({ message: { ...base, text: "!голос@otherbot Не читай" } });
   expect(texts).toEqual(["Читай подпись", "Явный текст"]);
   expect(calls).toHaveLength(2);
   expect(calls[0].method).toBe("sendVoice");

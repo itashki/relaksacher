@@ -150,3 +150,102 @@ test("Telegram history replaces a voice with raw text attributed to its speaker"
     { id: "1", author: "Alice (username: нет, id: 7)", content: "Мои слова" },
   ]);
 });
+
+test("Telegram manually transcribes a replied voice and ignores another bot's command", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const downloads: string[] = [];
+  const bot = createTelegramBot({
+    config: {},
+    assistant: {},
+    api: Object.assign(
+      async (method: string, payload: Record<string, unknown>) => {
+        if (method === "getMe") return { id: 99, username: "testbot" };
+        calls.push(payload);
+        return {};
+      },
+      {
+        downloadVoice: async (id: string) => {
+          downloads.push(id);
+          return new Blob(["ogg"]);
+        },
+      },
+    ),
+    transcribe: async (load) => {
+      await load();
+      return "Manual transcript";
+    },
+  });
+  for (const text of ["!расшифруй@otherbot", "!расшифруй@testbot", "!transcribe"]) {
+    await bot.handleUpdate({
+      message: {
+        message_id: 8,
+        chat: { id: -1, type: "supergroup" },
+        message_thread_id: 4,
+        from: { id: 1 },
+        text,
+        ...(text === "!transcribe"
+          ? {}
+          : {
+              reply_to_message: {
+                message_id: 7,
+                chat: { id: -1, type: "supergroup" },
+                from: { id: 2 },
+                voice: { file_id: "old-voice" },
+              },
+            }),
+      },
+    });
+  }
+  expect(downloads).toEqual(["old-voice"]);
+  expect(calls).toHaveLength(2);
+  expect(calls[0].text).toBe("🎙\nManual transcript");
+  expect(calls[0].message_thread_id).toBe(4);
+  expect(calls[1].text).toContain("!transcribe");
+});
+
+test("Discord manual transcription handles retries, missing replies and unavailable service", async () => {
+  for (const scenario of ["success", "failure", "missing", "unavailable"]) {
+    const replies: Record<string, unknown>[] = [];
+    const bot = createDiscordBot({
+      config: {},
+      assistant: {},
+      memoryDirectory: "/tmp",
+      ...(scenario === "unavailable"
+        ? {}
+        : {
+            transcribe: async () => {
+              if (scenario === "failure") throw new Error("offline");
+              return "Manual transcript";
+            },
+          }),
+    });
+    Object.defineProperty(bot.client, "user", { value: { id: "bot" }, configurable: true });
+    await bot.client.listeners(Events.MessageCreate)[0]({
+      id: "command",
+      content: "!РАСШИФРУЙ",
+      channel: { id: "room" },
+      author: { bot: false },
+      reference: scenario === "missing" ? undefined : {},
+      fetchReference: async () => ({
+        id: "old-voice",
+        channel: { id: "room" },
+        author: { username: "Alice", id: "alice" },
+        flags: { has: () => true },
+        attachments: { first: () => ({ url: "https://cdn.discordapp.com/voice.ogg" }) },
+      }),
+      reply: async (payload: Record<string, unknown>) => {
+        replies.push(payload);
+      },
+    });
+    expect(replies).toHaveLength(1);
+    expect(replies[0].content).toContain(
+      {
+        success: "Manual transcript",
+        failure: "Не удалось",
+        missing: "!transcribe",
+        unavailable: "недоступна",
+      }[scenario],
+    );
+    expect(replies[0].allowedMentions).toEqual({ parse: [], repliedUser: false });
+  }
+});

@@ -196,7 +196,7 @@ export function createDiscordBot({
       reply: message.reference?.messageId,
       boundary: /^\s*[!/][\p{L}\p{N}_]/u.test(message.content ?? ""),
       immediate:
-        /^\s*!tts\s+stop\s*$/iu.test(message.content ?? "") ||
+        /^\s*!(?:tts|озвучь)\s+(?:stop|стоп)\s*$/iu.test(message.content ?? "") ||
         isMusicCommand(message.content ?? "") ||
         Boolean(message.flags?.has(MessageFlags.IsVoiceMessage)) ||
         (!message.content?.trim() && !imageFiles(message).length),
@@ -314,8 +314,10 @@ export function createDiscordBot({
       batches.flush(batchRoom(message));
       return;
     }
-    if (/^\s*!tts\s+stop\s*$/iu.test(message.content ?? ""))
-      batches.cancel(batchRoom(message), (entry) => /^\s*!tts(?:\s|$)/iu.test(entry.content ?? ""));
+    if (/^\s*!(?:tts|озвучь)\s+(?:stop|стоп)\s*$/iu.test(message.content ?? ""))
+      batches.cancel(batchRoom(message), (entry) =>
+        /^\s*!(?:tts|озвучь)(?:\s|$)/iu.test(entry.content ?? ""),
+      );
     await batches.push(message);
   });
 
@@ -323,7 +325,7 @@ export function createDiscordBot({
     if (message.author.bot) return;
 
     if (!client.user) return;
-    const voiceCommand = message.content?.trim().match(/^!voice(?:\s+([\s\S]*))?$/iu);
+    const voiceCommand = message.content?.trim().match(/^!(?:voice|голос)(?:\s+([\s\S]*))?$/iu);
     if (voiceCommand) {
       try {
         const argument = parseSpeechArguments(voiceCommand[1]);
@@ -356,8 +358,27 @@ export function createDiscordBot({
       }
       return;
     }
-    if (transcribe && message.flags?.has(MessageFlags.IsVoiceMessage)) {
-      const file = message.attachments.first();
+    const transcriptionCommand = /^!(?:transcribe|расшифруй)$/iu.test(
+      message.content?.trim() ?? "",
+    );
+    // Manual retries use the original voice as the transcript history identity.
+    let voiceMessage = message;
+    if (transcriptionCommand) {
+      voiceMessage = message.reference
+        ? await message.fetchReference().catch((): null => null)
+        : null;
+      const error = !voiceMessage?.flags?.has(MessageFlags.IsVoiceMessage)
+        ? "Используйте !transcribe ответом на голосовое сообщение."
+        : !transcribe
+          ? "Расшифровка голосовых сообщений недоступна."
+          : undefined;
+      if (error) {
+        await message.reply({ content: error, allowedMentions: { parse: [], repliedUser: false } });
+        return;
+      }
+    }
+    if (transcribe && voiceMessage?.flags?.has(MessageFlags.IsVoiceMessage)) {
+      const file = voiceMessage.attachments.first();
       let text: string;
       let transcript: string;
       const replyIds: string[] = [];
@@ -380,11 +401,11 @@ export function createDiscordBot({
       if (transcript)
         transcripts.remember(
           {
-            id: message.id,
-            author: describeAuthor(message),
+            id: voiceMessage.id,
+            author: describeAuthor(voiceMessage),
             content: transcript,
-            channelId: message.channel.id,
-            channelName: "name" in message.channel ? message.channel.name : undefined,
+            channelId: voiceMessage.channel.id,
+            channelName: "name" in voiceMessage.channel ? voiceMessage.channel.name : undefined,
           },
           replyIds,
         );
