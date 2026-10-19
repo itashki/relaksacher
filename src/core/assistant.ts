@@ -2,6 +2,7 @@
 import { createSpontaneousPolicy } from "./spontaneous.ts";
 import { guardContext, ContextLimitError } from "./context.ts";
 import { createRequestQueue } from "./queue.ts";
+import { createRepetitionDetector } from "./repetition.ts";
 import { buildMessages } from "./prompt.ts";
 
 const MAX_TOOL_ROUNDS = 5;
@@ -337,11 +338,13 @@ export function createAssistant({
                 return available.length ? available : undefined;
               };
               let lastUpdate = 0;
+              let recoveringRepetition = false;
 
               for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
                 if (generation.stopped) break;
 
-                const roundTools = round < MAX_TOOL_ROUNDS ? toolsForRound() : undefined;
+                const roundTools =
+                  !recoveringRepetition && round < MAX_TOOL_ROUNDS ? toolsForRound() : undefined;
                 const guard = guardContext(messages, roundTools, numCtx);
                 if (guard.trimmed) {
                   console.log("Context guard: removed older history to fit the input budget");
@@ -363,6 +366,9 @@ export function createAssistant({
                   break;
                 }
 
+                const thinkingRepetition = createRepetitionDetector();
+                const contentRepetition = createRepetitionDetector();
+                let repetition: "thinking" | "content" | null = null;
                 let roundContent = "";
                 let roundThinking = "";
                 let roundHasThinking = false;
@@ -402,6 +408,12 @@ export function createAssistant({
                   if (part.message?.tool_calls?.length) {
                     toolCalls.push(...part.message.tool_calls);
                   }
+                  if (contentRepetition.push(delta)) repetition = "content";
+                  else if (thinkingRepetition.push(thinkingDelta)) repetition = "thinking";
+                  if (repetition) {
+                    stream.abort();
+                    break;
+                  }
                   if (thinkingDelta || delta) updateTerminal();
 
                   if (delta && Date.now() - lastUpdate >= updateIntervalMs) {
@@ -411,6 +423,21 @@ export function createAssistant({
                 }
 
                 if (generation.stopped) break;
+                if (repetition) {
+                  if (repetition === "thinking" && !recoveringRepetition && !roundContent.trim()) {
+                    recoveringRepetition = true;
+                    useThinking = false;
+                    messages.push({
+                      role: "user",
+                      content:
+                        "Заверши размышления. Сразу дай краткий окончательный ответ на исходный запрос без повторений и вызовов инструментов.",
+                    });
+                    round--;
+                    continue;
+                  }
+                  incompleteReason = "repetition";
+                  break;
+                }
                 if (!streamDone) {
                   incompleteReason = "stream_interrupted";
                   break;
@@ -499,15 +526,17 @@ export function createAssistant({
                 : "Генерация остановлена.";
             } else if (incompleteReason) {
               const explanation =
-                incompleteReason === "context_limit"
-                  ? "текущий запрос и обязательный контекст слишком велики; сократи запрос или начни новый диалог"
-                  : incompleteReason === "length"
-                    ? "достигнут лимит генерации"
-                    : incompleteReason === "tool_limit"
-                      ? "достигнут лимит вызовов инструментов"
-                      : incompleteReason === "empty_answer"
-                        ? "модель не вернула текст ответа"
-                        : "не подтверждено нормальное завершение генерации";
+                incompleteReason === "repetition"
+                  ? "обнаружено зацикливание модели"
+                  : incompleteReason === "context_limit"
+                    ? "текущий запрос и обязательный контекст слишком велики; сократи запрос или начни новый диалог"
+                    : incompleteReason === "length"
+                      ? "достигнут лимит генерации"
+                      : incompleteReason === "tool_limit"
+                        ? "достигнут лимит вызовов инструментов"
+                        : incompleteReason === "empty_answer"
+                          ? "модель не вернула текст ответа"
+                          : "не подтверждено нормальное завершение генерации";
               text += `${text ? "\n\n" : ""}⚠️ Ответ не завершён: ${explanation}.`;
             }
 

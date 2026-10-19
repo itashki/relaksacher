@@ -699,3 +699,42 @@ test("terminal receives live reasoning and queued requests without exposing thou
   ).toBeTruthy();
   unsubscribe();
 });
+
+test("repeated thinking retries once with thinking and tools disabled", async () => {
+  const env = setup(
+    [
+      [{ message: { thinking: "Проверю результат ещё раз. ".repeat(5) } }],
+      [{ message: { content: "Краткий ответ" } }],
+    ],
+    { logger: { info() {} } },
+  );
+  const result = await env.assistant.createSession({ ...env.options, think: true }).run();
+  expect(env.requests.map((request) => request.think)).toEqual([true, false]);
+  expect(env.requests[1].tools).toBeUndefined();
+  expect(result.text).toBe("Краткий ответ");
+  expect(result.incompleteReason).toBeNull();
+  expect(result.stopped).toBe(false);
+});
+
+test("repeated content stops without another generation or tool execution", async () => {
+  const env = setup([[{ message: { content: "Повторяющийся ответ. ".repeat(5) } }]]);
+  const result = await env.assistant.createSession(env.options).run();
+  expect(env.requests.length).toBe(1);
+  expect(result.incompleteReason).toBe("repetition");
+  expect(result.text).toContain("обнаружено зацикливание");
+  expect(result.failed).toBe(false);
+  expect(env.updates.at(-1).final).toBe(true);
+});
+
+test("a repeated thinking recovery cannot retry indefinitely", async () => {
+  const env = setup(
+    [
+      [{ message: { thinking: "Проверю результат ещё раз. ".repeat(5) } }],
+      [{ message: { thinking: "Проверю результат ещё раз. ".repeat(5) } }],
+    ],
+    { logger: { info() {} } },
+  );
+  const result = await env.assistant.createSession({ ...env.options, think: true }).run();
+  expect(env.requests.length).toBe(2);
+  expect(result.incompleteReason).toBe("repetition");
+});
