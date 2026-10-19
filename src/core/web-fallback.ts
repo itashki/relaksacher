@@ -63,10 +63,11 @@ const http = got.extend({
   },
 });
 
-/** @param url Public address. @returns Bounded HTML/plain text. */
-export async function fetchText(url: string) {
+/** @param url Public address. @param signal Optional cancellation. @returns Bounded HTML/plain text. */
+export async function fetchText(url: string, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   validatePublicUrl(url);
-  const stream = http.stream(url);
+  const stream = http.stream(url, { signal });
   const chunks = [];
   let size = 0;
   try {

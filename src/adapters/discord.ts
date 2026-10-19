@@ -6,6 +6,7 @@ import { createTranscriptHistory } from "../core/transcript-history.ts";
 import { downloadVoice } from "./voice.ts";
 import { createDiscordMusic } from "./discord-music.ts";
 import { musicMessageComponents } from "./music-messages.ts";
+import { isMusicCommand } from "./music-commands.ts";
 import { attachImages, downloadImage } from "./images.ts";
 import {
   AttachmentBuilder,
@@ -193,10 +194,10 @@ export function createDiscordBot({
       room: batchRoom(message),
       author: message.author.id,
       reply: message.reference?.messageId,
-      boundary: /^\s*[!/]\w/u.test(message.content ?? ""),
+      boundary: /^\s*[!/][\p{L}\p{N}_]/u.test(message.content ?? ""),
       immediate:
         /^\s*!tts\s+stop\s*$/iu.test(message.content ?? "") ||
-        /^\s*!music(?:\s|$)/iu.test(message.content ?? "") ||
+        isMusicCommand(message.content ?? "") ||
         Boolean(message.flags?.has(MessageFlags.IsVoiceMessage)) ||
         (!message.content?.trim() && !imageFiles(message).length),
     }),
@@ -390,7 +391,7 @@ export function createDiscordBot({
       return;
     }
     if (await tts.handle(message)) return;
-    if (/^!music(?:\s|$)/iu.test(message.content ?? "") && tts.busy(message.guildId)) {
+    if (isMusicCommand(message.content ?? "") && tts.busy(message.guildId)) {
       await message.reply({
         content: "Дождитесь озвучки или используйте !tts stop.",
         components: musicMessageComponents(),
