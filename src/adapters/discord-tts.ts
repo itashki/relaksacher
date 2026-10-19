@@ -1,4 +1,4 @@
-/** @file Route bounded Piper speech requests and temporarily borrow Discord's music connection. */
+/** @file Route bounded Silero speech requests and temporarily borrow Discord's music connection. */
 import { ChannelType, PermissionFlagsBits, type Message } from "discord.js";
 import {
   AudioPlayerStatus,
@@ -11,8 +11,12 @@ import {
   joinVoiceChannel,
 } from "@discordjs/voice";
 import PQueue from "p-queue";
-import { createSpeechPipeline, speechSource, type SpeechOptions } from "./piper.ts";
-export { createPiperPipeline } from "./piper.ts";
+import {
+  createSpeechPipeline,
+  speechSource,
+  parseSpeechArguments,
+  type SpeechOptions,
+} from "./silero.ts";
 
 /** Verify the requester is in a regular channel and shares any existing bot connection. */
 async function voiceChannel(message: Message) {
@@ -33,18 +37,23 @@ export function createDiscordTts({
   execute,
   ...options
 }: SpeechOptions & {
-  execute?: (message: Message, text: string, signal: AbortSignal) => Promise<void>;
+  execute?: (
+    message: Message,
+    text: string,
+    signal: AbortSignal,
+    speaker?: string,
+  ) => Promise<void>;
 } = {}) {
   const rooms = new Map<string, { queue: PQueue; controller: AbortController }>();
   let closed = false;
   /** Synthesize and play with a two-minute deadline, restoring only a music player we paused. */
-  async function speak(message: Message, text: string, signal: AbortSignal) {
+  async function speak(message: Message, text: string, signal: AbortSignal, speaker?: string) {
     const channel = await voiceChannel(message);
     signal.throwIfAborted();
     const me = await message.guild.members.fetchMe();
     if (!channel.permissionsFor(me)?.has([PermissionFlagsBits.Connect, PermissionFlagsBits.Speak]))
       throw new Error("Боту нужны права Connect и Speak.");
-    const source = await speechSource(text, options);
+    const source = speechSource(text, options, speaker);
     signal.throwIfAborted();
     const existing = getVoiceConnection(message.guild.id);
     const connection =
@@ -132,14 +141,16 @@ export function createDiscordTts({
           await reply("⏹ Озвучка и очередь TTS остановлены.");
           return true;
         }
-        const argument = match[1]?.trim();
-        const source = !argument && message.reference ? await message.fetchReference() : null;
+        const argument = parseSpeechArguments(match[1]);
+        const source = !argument.text && message.reference ? await message.fetchReference() : null;
         const readingOwnMessage = Boolean(
           source?.author?.id && source.author.id === message.client?.user?.id,
         );
-        const text = (argument || source?.content || "").trim();
+        const text = (argument.text || source?.content || "").trim();
         if (!text)
-          throw new Error("Используйте !tts <текст> или !tts ответом на текстовое сообщение.");
+          throw new Error(
+            "Используйте !tts [--speaker имя] <текст> или !tts ответом на текстовое сообщение.",
+          );
         if (text.length > 2000) throw new Error("Для озвучки доступно до 2000 символов.");
         if (!room) {
           room = { queue: new PQueue({ concurrency: 1 }), controller: new AbortController() };
@@ -150,7 +161,7 @@ export function createDiscordTts({
         if (!readingOwnMessage) await reply("🗣 Добавлено в очередь озвучки.");
         await room.queue.add(() => {
           signal.throwIfAborted();
-          return (execute ?? speak)(message, text, signal);
+          return (execute ?? speak)(message, text, signal, argument.speaker);
         });
       } catch (error) {
         if (!closed && error?.name !== "AbortError")

@@ -318,7 +318,6 @@ test("model can enable thinking in response to a natural-language request", asyn
 
 test("search tools are always available, including with a legacy disable flag", async () => {
   const toolService = {
-    searchEnabled: true,
     definitions: () => [{ type: "function", function: { name: "web_search" } }],
   };
   const env = setup(
@@ -570,7 +569,6 @@ test("successful media delivery permits an empty final answer without markers", 
   const call = { function: { name: "send_image", arguments: { id: "image_1" } } };
   const env = setup([[{ message: { tool_calls: [call] } }], [{ message: { content: "" } }]], {
     toolService: {
-      searchEnabled: false,
       definitions: () => [],
       async runTool(_call, context) {
         context.imageState.sent = true;

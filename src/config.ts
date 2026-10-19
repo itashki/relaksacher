@@ -98,8 +98,6 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   if (adapters.includes("telegram") && !telegramToken) {
     throw new Error("TELEGRAM_BOT_TOKEN is required for the Telegram adapter");
   }
-  const applicantId = env.APPLICANT_ID;
-  const publicKey = env.PUBLIC_KEY;
   const OLLAMA_URL = env.OLLAMA_URL;
   const OLLAMA_MODEL = env.OLLAMA_MODEL?.trim();
   if (!OLLAMA_MODEL) throw new Error("OLLAMA_MODEL is required; set it in .env.");
@@ -115,12 +113,6 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   if (adapters.includes("discord") && !token) {
     throw new Error("BOT_TOKEN is not defined in the environment variables.");
   }
-  if (adapters.includes("discord") && !applicantId) {
-    throw new Error("APPLICANT_ID is not defined in the environment variables.");
-  }
-  if (adapters.includes("discord") && !publicKey) {
-    throw new Error("PUBLIC_KEY is not defined in the environment variables.");
-  }
   if (!OLLAMA_URL) {
     throw new Error("OLLAMA_URL is not defined in the environment variables.");
   }
@@ -134,24 +126,15 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   const whisperTimeoutMs = Number(env.WHISPER_TIMEOUT_MS ?? 300000);
   if (!Number.isSafeInteger(whisperTimeoutMs) || whisperTimeoutMs <= 0)
     throw new Error("Invalid WHISPER_TIMEOUT_MS");
-  const ttsEngine = env.TTS_ENGINE?.trim() || "piper";
-  if (!["piper", "silero"].includes(ttsEngine))
-    throw new Error("Invalid TTS_ENGINE: use piper or silero");
-  const silero =
-    ttsEngine === "silero"
-      ? {
-          python: env.SILERO_PYTHON?.trim() || "python3",
-          model: env.SILERO_MODEL?.trim() || "models/silero-v5_6_ru.pt",
-          englishModel: env.SILERO_MODEL_EN?.trim() || "models/silero-v3_en.pt",
-          speaker: env.SILERO_SPEAKER?.trim() || "xenia",
-          englishSpeaker: env.SILERO_SPEAKER_EN?.trim() || "en_0",
-        }
-      : undefined;
+  const silero = {
+    python: env.SILERO_PYTHON?.trim() || "python3",
+    model: env.SILERO_MODEL?.trim() || "models/silero-v5_6_ru.pt",
+    englishModel: env.SILERO_MODEL_EN?.trim() || "models/silero-v3_en.pt",
+    speaker: env.SILERO_SPEAKER?.trim() || "random",
+    englishSpeaker: env.SILERO_SPEAKER_EN?.trim() || "random",
+  };
   return {
     silero,
-    piperBin: env.PIPER_BIN?.trim() || "piper",
-    piperModel: env.PIPER_MODEL?.trim() || "models/ru_RU-terra5871-medium.onnx",
-    piperEnglishModel: env.PIPER_MODEL_EN?.trim() || undefined,
     whisperModel: env.WHISPER_MODEL?.trim() || "models/ggml-small.bin",
     whisperAutoStart: env.WHISPER_AUTO_START !== "false",
     whisperUrl,
@@ -170,8 +153,6 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
     telegramTimeoutMs,
     telegramUpdateIntervalMs,
     adapters,
-    applicantId,
-    publicKey,
     OLLAMA_URL,
     OLLAMA_MODEL,
     OLLAMA_TIMEOUT,

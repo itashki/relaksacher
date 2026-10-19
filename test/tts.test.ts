@@ -110,3 +110,25 @@ test("reading the bot's own reply speaks without a chat acknowledgment", async (
   expect(replies).toEqual([]);
   await tts.stop();
 });
+
+test("TTS forwards a speaker for explicit text and reply-based commands", async () => {
+  const calls: { text: string; speaker?: string }[] = [];
+  const tts = createDiscordTts({
+    execute: async (_, text, _signal, speaker) => {
+      calls.push({ text, speaker });
+    },
+  });
+  try {
+    await tts.handle(message("!tts --speaker aidar Привет").request);
+    const reply = message("!tts");
+    reply.request.content = "!tts --speaker xenia";
+    await tts.handle(reply.request);
+    await tts.handle(message("!tts --speaker unknown текст").request);
+    expect(calls).toEqual([
+      { text: "Привет", speaker: "aidar" },
+      { text: "Текст исходного сообщения", speaker: "xenia" },
+    ]);
+  } finally {
+    await tts.stop();
+  }
+});

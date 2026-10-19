@@ -96,7 +96,6 @@ export type MemoryStore = ReturnType<typeof import("./core/memory.ts").createMem
 /** Tool definitions and execution; capability flags depend on adapter context and providers. */
 export type ToolService = {
   runTool: (call: ToolCall, context: RequestContext) => Promise<string>;
-  searchEnabled: boolean;
   definitions: (options: {
     scopeId?: string;
     history?: boolean;
@@ -127,10 +126,7 @@ export type AssistantOptions = {
 };
 /** Validated startup configuration shared with enabled platform adapters. */
 export type AppConfig = {
-  silero?: import("./adapters/piper.ts").SileroOptions;
-  piperBin?: string;
-  piperModel?: string;
-  piperEnglishModel?: string;
+  silero?: import("./adapters/silero.ts").SileroOptions;
   whisperModel?: string;
   whisperAutoStart?: boolean;
   whisperUrl?: string;
@@ -140,8 +136,6 @@ export type AppConfig = {
   telegramTimeoutMs: number;
   telegramUpdateIntervalMs: number;
   adapters: string[];
-  applicantId: string | undefined;
-  publicKey: string | undefined;
   OLLAMA_URL: string;
   OLLAMA_MODEL: string;
   OLLAMA_TIMEOUT: number;
@@ -175,12 +169,6 @@ export type TelegramRequest = (
 export type TelegramApi = TelegramRequest & {
   downloadImage: (arg0: string) => Promise<string>;
   downloadVoice?: (fileId: string) => Promise<Blob>;
-};
-/** Telegram update routing and polling lifecycle; stop may await runner shutdown. */
-export type TelegramBot = {
-  handleUpdate: (arg0: import("@grammyjs/types").Update) => Promise<void>;
-  start: () => Promise<void>;
-  stop: () => Promise<void> | undefined;
 };
 /** Search-selected image or GIF metadata; candidate URLs are not arbitrary model input. */
 export type ImageCandidate = {

@@ -1,5 +1,5 @@
 /** @file Application composition and adapter lifecycle entry point. */
-import { createVoiceSynthesizer } from "./src/adapters/piper.ts";
+import { createVoiceSynthesizer } from "./src/adapters/silero.ts";
 import { createWhisperServer } from "./src/core/whisper-server.ts";
 import { createTranscriber } from "./src/core/transcription.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
@@ -18,9 +18,6 @@ import { createCliControls } from "./src/adapters/cli.ts";
 
 const config = await loadConfig();
 const voice = createVoiceSynthesizer({
-  binary: config.piperBin,
-  model: config.piperModel,
-  englishModel: config.piperEnglishModel,
   silero: config.silero,
 });
 const whisper = createWhisperServer({

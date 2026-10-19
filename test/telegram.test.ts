@@ -316,7 +316,7 @@ test("grammY runner receives stop callbacks while generation is running", async 
     callbackAnswered = resolve;
   });
   let polls = 0;
-  const api = async (method: string, payload: TelegramPayload, signal: AbortSignal) => {
+  const api = async (method: string, _payload: TelegramPayload, signal: AbortSignal) => {
     if (method === "getMe") return { id: 99, username: "testbot" };
     if (method === "getUpdates") {
       if (++polls === 1) return [{ update_id: 1, message: message(1, "question") }];
@@ -432,7 +432,7 @@ test("native signal bridge forwards request cancellation", async () => {
   const api = createTelegramApi("test-token", async (_url, options) => {
     expect(options.signal instanceof AbortSignal).toBeTruthy();
     transportStarted();
-    return new Promise((resolve, reject) => {
+    return new Promise((_resolve, reject) => {
       options.signal.addEventListener("abort", () => reject(new Error("cancelled")), {
         once: true,
       });
@@ -463,7 +463,7 @@ test("real runner signals work through grammY and native fetch to deliver messag
     else if (method === "getUpdates") {
       if (++polls === 1) result = [{ update_id: 1, message: message(1, "hello from polling") }];
       else
-        return new Promise((resolve, reject) => {
+        return new Promise((_resolve, reject) => {
           if (options.signal.aborted) reject(new Error("aborted"));
           else
             options.signal.addEventListener("abort", () => reject(new Error("aborted")), {

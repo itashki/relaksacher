@@ -2,7 +2,7 @@
 import { expect, test, onTestFinished } from "bun:test";
 import { Events, MessageFlags, type ClientUser } from "discord.js";
 import { createDiscordBot, createTelegramBot, createTelegramApi, fixture } from "./fixtures.ts";
-import { voiceMetadata, createVoiceSynthesizer } from "../src/adapters/piper.ts";
+import { voiceMetadata, createVoiceSynthesizer } from "../src/adapters/silero.ts";
 
 /** Minimal encoded recording; platform tests inject synthesis without running external programs. */
 const recording = () => ({
@@ -129,4 +129,51 @@ test("voice synthesis rejects invalid text and requests after shutdown", async (
   await expect(voice.generate("я".repeat(2001))).rejects.toThrow();
   await voice.stop();
   await expect(voice.generate("Привет")).rejects.toThrow();
+});
+
+test("Discord and Telegram voice commands forward speaker overrides and retain reply text", async () => {
+  const calls: { text: string; speaker?: string }[] = [];
+  const generateVoice = async (text: string, speaker?: string) => {
+    calls.push({ text, speaker });
+    return recording();
+  };
+  const discord = createDiscordBot({ config: {}, assistant: {}, generateVoice });
+  onTestFinished(() => discord.client.destroy());
+  discord.client.user = fixture<ClientUser>({ id: "bot" });
+  const handle = discord.client.listeners(Events.MessageCreate)[0];
+  await handle({
+    content: "!voice --speaker xenia",
+    author: { id: "user" },
+    reference: { messageId: "original" },
+    fetchReference: async () => ({ content: "Привет" }),
+    reply: async () => ({}),
+  });
+  const telegram = createTelegramBot({
+    config: {},
+    assistant: {},
+    generateVoice,
+    api: async (method) => (method === "getMe" ? { id: 99, username: "testbot" } : {}),
+  });
+  await telegram.handleUpdate({
+    message: {
+      message_id: 1,
+      from: { id: 1 },
+      chat: { id: 1, type: "private" },
+      text: "!voice@testbot --speaker en_42",
+      reply_to_message: { text: "Hello" },
+    },
+  });
+  await telegram.handleUpdate({
+    message: {
+      message_id: 2,
+      from: { id: 1 },
+      chat: { id: 1, type: "private" },
+      text: "!voice --speaker random Явный текст",
+    },
+  });
+  expect(calls).toEqual([
+    { text: "Привет", speaker: "xenia" },
+    { text: "Hello", speaker: "en_42" },
+    { text: "Явный текст", speaker: "random" },
+  ]);
 });

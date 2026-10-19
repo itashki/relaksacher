@@ -6,8 +6,6 @@ import { loadConfig } from "../src/config.ts";
 
 const env = {
   BOT_TOKEN: "test",
-  APPLICANT_ID: "test",
-  PUBLIC_KEY: "test",
   OLLAMA_URL: "http://localhost:11434",
   OLLAMA_TIMEOUT: "1000",
   OLLAMA_MODEL: "test-model",
@@ -27,7 +25,7 @@ test("loads one main model and context from environment", async () => {
 });
 
 test("Telegram-only configuration does not require Discord credentials", async () => {
-  const { BOT_TOKEN: _token, APPLICANT_ID: _applicant, PUBLIC_KEY: _key, ...telegramEnv } = env;
+  const { BOT_TOKEN: _token, ...telegramEnv } = env;
   const config = await loadConfig({
     ...telegramEnv,
     BOT_ADAPTERS: "telegram",
@@ -76,16 +74,14 @@ test("JSON5 personality supports commented rules and validates active entries", 
   }
 });
 
-test("TTS backend defaults to Piper and validates configurable bilingual Silero settings", async () => {
-  expect((await loadConfig(env)).silero).toBeUndefined();
-  const defaults = (await loadConfig({ ...env, TTS_ENGINE: "silero" })).silero;
-  expect(defaults.speaker).toBe("xenia");
-  expect(defaults.englishSpeaker).toBe("en_0");
+test("TTS defaults to bilingual Silero and accepts model and speaker overrides", async () => {
+  const defaults = (await loadConfig(env)).silero;
+  expect(defaults.speaker).toBe("random");
+  expect(defaults.englishSpeaker).toBe("random");
   expect(
     (
       await loadConfig({
         ...env,
-        TTS_ENGINE: "silero",
         SILERO_PYTHON: "/python",
         SILERO_MODEL: "/ru.pt",
         SILERO_MODEL_EN: "/en.pt",
@@ -100,5 +96,13 @@ test("TTS backend defaults to Piper and validates configurable bilingual Silero 
     speaker: "aidar",
     englishSpeaker: "en_10",
   });
-  await expect(loadConfig({ ...env, TTS_ENGINE: "unknown" })).rejects.toThrow("TTS_ENGINE");
+});
+
+test("Discord configuration requires only its bot token as platform credentials", async () => {
+  const config = await loadConfig({ ...env, BOT_ADAPTERS: "discord" });
+  expect(config.adapters).toEqual(["discord"]);
+  expect(config.token).toBe("test");
+  await expect(
+    loadConfig({ ...env, BOT_ADAPTERS: "discord", BOT_TOKEN: undefined }),
+  ).rejects.toThrow("BOT_TOKEN");
 });

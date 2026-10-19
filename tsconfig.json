@@ -8,7 +8,9 @@
     "strict": false,
     "skipLibCheck": true,
     "types": ["bun"],
-    "noImplicitAny": true
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": ["index.ts", "src/**/*.ts", "test/**/*.ts"]
 }

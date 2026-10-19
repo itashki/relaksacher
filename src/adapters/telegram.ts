@@ -1,4 +1,5 @@
 /** @file Bridge Telegram polling, reply-chain caching, streamed messages and cancellation buttons. */
+import { parseSpeechArguments } from "./silero.ts";
 import { attachImages } from "./images.ts";
 import { formatTelegramChunks } from "./telegram-format.ts";
 import { run } from "@grammyjs/runner";
@@ -63,7 +64,7 @@ export function createTelegramBot({
 }: {
   config: import("../types.ts").AppConfig;
   assistant: import("../types.ts").Assistant;
-  generateVoice?: (text: string) => Promise<import("../types.ts").VoiceRecording>;
+  generateVoice?: (text: string, speaker?: string) => Promise<import("../types.ts").VoiceRecording>;
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   api?: import("../types.ts").TelegramApi;
 }) {
@@ -142,18 +143,19 @@ export function createTelegramBot({
         reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
       };
       try {
+        const argument = parseSpeechArguments(voiceCommand[2]);
         const text = (
-          voiceCommand[2]?.trim() ||
+          argument.text ||
           message.reply_to_message?.text ||
           message.reply_to_message?.caption ||
           ""
         ).trim();
         if (!text || text.length > 2000)
           throw new Error(
-            "Используйте !voice <текст> или !voice ответом на сообщение, до 2000 символов.",
+            "Используйте !voice [--speaker имя] <текст> или !voice ответом на сообщение, до 2000 символов.",
           );
         if (!generateVoice) throw new Error("Синтез голосовых сообщений недоступен.");
-        const recording = await generateVoice(text);
+        const recording = await generateVoice(text, argument.speaker);
         await api("sendVoice", {
           ...base,
           voice: recording.audio,

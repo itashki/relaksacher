@@ -52,6 +52,7 @@ export type TestUpdate = Partial<GenerationUpdate> & {
 };
 export type TestSessionOptions = Omit<SessionOptions, "onUpdate"> & {
   onUpdate: (update: TestUpdate) => void | Promise<void>;
+  // Tests assert that adapters never pass the removed search toggle.
   search?: boolean;
 };
 

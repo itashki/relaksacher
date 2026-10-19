@@ -91,7 +91,6 @@ test("primary search is preferred; failures and empty results use fallback", asy
 
 test("web tools are exposed without an Ollama API key", () => {
   const service = createToolService({ memory: {} });
-  expect(service.searchEnabled).toBe(true);
   expect(
     service
       .definitions({ search: true } as Parameters<typeof service.definitions>[0])

@@ -285,7 +285,6 @@ export function createToolService({
 
   return {
     runTool,
-    searchEnabled: Boolean(searchClient),
     definitions: ({ scopeId, history, images }) => [
       ...(images ? IMAGE_TOOLS : []),
       ...(images && gifSearch ? GIF_TOOLS : []),

@@ -1,4 +1,4 @@
-/** @file Synthesize Piper or Silero speech as a live PCM stream or a bounded OGG/Opus voice recording. */
+/** @file Synthesize Silero speech as a live PCM stream or a bounded OGG/Opus voice recording. */
 import { createMusicPipeline } from "./music-process.ts";
 import PQueue from "p-queue";
 /** Local CPU Silero runtime and independent Russian/English models and speaker IDs. */
@@ -10,85 +10,66 @@ export type SileroOptions = {
   englishSpeaker: string;
 };
 
-/** Shared backend settings for recordings and Discord live speech. Silero overrides Piper when supplied. */
-export type SpeechOptions = {
-  binary?: string;
-  model?: string;
-  englishModel?: string;
-  silero?: SileroOptions;
-};
+/** Shared Silero settings for recordings and Discord live speech. */
+export type SpeechOptions = { silero?: SileroOptions };
 
-/** Resolve the source command and native PCM rate without starting synthesis. */
-export async function speechSource(text: string, options: SpeechOptions) {
-  const { silero } = options;
-  if (silero) {
-    const english = selectPiperModel(text, "ru", "en") === "en";
-    return {
-      command: [
-        silero.python,
-        Bun.fileURLToPath(new URL("../../scripts/silero-tts.py", import.meta.url)),
-        "--model",
-        english ? silero.englishModel : silero.model,
-        "--speaker",
-        english ? silero.englishSpeaker : silero.speaker,
-        "--",
-        text,
-      ],
-      sampleRate: 48000,
-    };
-  }
-  const model = selectPiperModel(
-    text,
-    options.model ?? "models/ru_RU-terra5871-medium.onnx",
-    options.englishModel,
-  );
+const russianSpeakers = ["aidar", "baya", "kseniya", "eugene", "xenia"];
+const englishSpeakers = Array.from({ length: 118 }, (_, index) => `en_${index}`);
+
+/** Parse an optional leading --speaker ID; -- ends options and preserves literal text. */
+export function parseSpeechArguments(input: string = "") {
+  const argument = input.trim();
+  if (argument === "--" || argument.startsWith("-- "))
+    return { text: argument.slice(2).trim(), speaker: undefined };
+  if (!/^--speaker(?:\s|=|$)/iu.test(argument)) return { text: argument, speaker: undefined };
+  const match = argument.match(/^--speaker(?:\s+|=)([a-z][a-z0-9_]*)(?:\s+([\s\S]*))?$/iu);
+  if (!match) throw new Error("Укажите спикера: --speaker xenia или --speaker en_0.");
+  const speaker = match[1].toLowerCase();
+  if (
+    speaker !== "random" &&
+    !russianSpeakers.includes(speaker) &&
+    !englishSpeakers.includes(speaker)
+  )
+    throw new Error(
+      "Неизвестный спикер. Доступны aidar, baya, kseniya, eugene, xenia, en_0–en_117 и random.",
+    );
+  const text = (match[2] ?? "").replace(/^--(?:\s|$)/u, "").trim();
+  return { text, speaker };
+}
+
+/** Choose a language-compatible speaker once per utterance; random draws uniformly from real voices. */
+export function speechSource(text: string, options: SpeechOptions, requestedSpeaker?: string) {
+  const silero = options.silero ?? {
+    python: "python3",
+    model: "models/silero-v5_6_ru.pt",
+    englishModel: "models/silero-v3_en.pt",
+    speaker: "random",
+    englishSpeaker: "random",
+  };
+  const english = /[a-z]/iu.test(text) && !/[а-яё]/iu.test(text);
+  const available = english ? englishSpeakers : russianSpeakers;
+  const configured = requestedSpeaker ?? (english ? silero.englishSpeaker : silero.speaker);
+  const speaker =
+    configured === "random" ? available[Math.floor(Math.random() * available.length)] : configured;
+  if (!available.includes(speaker))
+    throw new Error(
+      english
+        ? "Для английского текста выберите en_0–en_117 или random."
+        : "Для русского текста выберите aidar, baya, kseniya, eugene, xenia или random.",
+    );
   return {
     command: [
-      options.binary ?? "piper",
-      "-m",
-      model,
-      "--output-raw",
+      silero.python,
+      Bun.fileURLToPath(new URL("../../scripts/silero-tts.py", import.meta.url)),
+      "--model",
+      english ? silero.englishModel : silero.model,
+      "--speaker",
+      speaker,
       "--",
-      text.replace(/\s+/gu, " "),
+      text,
     ],
-    sampleRate: await piperSampleRate(model),
+    sampleRate: 48000,
   };
-}
-
-/** Use Russian for text containing Russian letters or no Latin letters; preserve single-model setups. */
-export function selectPiperModel(text: string, model: string, englishModel?: string): string {
-  return englishModel && /[a-z]/iu.test(text) && !/[а-яё]/iu.test(text) ? englishModel : model;
-}
-
-/** Read the model's native PCM rate; raw Piper output has no header to infer this from.
- * Rejects missing/invalid sidecar configuration before any subprocess is started. */
-export async function piperSampleRate(model: string): Promise<number> {
-  try {
-    const config = await Bun.file(`${model}.json`).json();
-    const rate = config.audio?.sample_rate;
-    if (!Number.isSafeInteger(rate) || rate < 8000 || rate > 192000)
-      throw new Error("Invalid sample rate");
-    return rate;
-  } catch {
-    throw new Error(
-      "Не удалось прочитать частоту голоса. Проверьте файл PIPER_MODEL.onnx.json рядом с моделью.",
-    );
-  }
-}
-
-/** Stream Piper's raw 16-bit mono PCM, resampled to Discord PCM. Avoids Piper's buffered WAV stdout path. */
-export function createPiperPipeline(
-  binary: string,
-  model: string,
-  text: string,
-  onFailure: () => void,
-  sampleRate: number,
-) {
-  return createSpeechPipeline(
-    [binary, "-m", model, "--output-raw", "--", text.replace(/\s+/gu, " ")],
-    onFailure,
-    sampleRate,
-  );
 }
 
 /** Resample a backend's signed 16-bit mono PCM into Discord's 48 kHz stereo PCM. */
@@ -147,7 +128,7 @@ export function createVoiceSynthesizer(options: SpeechOptions = {}) {
   const queue = new PQueue({ concurrency: 1 });
   const shutdown = new AbortController();
   return {
-    async generate(text: string): Promise<import("../types.ts").VoiceRecording> {
+    async generate(text: string, speaker?: string): Promise<import("../types.ts").VoiceRecording> {
       if (!text.trim() || text.length > 2000)
         throw new Error("Для озвучки нужен текст длиной от 1 до 2000 символов.");
       shutdown.signal.throwIfAborted();
@@ -155,7 +136,7 @@ export function createVoiceSynthesizer(options: SpeechOptions = {}) {
       return queue.add(async () => {
         shutdown.signal.throwIfAborted();
         const deadline = AbortSignal.any([shutdown.signal, AbortSignal.timeout(120000)]);
-        const source = await speechSource(text, options);
+        const source = speechSource(text, options, speaker);
         deadline.throwIfAborted();
         let failed = false;
         const pipeline = createSpeechPipeline(
@@ -179,7 +160,7 @@ export function createVoiceSynthesizer(options: SpeechOptions = {}) {
           const codes = await pipeline.exited;
           deadline.throwIfAborted();
           if (failed || codes.some((code) => code !== 0))
-            throw new Error("Не удалось синтезировать речь. Проверьте TTS, Python/Piper и модели.");
+            throw new Error("Не удалось синтезировать речь. Проверьте Silero, Python и модели.");
           if (!size) throw new Error("TTS вернул пустое аудио. Попробуйте текст со словами.");
           pcm = Bun.concatArrayBuffers(chunks);
         } finally {

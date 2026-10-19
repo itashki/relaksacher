@@ -14,7 +14,7 @@ cp .env.example .env
 
 В `.env` выберите платформы через `BOT_ADAPTERS` и заполните их параметры:
 
-- Discord: `BOT_TOKEN`, `APPLICANT_ID`, `PUBLIC_KEY`.
+- Discord: `BOT_TOKEN`.
 - Telegram: `TELEGRAM_BOT_TOKEN`.
 - Ollama: `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT` — тайм-аут в миллисекундах.
 
@@ -58,21 +58,17 @@ nix develop path:. --command bun start
 Для Nix без flakes доступен `nix-shell`: он использует ту же ревизию nixpkgs
 из `flake.lock`. Для `nix develop` должны быть включены `nix-command` и `flakes`.
 
-Окружение содержит Bun, Ollama CUDA, Piper TTS, whisper.cpp (CPU), FFmpeg/ffprobe,
+Окружение содержит Bun, Ollama CUDA, whisper.cpp (CPU), FFmpeg/ffprobe,
 yt-dlp, Deno для извлечения YouTube, Python с PyTorch и NumPy (CPU), Node.js, Git, curl, CA-сертификаты
 и инструменты сборки нативных зависимостей. Отдельная установка этих программ
-в системный конфиг не требуется. `PIPER_BIN` внутри shell автоматически указывает
-на синтезатор речи из Nix store, даже если в `.env` остался старый путь или
-системная команда `piper` занята приложением настройки мыши.
+в системный конфиг не требуется.
 
 Создайте `.env`, `facts.json5` и `personality.json5` по инструкции выше.
 Модели не входят в shell: скачайте их отдельно и укажите `WHISPER_MODEL`,
-`SILERO_MODEL`, `SILERO_MODEL_EN` и модели Ollama. Для Piper укажите `PIPER_MODEL`
-и соседний файл `<PIPER_MODEL>.json`.
+`SILERO_MODEL`, `SILERO_MODEL_EN` и модели Ollama.
 Whisper запускается самим ботом при `WHISPER_AUTO_START=true` и завершается вместе
-с ним; уже работающий сервер используется повторно. Piper вызывается по запросу.
-Отдельные системные сервисы для Whisper и Piper не нужны. Их логи не нарушают TUI.
-Python самостоятельный, Piper запускается через свой CLI, а не `python -m piper`.
+с ним; уже работающий сервер используется повторно. Silero вызывается по запросу.
+Отдельные системные сервисы для Whisper и Silero не нужны. Их логи не нарушают TUI.
 
 Версии пакетов закреплены в `flake.lock`. Обновление: `nix flake update nixpkgs`.
 После обновления проверьте версии инструментов и выполните проверки разработки.
@@ -106,7 +102,7 @@ sudo nixos-rebuild switch
 systemctl status ollama
 ```
 
-Bun, Python, Piper, whisper.cpp, FFmpeg и yt-dlp отдельно в
+Bun, Python с PyTorch, whisper.cpp, FFmpeg и yt-dlp отдельно в
 `environment.systemPackages` добавлять не требуется — они входят в shell.
 Shell не запускает второй сервер Ollama и не меняет системный сервис.
 
@@ -122,8 +118,7 @@ WHISPER_URL=http://127.0.0.1:8080/inference
 `ollama pull <имя>` внутри shell для основной и вспомогательной моделей из
 `.env`: команды обращаются к системному серверу. `ollama ps` показывает
 загруженные модели и использование GPU. Пути к уже скачанным моделям Whisper
-и Piper укажите в `WHISPER_MODEL` и `PIPER_MODEL`; Piper нужен также соседний
-файл `.onnx.json`. Токены платформ и локальные JSON5-файлы настраиваются по
+и Silero укажите в `WHISPER_MODEL`, `SILERO_MODEL` и `SILERO_MODEL_EN`. Токены платформ и локальные JSON5-файлы настраиваются по
 основной инструкции запуска. После этого достаточно:
 
 ```sh
@@ -524,13 +519,13 @@ WHISPER_MODEL=/home/ktrd/ai/ggml-small.bin
 BotFather или назначьте бота администратором. Discord требует доступ к каналу,
 чтению сообщений и отправке ответов, включая Message Content Intent.
 
-## Озвучка текста (Silero / Piper TTS)
+## Озвучка текста (Silero TTS)
 
 Discord-команды `!tts <текст>`, `!tts` ответом на сообщение и `!tts stop`
 описаны в [справочнике](docs/COMMANDS.md#озвучка-в-discord).
 Для отправки голосового сообщением используйте `!voice` в Discord или `!voice`
 в Telegram: с текстом после команды или ответом на сообщение. Эти команды
-используют тот же движок `TTS_ENGINE`, подключаться к войсчату не требуется.
+используют Silero, подключаться к войсчату не требуется.
 Распознавание Whisper и синтез речи независимы. HTTP-сервер для TTS не требуется.
 
 Для Silero установите Python с CPU-версией PyTorch и NumPy (они уже входят в Nix shell).
@@ -538,13 +533,18 @@ Discord-команды `!tts <текст>`, `!tts` ответом на сооб�
 и [английскую v3_en](https://models.silero.ai/models/tts/en/v3_en.pt) в каталог голосов:
 
 ```dotenv
-TTS_ENGINE=silero
 SILERO_PYTHON=python3
 SILERO_MODEL=/home/ktrd/ai/piper-voices/silero-v5_6_ru.pt
 SILERO_MODEL_EN=/home/ktrd/ai/piper-voices/silero-v3_en.pt
-SILERO_SPEAKER=xenia
-SILERO_SPEAKER_EN=en_0
+SILERO_SPEAKER=random
+SILERO_SPEAKER_EN=random
 ```
+
+По умолчанию `random` равновероятно выбирает одного спикера на всю реплику; повторы возможны.
+Чтобы закрепить голос, задайте его имя в `SILERO_SPEAKER` или `SILERO_SPEAKER_EN`.
+Для одной команды используйте `!voice --speaker xenia <текст>` или
+`!tts --speaker en_42 <English text>`; параметр работает и при ответе на сообщение
+без явного текста. `--speaker random` выбирает случайный голос независимо от настройки.
 
 Для русского доступны `aidar`, `baya`, `kseniya`, `xenia`, `eugene`, для английского —
 `en_0`–`en_117`. Текст с латинскими буквами без русских получает английский голос;
@@ -557,32 +557,6 @@ SILERO_SPEAKER_EN=en_0
 задержка загрузки Python и модели. Во время озвучки скачивание не требуется.
 FFmpeg преобразует звук для Discord и Telegram; лимит — две минуты.
 
-Для возврата к Piper установите `TTS_ENGINE=piper` (это также значение по умолчанию,
-если переменная отсутствует).
-
-Установите `piper-tts` и FFmpeg, скачайте модель русского голоса вместе с
-соседним файлом `.onnx.json`. В `.env` укажите:
-
-```dotenv
-PIPER_BIN=piper
-PIPER_MODEL=/home/ktrd/ai/piper-voices/ru_RU-terra5871-medium.onnx
-PIPER_MODEL_EN=/home/ktrd/ai/piper-voices/en_US-lessac-medium.onnx
-```
-
-При наличии `PIPER_MODEL_EN` текст с латинскими буквами без русских озвучивается английской моделью; смешанный текст и текст без букв — русской из `PIPER_MODEL`. Правило действует для голосовых сообщений и `!tts`. Без `PIPER_MODEL_EN` используется один голос.
-
-Модели: [русский terra5871](https://huggingface.co/rraaww/ru_piper), [английский Lessac medium](https://huggingface.co/rhasspy/piper-voices/tree/main/en/en_US/lessac/medium). Для каждой нужен соседний файл `.onnx.json`.
-
-`PIPER_BIN` — имя программы в PATH или абсолютный путь. Проверьте `piper --help`:
-должны присутствовать параметры `--model` и `--output-file`. В NixOS программа
-для настройки мыши тоже называется `piper`; при конфликте укажите путь к
-`bin/piper` из пакета `piper-tts`. Путь в Nix store нужно обновлять после смены
-пакета, если старая версия удаляется сборщиком мусора.
-
-Бот передаёт текст Piper аргументом без shell. Поток PCM направляется в FFmpeg и далее
+Бот передаёт текст Silero аргументом без shell. Поток PCM направляется в FFmpeg и далее
 в Discord без постоянного аудиофайла. Вывод процессов не попадает в терминал.
 Ошибки воспроизведения возвращаются в чат. Для бота нужны права Connect и Speak.
-
-Piper запускается с `--output-raw`: частота mono PCM читается из
-`audio.sample_rate` соседнего файла `<PIPER_MODEL>.json`. Это обходит
-проблему пустого WAV при выводе Piper через `-f -` на коротких фразах.

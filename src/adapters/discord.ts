@@ -1,4 +1,5 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import { parseSpeechArguments } from "./silero.ts";
 import { createDiscordTts } from "./discord-tts.ts";
 import { createTranscriptHistory } from "../core/transcript-history.ts";
 import { downloadVoice } from "./voice.ts";
@@ -104,7 +105,7 @@ export function createDiscordBot({
 }: {
   config: import("../types.ts").AppConfig;
   assistant: import("../types.ts").Assistant;
-  generateVoice?: (text: string) => Promise<import("../types.ts").VoiceRecording>;
+  generateVoice?: (text: string, speaker?: string) => Promise<import("../types.ts").VoiceRecording>;
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   memoryDirectory: string;
   onMusicStatus?: (statuses: import("../core/music-status.ts").MusicStatus[]) => void;
@@ -120,9 +121,6 @@ export function createDiscordBot({
   });
 
   const tts = createDiscordTts({
-    binary: config.piperBin,
-    model: config.piperModel,
-    englishModel: config.piperEnglishModel,
     silero: config.silero,
   });
   const transcripts = createTranscriptHistory();
@@ -254,16 +252,16 @@ export function createDiscordBot({
     const voiceCommand = message.content?.trim().match(/^!voice(?:\s+([\s\S]*))?$/iu);
     if (voiceCommand) {
       try {
+        const argument = parseSpeechArguments(voiceCommand[1]);
         const text = (
-          voiceCommand[1]?.trim() ||
-          (message.reference ? (await message.fetchReference()).content : "")
+          argument.text || (message.reference ? (await message.fetchReference()).content : "")
         ).trim();
         if (!text || text.length > 2000)
           throw new Error(
-            "Используйте !voice <текст> или !voice ответом на сообщение, до 2000 символов.",
+            "Используйте !voice [--speaker имя] <текст> или !voice ответом на сообщение, до 2000 символов.",
           );
         if (!generateVoice) throw new Error("Синтез голосовых сообщений недоступен.");
-        const recording = await generateVoice(text);
+        const recording = await generateVoice(text, argument.speaker);
         const file = new AttachmentBuilder(Buffer.from(await recording.audio.arrayBuffer()), {
           name: "voice.ogg",
         })
