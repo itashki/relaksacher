@@ -1,6 +1,7 @@
 /** @file Synthesize Silero speech as a live PCM stream or a bounded OGG/Opus voice recording. */
 import { createMusicPipeline } from "./music-process.ts";
 import PQueue from "p-queue";
+import { normalizeSpeechText } from "../core/speech-text.ts";
 /** Local CPU Silero runtime and independent Russian/English models and speaker IDs. */
 export type SileroOptions = {
   python: string;
@@ -66,7 +67,7 @@ export function speechSource(text: string, options: SpeechOptions, requestedSpea
       "--speaker",
       speaker,
       "--",
-      text,
+      normalizeSpeechText(text, english),
     ],
     sampleRate: 48000,
   };

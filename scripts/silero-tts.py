@@ -17,8 +17,9 @@ def main():
     parser.add_argument("--speaker", required=True)
     parser.add_argument("text")
     args = parser.parse_args()
-    if not args.text.strip() or len(args.text) > 2000:
-        parser.error("Text must contain 1–2000 characters")
+    # The bot caps original input at 2000 characters; spelling numbers expands it.
+    if not args.text.strip() or len(args.text) > 40000:
+        parser.error("Normalized text must contain 1–40000 characters")
     output = sys.stdout.buffer
     with contextlib.redirect_stdout(sys.stderr):
         import torch

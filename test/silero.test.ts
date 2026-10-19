@@ -8,7 +8,7 @@ import {
   parseSpeechArguments,
 } from "../src/adapters/silero.ts";
 
-test("Silero routes language to independent model/speaker and passes text literally", async () => {
+test("Silero routes the original language before expanding speech text without a shell", async () => {
   const silero = {
     python: "/runtime/python3",
     model: "/voices/ru.pt",
@@ -16,18 +16,25 @@ test("Silero routes language to independent model/speaker and passes text litera
     speaker: "xenia",
     englishSpeaker: "en_0",
   };
-  for (const [text, model, speaker] of [
-    ["Привет $HOME `echo`", silero.model, silero.speaker],
-    ["Hello $(echo hello)", silero.englishModel, silero.englishSpeaker],
-    ["Hello мир", silero.model, silero.speaker],
-    ["123", silero.model, silero.speaker],
-    ["Ёж", silero.model, silero.speaker],
-    ["", silero.model, silero.speaker],
+  for (const [text, model, speaker, spoken] of [
+    ["Привет $HOME `echo`", silero.model, silero.speaker, "Привет долларов HOME `echo`"],
+    [
+      "Hello $(echo hello)",
+      silero.englishModel,
+      silero.englishSpeaker,
+      "Hello dollars (echo hello)",
+    ],
+    ["Hello мир", silero.model, silero.speaker, "Hello мир"],
+    ["123", silero.model, silero.speaker, "сто двадцать три"],
+    ["Ёж", silero.model, silero.speaker, "Ёж"],
+    ["", silero.model, silero.speaker, ""],
+    ["@", silero.model, silero.speaker, "собака"],
+    ["Hello @user 50%", silero.englishModel, silero.englishSpeaker, "Hello at user fifty percent"],
   ]) {
     const source = await speechSource(text, { silero });
     expect(source.sampleRate).toBe(48000);
     expect(source.command[0]).toBe(silero.python);
-    expect(source.command.slice(2)).toEqual(["--model", model, "--speaker", speaker, "--", text]);
+    expect(source.command.slice(2)).toEqual(["--model", model, "--speaker", speaker, "--", spoken]);
   }
 });
 
