@@ -106,3 +106,12 @@ test("Discord configuration requires only its bot token as platform credentials"
     loadConfig({ ...env, BOT_ADAPTERS: "discord", BOT_TOKEN: undefined }),
   ).rejects.toThrow("BOT_TOKEN");
 });
+
+test("message burst interval defaults to 1200 ms and rejects unsafe limits", async () => {
+  expect((await loadConfig(env)).messageBatchWindowMs).toBe(1200);
+  expect((await loadConfig({ ...env, MESSAGE_BATCH_WINDOW_MS: "0" })).messageBatchWindowMs).toBe(0);
+  for (const value of ["-1", "5001", "1.5", "invalid"])
+    await expect(loadConfig({ ...env, MESSAGE_BATCH_WINDOW_MS: value })).rejects.toThrow(
+      "MESSAGE_BATCH_WINDOW_MS",
+    );
+});

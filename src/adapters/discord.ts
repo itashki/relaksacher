@@ -1,5 +1,6 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
 import { parseSpeechArguments } from "./silero.ts";
+import { createMessageBatches } from "../core/message-batches.ts";
 import { createDiscordTts } from "./discord-tts.ts";
 import { createTranscriptHistory } from "../core/transcript-history.ts";
 import { downloadVoice } from "./voice.ts";
@@ -7,6 +8,7 @@ import { createDiscordMusic } from "./discord-music.ts";
 import { attachImages, downloadImage } from "./images.ts";
 import {
   AttachmentBuilder,
+  Collection,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -181,6 +183,53 @@ export function createDiscordBot({
     console.log("Memory dir:", memoryDirectory);
   });
 
+  const batchRoom = (message: import("discord.js").Message) =>
+    message.channelId ?? message.channel?.id ?? "dm";
+  const batches = createMessageBatches<import("discord.js").Message>({
+    windowMs: config.messageBatchWindowMs ?? 1200,
+    describe: (message) => ({
+      id: message.id,
+      room: batchRoom(message),
+      author: message.author.id,
+      reply: message.reference?.messageId,
+      boundary: /^\s*[!/]\w/u.test(message.content ?? ""),
+      immediate:
+        /^\s*!tts\s+stop\s*$/iu.test(message.content ?? "") ||
+        /^\s*!music(?:\s|$)/iu.test(message.content ?? "") ||
+        Boolean(message.flags?.has(MessageFlags.IsVoiceMessage)) ||
+        (!message.content?.trim() && !imageFiles(message).length),
+    }),
+    merge: (messages) => {
+      const first = messages[0];
+      const content = messages
+        .map((message) => message.content)
+        .filter(Boolean)
+        .join("\n");
+      const attachments =
+        messages.length === 1
+          ? first.attachments
+          : new Collection(messages.flatMap((message) => [...(message.attachments ?? [])]));
+      return new Proxy(first, {
+        get(target, property) {
+          if (property === "content") return content;
+          if (property === "attachments") return attachments ?? target.attachments;
+          if (property === "mentions")
+            return {
+              has: (user: unknown) =>
+                messages.some((message) =>
+                  message.mentions?.has(user as import("discord.js").User),
+                ),
+            };
+          if (property === "fetchReference")
+            return async () => batches.resolve(await first.fetchReference());
+          const value = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    },
+    deliver: handleMessage,
+  });
+
   let shutdownTask: Promise<void> | undefined;
 
   /**
@@ -191,6 +240,7 @@ export function createDiscordBot({
   function shutdown(signal: string) {
     if (shutdownTask) return shutdownTask;
     console.log(`Received ${signal}, shutting down.`);
+    batches.stop();
     for (const generation of activeGenerations.values()) {
       generation.stop();
     }
@@ -246,6 +296,17 @@ export function createDiscordBot({
   });
 
   client.on(Events.MessageCreate, async (message) => {
+    if (!client.user || shutdownTask) return;
+    if (message.author.bot) {
+      batches.flush(batchRoom(message));
+      return;
+    }
+    if (/^\s*!tts\s+stop\s*$/iu.test(message.content ?? ""))
+      batches.cancel(batchRoom(message), (entry) => /^\s*!tts(?:\s|$)/iu.test(entry.content ?? ""));
+    await batches.push(message);
+  });
+
+  async function handleMessage(message: import("discord.js").Message) {
     if (message.author.bot) return;
 
     if (!client.user) return;
@@ -335,7 +396,7 @@ export function createDiscordBot({
         authorName: message.member?.displayName ?? message.author.username,
       });
     const isMentioned = message.mentions.has(client.user);
-    let referencedMessage = message.reference
+    let referencedMessage: import("discord.js").Message | null = message.reference
       ? await message.fetchReference().catch((): null => null)
       : null;
     const isReplyToBot = referencedMessage?.author.id === client.user.id;
@@ -361,7 +422,10 @@ export function createDiscordBot({
       seen.add(referencedMessage.id);
       conversation.push(referencedMessage);
       referencedMessage = referencedMessage.reference
-        ? await referencedMessage.fetchReference().catch((): null => null)
+        ? await referencedMessage
+            .fetchReference()
+            .then((entry) => batches.resolve(entry))
+            .catch((): null => null)
         : null;
     }
     conversation.reverse();
@@ -551,13 +615,14 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
     activeGenerations.set(generationId, { authorId: message.author.id, stop: session.stop });
     try {
       await session.run();
+      batches.remember(replies.filter((reply) => reply.id && reply.author));
     } catch (error) {
       console.error("Failed to reply to message:", error);
       if (snapshot) await flush({ ...snapshot, status: "", final: true }).catch(() => {});
     } finally {
       activeGenerations.delete(generationId);
     }
-  });
+  }
 
   return { client, start: () => client.login(config.token), stop: () => shutdown("stop") };
 }

@@ -1,4 +1,5 @@
 /** @file Bridge Telegram polling, reply-chain caching, streamed messages and cancellation buttons. */
+import { createMessageBatches } from "../core/message-batches.ts";
 import { parseSpeechArguments } from "./silero.ts";
 import { attachImages } from "./images.ts";
 import { formatTelegramChunks } from "./telegram-format.ts";
@@ -28,12 +29,15 @@ function splitText(text: string, limit: number = 3800) {
   return chunks;
 }
 
+const groupedImages = new WeakMap<import("@grammyjs/types").Message, string[]>();
+
 /**
  * Select the largest photo or a supported image document.
  * @param message Telegram message.
  * @returns Downloadable file identifiers.
  */
 function imageFiles(message: import("@grammyjs/types").Message) {
+  if (groupedImages.has(message)) return groupedImages.get(message);
   if (message.photo?.length) return [message.photo.at(-1).file_id];
   if (/^image\/(jpeg|png|webp)$/.test(message.document?.mime_type ?? ""))
     return [message.document.file_id];
@@ -81,6 +85,36 @@ export function createTelegramBot({
    */
   const roomKey = (message: import("@grammyjs/types").Message) =>
     `${message.chat.id}:${message.message_thread_id ?? 0}`;
+  const batches = createMessageBatches<import("@grammyjs/types").Message>({
+    windowMs: config.messageBatchWindowMs ?? 1200,
+    describe: (message) => ({
+      id: String(message.message_id),
+      room: roomKey(message),
+      author: String(message.from?.id ?? message.sender_chat?.id),
+      reply: message.reply_to_message ? String(message.reply_to_message.message_id) : undefined,
+      boundary:
+        /^\s*[!/]\w/u.test(message.text ?? "") || Boolean(message.quote || message.external_reply),
+      immediate:
+        Boolean(message.voice) ||
+        (!message.text && !message.caption && !imageFiles(message).length),
+    }),
+    merge: (messages) => {
+      const first = messages[0];
+      let text = "";
+      const entities: import("@grammyjs/types").MessageEntity[] = [];
+      for (const message of messages) {
+        const part = message.text ?? message.caption ?? "";
+        const offset = text.length + (text && part ? 1 : 0);
+        for (const entity of message.entities ?? message.caption_entities ?? [])
+          entities.push({ ...entity, offset: entity.offset + offset });
+        if (part) text += (text ? "\n" : "") + part;
+      }
+      const combined = { ...first, text, entities };
+      groupedImages.set(combined, messages.flatMap(imageFiles));
+      return combined;
+    },
+    deliver: handleMessage,
+  });
   /**
    * Cache a message for explicit reply-chain reconstruction, with bounded storage.
    * @param message Received or generated message.
@@ -132,6 +166,20 @@ export function createTelegramBot({
    * @returns Resolves after session execution and UI cleanup.
    */
   async function handleMessage(message: import("@grammyjs/types").Message) {
+    if (message.reply_to_message) {
+      const images = imageFiles(message);
+      message = {
+        ...message,
+        reply_to_message: {
+          ...batches.resolve(message.reply_to_message, {
+            room: roomKey(message),
+            id: String(message.reply_to_message.message_id),
+          }),
+          reply_to_message: undefined,
+        },
+      };
+      groupedImages.set(message, images);
+    }
     const voiceCommand = (message.text ?? "")
       .trim()
       .match(/^!voice(?:@(\w+))?(?:\s+([\s\S]*))?$/iu);
@@ -196,11 +244,13 @@ export function createTelegramBot({
     )
       return;
     const observationText = (message.text ?? message.caption ?? "").trim();
+    const combinedImages = imageFiles(message);
     message = {
       ...message,
       text: message.text ?? message.caption ?? "Опиши изображение.",
       entities: message.entities ?? message.caption_entities,
     };
+    groupedImages.set(message, combinedImages);
     const past = [...(histories.get(roomKey(message)) ?? [])].filter((entry) => entry.text);
     remember(message);
     if (message.chat.type !== "private" && observationText)
@@ -246,14 +296,16 @@ export function createTelegramBot({
 
     const conversationMessages = [message];
     const seen = new Set([message.message_id]);
-    let parent = message.reply_to_message;
+    let parent: import("@grammyjs/types").Message | undefined = message.reply_to_message;
     while (parent && !seen.has(parent.message_id) && conversationMessages.length < 30) {
+      parent = batches.resolve(parent, { room: roomKey(message), id: String(parent.message_id) });
+      if (seen.has(parent.message_id)) break;
       seen.add(parent.message_id);
-      if ((parent.text || parent.caption || imageFiles(parent).length) && parent.from)
-        conversationMessages.unshift({
-          ...parent,
-          text: parent.text ?? parent.caption ?? "Изображение.",
-        });
+      if ((parent.text || parent.caption || imageFiles(parent).length) && parent.from) {
+        const entry = { ...parent, text: parent.text ?? parent.caption ?? "Изображение." };
+        groupedImages.set(entry, imageFiles(parent));
+        conversationMessages.unshift(entry);
+      }
       parent =
         past.find((entry) => entry.message_id === parent.message_id)?.reply_to_message ??
         parent.reply_to_message;
@@ -445,6 +497,16 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
     try {
       const result = await session.run();
       const answerChunks = splitText(result.text);
+      batches.remember(
+        replies.map((reply, index): import("@grammyjs/types").Message => ({
+          ...reply,
+          chat: message.chat,
+          message_thread_id: message.message_thread_id,
+          from: me,
+          text: answerChunks[index] ?? "",
+          reply_to_message: { ...message, reply_to_message: undefined },
+        })),
+      );
       replies.forEach((reply, index) =>
         remember({
           ...reply,
@@ -475,9 +537,16 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
    * @returns Handler completion.
    */
   async function handleUpdate(update: import("@grammyjs/types").Update) {
+    if (stopped) return;
     me ??= await api("getMe");
     if (update.callback_query) await handleCallback(update.callback_query);
-    else if (update.message) await handleMessage(update.message);
+    else if (update.message) {
+      if (!update.message.from || update.message.from.is_bot) {
+        batches.flush(roomKey(update.message));
+        return;
+      }
+      await batches.push(update.message);
+    }
   }
   return {
     handleUpdate,
@@ -522,6 +591,7 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
      */
     stop() {
       stopped = true;
+      batches.stop();
       for (const generation of active.values()) generation.stop();
       return runner?.stop();
     },

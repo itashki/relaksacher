@@ -126,6 +126,13 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   const whisperTimeoutMs = Number(env.WHISPER_TIMEOUT_MS ?? 300000);
   if (!Number.isSafeInteger(whisperTimeoutMs) || whisperTimeoutMs <= 0)
     throw new Error("Invalid WHISPER_TIMEOUT_MS");
+  const messageBatchWindowMs = Number(env.MESSAGE_BATCH_WINDOW_MS ?? 1200);
+  if (
+    !Number.isSafeInteger(messageBatchWindowMs) ||
+    messageBatchWindowMs < 0 ||
+    messageBatchWindowMs > 5000
+  )
+    throw new Error("MESSAGE_BATCH_WINDOW_MS must be an integer from 0 to 5000");
   const silero = {
     python: env.SILERO_PYTHON?.trim() || "python3",
     model: env.SILERO_MODEL?.trim() || "models/silero-v5_6_ru.pt",
@@ -134,6 +141,7 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
     englishSpeaker: env.SILERO_SPEAKER_EN?.trim() || "random",
   };
   return {
+    messageBatchWindowMs,
     silero,
     whisperModel: env.WHISPER_MODEL?.trim() || "models/ggml-small.bin",
     whisperAutoStart: env.WHISPER_AUTO_START !== "false",

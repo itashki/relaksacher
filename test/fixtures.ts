@@ -33,9 +33,21 @@ function factory<Options, Result>(create: (options: Options) => Result) {
 }
 export const createAssistant = factory(assistant);
 export const createToolService = factory(tools);
-export const createDiscordBot = factory(discord);
+export function createDiscordBot(options: Fixture<Parameters<typeof discord>[0]>) {
+  return discord(
+    fixture<Parameters<typeof discord>[0]>({
+      ...options,
+      config: { messageBatchWindowMs: 0, ...options.config },
+    }),
+  );
+}
 export function createTelegramBot(options: Fixture<Parameters<typeof telegram>[0]>) {
-  const bot = telegram(fixture<Parameters<typeof telegram>[0]>(options));
+  const bot = telegram(
+    fixture<Parameters<typeof telegram>[0]>({
+      ...options,
+      config: { messageBatchWindowMs: 0, ...options.config },
+    }),
+  );
   return {
     ...bot,
     handleUpdate: (update: Fixture<import("@grammyjs/types").Update>) =>

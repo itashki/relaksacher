@@ -126,6 +126,7 @@ export type AssistantOptions = {
 };
 /** Validated startup configuration shared with enabled platform adapters. */
 export type AppConfig = {
+  messageBatchWindowMs?: number;
   silero?: import("./adapters/silero.ts").SileroOptions;
   whisperModel?: string;
   whisperAutoStart?: boolean;
