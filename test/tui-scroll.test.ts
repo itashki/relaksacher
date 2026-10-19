@@ -36,7 +36,7 @@ test("navigation clamps on resize and data shrink, supports boundaries and indep
   expect(visibleLines(lines, 200, 50).start).toBe(0);
   const available = panelOrder.filter((id) => id !== "music");
   selectPanel(navigation, available, true);
-  expect(navigation.selected).toBe("prompt");
+  expect(navigation.selected).toBe("thinking");
   selectPanel(navigation, available);
   expect(navigation.selected).toBe("answer");
   expect(navigation.positions.answer).toBe(9);
@@ -92,8 +92,40 @@ test("every dashboard section exposes all wrapped content in expanded and compac
         columns,
         rows,
       }).screen;
-      expect(screen.split("\r\n")).toHaveLength(rows - 1);
+      expect(screen.split("\r\n")).toHaveLength(rows);
       expect(screen.split("\r\n").every((line) => Bun.stringWidth(line) < columns)).toBe(true);
     }
+  }
+});
+
+test("Tab traversal matches dashboard layout and wraps in both directions", () => {
+  for (const music of [undefined, [] as import("../src/core/music-status.ts").MusicStatus[]]) {
+    const navigation = createNavigation();
+    const { available, regions } = buildDashboard(
+      { current: null, queue: [] },
+      {
+        music,
+        navigation,
+        rows: 40,
+      },
+    );
+    expect(available).toEqual(regions.map(({ id }) => id));
+    navigation.selected = available[0];
+    for (let i = 1; i <= available.length; i++) {
+      selectPanel(navigation, available);
+      expect(navigation.selected).toBe(available[i % available.length]);
+    }
+    selectPanel(navigation, available, true);
+    expect(navigation.selected).toBe(available.at(-1));
+    const compact = buildDashboard(
+      { current: null, queue: [] },
+      {
+        music,
+        navigation,
+        rows: 12,
+      },
+    );
+    expect(compact.regions.map(({ id }) => id)).toEqual([navigation.selected]);
+    expect(compact.available).toEqual(available);
   }
 });

@@ -1,6 +1,6 @@
 /** @file Independent panel selection and line-based viewport navigation for the TUI. */
-/** Keyboard traversal order; unavailable music panels are skipped. */
-export const panelOrder = ["answer", "thinking", "logs", "queue", "music", "prompt"] as const;
+/** Shared top-to-bottom render and keyboard traversal order; unavailable music is skipped. */
+export const panelOrder = ["prompt", "music", "thinking", "answer", "queue", "logs"] as const;
 /** Scrollable operator sections, including the full current request. */
 export type PanelId = (typeof panelOrder)[number];
 /** Numeric positions stay anchored as content arrives; tail follows the newest lines. */

@@ -96,7 +96,7 @@ test("search jumps and highlights in all panels, preserving dimensions and sourc
         rows,
         color: true,
       }).screen;
-      expect(screen.split("\r\n")).toHaveLength(rows - 1);
+      expect(screen.split("\r\n")).toHaveLength(rows);
       expect(screen.split("\r\n").every((line) => Bun.stringWidth(line) < columns)).toBe(true);
     }
   }

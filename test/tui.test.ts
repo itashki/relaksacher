@@ -2,7 +2,7 @@
 import { expect, test, onTestFinished } from "bun:test";
 import { renderDashboard } from "../src/adapters/tui.ts";
 
-test("dashboard fits resized terminals and keeps shortcuts on the last row", () => {
+test("dashboard fills resized terminals without a permanent hint or blank bottom row", () => {
   for (const [columns, rows] of [
     [100, 30],
     [40, 18],
@@ -11,9 +11,10 @@ test("dashboard fits resized terminals and keeps shortcuts on the last row", () 
   ]) {
     const screen = renderDashboard({ current: null, queue: [] }, { columns, rows, color: true });
     const lines = Bun.stripANSI(screen).split("\r\n");
-    expect(lines.length).toEqual(rows! - 1);
+    expect(lines.length).toEqual(rows!);
     expect(lines.every((line) => [...line].length < columns!)).toBeTruthy();
-    if (columns! > 20) expect(lines.at(-1)?.includes("Ctrl+C")).toBeTruthy();
+    expect(screen).not.toContain("Ctrl+C");
+    expect(lines.at(-1)?.trim()).not.toBe("");
   }
 });
 
@@ -203,7 +204,7 @@ test("music telemetry stays visible alongside generation, fits resizing and sani
     [2, 2],
   ]) {
     const lines = renderDashboard(state, { music, columns, rows, color: true }).split("\r\n");
-    expect(lines).toHaveLength(rows - 1);
+    expect(lines).toHaveLength(rows);
     expect(lines.every((line) => Bun.stringWidth(line) < columns)).toBe(true);
   }
   expect(renderDashboard({ current: null, queue: [] }, { music: [] })).toContain(
@@ -285,11 +286,11 @@ test("real TUI keys scroll panels, hold log position and resume following withou
   await waitFor(() => !frame().includes("LOG-001"));
   child.terminal.write("\x1b[F");
   await waitFor(() => frame().includes("LOG-080"));
-  child.terminal.write("\t\x1b[H");
+  child.terminal.write("\x1b[Z\x1b[H");
   await waitFor(() => frame().includes("▶ Очередь") && frame().includes("QUEUE-000"));
   child.terminal.write("\x1b[F");
   await waitFor(() => frame().includes("QUEUE-079"));
-  child.terminal.write("\x1b[Z");
+  child.terminal.write("\t");
   await waitFor(() => frame().includes("▶ Логи") && frame().includes("LOG-080"));
   child.terminal.write("b");
   await waitFor(() => frame().includes("EVICT-1000"));
@@ -297,7 +298,7 @@ test("real TUI keys scroll panels, hold log position and resume following withou
   child.terminal.write("\x1b[H");
   await waitFor(() => frame().includes("EVICT-0001"));
   child.terminal.resize(40, 12);
-  await waitFor(() => frame().split(/\r+\n/).length === 11);
+  await waitFor(() => frame().split(/\r+\n/).length === 12);
   expect(
     frame()
       .split(/\r+\n/)
@@ -366,7 +367,7 @@ test("real TUI mouse selects and scrolls the pointed panel and disables tracking
   child.terminal.write("\r\x1b[H");
   await waitFor(() => frame().includes("LOG-000"));
   child.terminal.resize(40, 12);
-  await waitFor(() => frame().split(/\r+\n/).length === 11);
+  await waitFor(() => frame().split(/\r+\n/).length === 12);
   child.terminal.write("\x1b[<65;2;5M");
   await waitFor(() => frame().includes("LOG-003") && !frame().includes("LOG-000"));
   child.terminal.write("\x03");
@@ -419,9 +420,9 @@ test("real TUI supports hjkl, slash search editing and navigation, and exits on 
   await waitFor(() => frame().includes("ROW-001") && !frame().includes("ROW-000"));
   child.terminal.write("k");
   await waitFor(() => frame().includes("ROW-000"));
-  child.terminal.write("l");
-  await waitFor(() => frame().includes("▶ Мысли"));
   child.terminal.write("h");
+  await waitFor(() => frame().includes("▶ Мысли"));
+  child.terminal.write("l");
   await waitFor(() => frame().includes("▶ Ответ") && frame().includes("ROW-000"));
   child.terminal.write("?");
   await waitFor(() => frame().includes("h/l — панели"));
@@ -444,7 +445,7 @@ test("real TUI supports hjkl, slash search editing and navigation, and exits on 
   child.terminal.write("\x7f");
   await waitFor(() => frame().includes("/needle█") && frame().includes("1/2"));
   child.terminal.resize(40, 12);
-  await waitFor(() => frame().split(/\r+\n/).length === 11);
+  await waitFor(() => frame().split(/\r+\n/).length === 12);
   expect(
     frame()
       .split(/\r+\n/)

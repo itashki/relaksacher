@@ -64,7 +64,7 @@ test("standalone Escape is released, while incomplete reports and closed decoder
   expect(keys).toHaveLength(1);
 });
 
-test("mouse hit regions follow rendered panels, expansion and resize while excluding the footer", () => {
+test("mouse hit regions follow rendered panels, expansion and resize while excluding the search row", () => {
   const navigation = createNavigation();
   for (const [columns, rows] of [
     [100, 30],
@@ -75,7 +75,12 @@ test("mouse hit regions follow rendered panels, expansion and resize while exclu
       navigation.expanded = expanded;
       const { regions } = buildDashboard(
         { current: null, queue: [] },
-        { navigation, columns, rows },
+        {
+          navigation,
+          columns,
+          rows,
+          search: { panel: "answer", query: "", editing: true, match: -1, savedPosition: 0 },
+        },
       );
       for (const region of regions) {
         if (!region.height) continue;
@@ -85,7 +90,7 @@ test("mouse hit regions follow rendered panels, expansion and resize while exclu
         );
       }
       expect(panelAt(regions, 0, 0)).toBeUndefined();
-      expect(panelAt(regions, 1, rows - 1)).toBeUndefined();
+      expect(panelAt(regions, 1, rows)).toBeUndefined();
       expect(panelAt(regions, columns, 5)).toBeUndefined();
     }
   }

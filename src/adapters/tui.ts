@@ -92,7 +92,8 @@ export function buildDashboard(
   }: DashboardOptions = {},
 ) {
   const width = Math.max(1, Math.floor(columns) - 1);
-  const height = Math.max(1, Math.floor(rows) - 1);
+  const height = Math.max(1, Math.floor(rows));
+  const bodyHeight = height - (search.panel ? 1 : 0);
   const bordered = width >= 8;
   const inner = bordered ? width - 4 : width;
   const lines: string[] = [];
@@ -158,18 +159,10 @@ export function buildDashboard(
   const matchRow = searched?.matches[matchIndex]?.row;
   const available = panelOrder.filter((id) => id !== "music" || music !== undefined);
   const selected = available.includes(navigation.selected) ? navigation.selected : "answer";
-  const bodyRows = Math.max(0, height - 1 - lines.length - (notice ? 1 : 0));
-  const order: PanelId[] = [
-    "prompt",
-    ...(music !== undefined ? ["music" as const] : []),
-    "thinking",
-    "answer",
-    "queue",
-    "logs",
-  ];
+  const bodyRows = Math.max(0, bodyHeight - lines.length - (notice ? 1 : 0));
   const overhead = bordered ? 2 : 1;
-  const focused = navigation.expanded || bodyRows < order.length * (overhead + 1);
-  const shown = focused ? [selected] : order;
+  const focused = navigation.expanded || bodyRows < available.length * (overhead + 1);
+  const shown = focused ? [selected] : available;
   const sizes = Object.fromEntries(shown.map((id) => [id, 1])) as Partial<Record<PanelId, number>>;
   let extra = Math.max(0, bodyRows - shown.length * (overhead + 1));
   const priorities: PanelId[] = focused
@@ -187,7 +180,7 @@ export function buildDashboard(
     sizes[id] = (sizes[id] ?? 1) + 1;
   }
   for (const id of shown) {
-    if (lines.length >= height - 1 - (notice ? 1 : 0)) break;
+    if (lines.length >= bodyHeight - (notice ? 1 : 0)) break;
     const top = lines.length + 1;
     const count = sizes[id] ?? 1;
     const searching = search.panel === id;
@@ -233,17 +226,17 @@ export function buildDashboard(
       x: 1,
       y: top,
       width,
-      height: Math.max(0, Math.min(lines.length, height - 1 - (notice ? 1 : 0)) - top + 1),
+      height: Math.max(0, Math.min(lines.length, bodyHeight - (notice ? 1 : 0)) - top + 1),
     });
   }
-  if (notice) add(` ◆ ${notice}`, "33");
-  const body = lines.slice(0, height - 1);
-  while (body.length < height - 1) body.push("");
+  const body = lines.slice(0, Math.max(0, bodyHeight - (notice ? 1 : 0)));
+  if (notice) body.push(paint(fit(` ◆ ${notice}`), "33"));
+  while (body.length < bodyHeight) body.push("");
   const footer = search.panel
     ? ` /${search.query}${search.editing ? "█" : ""} · ${matchIndex >= 0 ? `${matchIndex + 1}/${searched.matches.length}` : search.query ? "нет совпадений" : "введите запрос"} | ${search.editing ? "Enter искать Esc отмена" : "n/N далее/назад Esc закрыть q выход"}`
-    : " q выход Ctrl+C | hjkl навигация / поиск ? помощь S стоп | Enter развернуть Tab панель";
+    : "";
   return {
-    screen: [...body, paint(fit(footer), "7")].join("\r\n"),
+    screen: (search.panel ? [...body, paint(fit(footer), "7")] : body).join("\r\n"),
     viewports,
     regions,
     available,
@@ -448,7 +441,7 @@ export function createTui({
         : "Нет активной генерации.";
     } else if (text === "?") {
       notice =
-        "q — выход; h/l — панели; j/k — вниз/вверх; / — поиск; n/N — совпадения; Enter — развернуть; мышь — клик/скролл.";
+        "Tab/Shift+Tab, h/l — панели; q — выход; j/k — вниз/вверх; / — поиск; n/N — совпадения; Enter — развернуть; мышь — клик/скролл.";
     }
     dirty = true;
   };
