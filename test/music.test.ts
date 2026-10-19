@@ -188,11 +188,12 @@ test("music panel buttons, modal submissions and voice checks share command beha
   const posted: Payload[] = [],
     edits: Payload[] = [];
   let inVoice = true;
+  let voiceType = ChannelType.GuildVoice;
   const guild = {
     id: "789",
     members: {
       fetch: async () => ({
-        voice: { channel: inVoice ? { id: "voice", type: ChannelType.GuildVoice } : null },
+        voice: { channel: inVoice ? { id: "voice", type: voiceType } : null },
       }),
     },
   };
@@ -225,6 +226,7 @@ test("music panel buttons, modal submissions and voice checks share command beha
       isModalSubmit: () => value !== undefined,
       fields: { getTextInputValue: () => value },
       showModal: async (payload: import("discord.js").ModalBuilder) => {
+        calls.push("modal");
         modal = payload;
       },
       deferReply: async (payload: Payload) => {
@@ -267,7 +269,8 @@ test("music panel buttons, modal submissions and voice checks share command beha
     ]);
     await music.handleInteraction(interaction("add"));
     expect(modal.toJSON().custom_id).toBe("music:add");
-    expect(calls).toEqual([]);
+    expect(calls).toEqual(["modal"]);
+    calls.length = 0;
     await music.handleInteraction(interaction("add", "https://youtu.be/abcdefghijk"));
     expect(calls).toEqual(["defer", "edit"]);
     expect(responses.at(-1).content).toContain("Добавлено треков: 1");
@@ -288,19 +291,67 @@ test("music panel buttons, modal submissions and voice checks share command beha
     expect(posted.at(-1).content).toContain("вся очередь");
     expect(posted.at(-1).content).toContain("порядок: **вкл**");
     inVoice = false;
-    await music.handleInteraction(interaction("repeat"));
+    calls.length = 0;
+    for (const action of ["add", "remove"]) {
+      await music.handleInteraction(interaction(action));
+      expect(responses.at(-1).content).toContain("войдите");
+      expect(responses.at(-1).flags).toBe(64);
+    }
+    expect(calls).toEqual([]);
+    await music.handleInteraction(interaction("add", "https://youtu.be/abcdefghijk"));
     expect(responses.at(-1).content).toContain("войдите");
-    await music.handleInteraction(interaction("shuffle"));
-    expect(responses.at(-1).content).toContain("войдите");
+    for (const action of ["play", "toggle", "skip", "stop", "repeat", "shuffle", "mix"]) {
+      calls.length = 0;
+      await music.handleInteraction(interaction(action));
+      expect(calls).toEqual(["defer", "edit"]);
+      expect(responses.at(-1).content).toContain("войдите");
+    }
     await music.handleInteraction(interaction("remove", "1"));
     expect(responses.at(-1).content).toContain("войдите");
     await music.handleInteraction(interaction("list"));
     expect(responses.at(-1).content).toContain("abcdefghijk");
+    await music.handleInteraction(interaction("queue"));
+    expect(responses.at(-1).content).toBe("Очередь пуста.");
+    await music.handleInteraction(interaction("panel"));
+    expect(responses.at(-1).content).toContain("Панель обновлена");
+    expect(responses.at(-1).components).toBeUndefined();
     inVoice = true;
+    voiceType = ChannelType.GuildStageVoice;
+    calls.length = 0;
+    for (const action of ["add", "remove"]) {
+      await music.handleInteraction(interaction(action));
+      expect(responses.at(-1).content).toContain("обычный голосовой канал");
+    }
+    expect(calls).toEqual([]);
+    voiceType = ChannelType.GuildVoice;
+    await music.handleInteraction(interaction("remove"));
+    expect(modal.toJSON().custom_id).toBe("music:remove");
+    await music.handleInteraction(interaction("remove", "999"));
+    expect(responses.at(-1).content).toContain("Укажите номер трека");
     await music.handleInteraction(interaction("remove", "1"));
     expect(responses.at(-1).content).toContain("Трек удалён");
     await music.handleInteraction(interaction("toggle"));
     expect(responses.at(-1).content).toContain("Сейчас ничего не играет");
+    await music.handleInteraction(interaction("skip"));
+    expect(responses.at(-1).content).toContain("Сейчас ничего не играет");
+    await music.handleInteraction(interaction("play"));
+    expect(responses.at(-1).content).toContain("Плейлист пуст");
+    await music.handleInteraction(interaction("mix"));
+    expect(responses.at(-1).content).toContain("хотя бы два");
+    await music.handleInteraction(interaction("stop"));
+    expect(responses.at(-1).content).toContain("Музыка остановлена");
+    await music.handleInteraction(interaction("repeat"));
+    expect(responses.at(-1).content).toContain("выключен");
+    await music.handleInteraction(interaction("shuffle"));
+    expect(responses.at(-1).content).toContain("выключен");
+    for (const [action, value] of [
+      ["unknown", undefined],
+      ["play", "value"],
+    ]) {
+      await music.handleInteraction(interaction(action, value));
+      expect(responses.at(-1).content).toContain("Неизвестное действие");
+      expect(responses.at(-1).flags).toBe(64);
+    }
   } finally {
     music.stop();
   }

@@ -387,6 +387,17 @@ export function createDiscordMusic(
       fail();
     }
   }
+  /** Require a regular voice channel and, when connected, the bot's channel. */
+  async function requireVoiceChannel(guild: Guild, userId: string) {
+    const member = await guild.members.fetch(userId);
+    const channel = member.voice.channel;
+    if (!channel || channel.type !== ChannelType.GuildVoice)
+      throw new Error("Сначала войдите в обычный голосовой канал.");
+    const connection = states.get(guild.id)?.connection;
+    if (connection && connection.joinConfig.channelId !== channel.id)
+      throw new Error("Для управления войдите в голосовой канал бота.");
+    return channel;
+  }
   /** Recognize music requests and serialize guild actions, enforcing voice-channel access for mutations.
    * @returns Whether the request belongs to the music subsystem. */
   async function handle(message: MusicRequest): Promise<boolean> {
@@ -472,12 +483,7 @@ export function createDiscordMusic(
           if (page) await reply(page);
           return;
         }
-        const member = await guild.members.fetch(message.author.id);
-        const channel = member.voice.channel;
-        if (!channel || channel.type !== ChannelType.GuildVoice)
-          throw new Error("Сначала войдите в обычный голосовой канал.");
-        if (s.connection && s.connection.joinConfig.channelId !== channel.id)
-          throw new Error("Для управления войдите в голосовой канал бота.");
+        const channel = await requireVoiceChannel(guild, message.author.id);
         const save = async (tracks: string[]) => {
           await Bun.write(`${file}.tmp`, JSON.stringify(tracks, null, 2), { createPath: true });
           await rename(`${file}.tmp`, file);
@@ -654,7 +660,7 @@ export function createDiscordMusic(
     }
     return true;
   }
-  /** Acknowledge music buttons or modal submissions and route them through the shared command handler. */
+  /** Check voice access before opening forms; route submissions through the shared command handler. */
   async function handleInteraction(interaction: Interaction): Promise<boolean> {
     if (
       (!interaction.isButton() && !interaction.isModalSubmit()) ||
@@ -674,6 +680,16 @@ export function createDiscordMusic(
       }
       const action = interaction.customId.slice("music:".length);
       if (interaction.isButton() && (action === "add" || action === "remove")) {
+        try {
+          await requireVoiceChannel(interaction.guild, interaction.user.id);
+        } catch (error) {
+          await interaction.reply({
+            content:
+              error instanceof Error ? error.message : "Не удалось проверить голосовой канал.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return true;
+        }
         const input = new TextInputBuilder()
           .setCustomId("value")
           .setLabel(
