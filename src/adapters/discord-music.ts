@@ -236,8 +236,32 @@ export async function searchMusic(
   return results;
 }
 
-const help =
-  "🎵 !music — панель с кнопками; !music add <ссылка> — сохранить трек или YouTube-плейлист; !music search <название> — поиск (sc: для SoundCloud); !music list — плейлист; !music jump <номер> — включить выбранный трек; !music remove <номер> — удалить; !music play [ссылка] — включить; !music pause / resume / skip / stop / leave; !music repeat off|track|all; !music shuffle on|off; !music mix — перемешать очередь; !music queue — очередь. Для управления войдите в голосовой канал бота.";
+const help = [
+  "🎵 **Музыка**",
+  "`!music` — открыть панель с кнопками",
+  "",
+  "**Плейлист и поиск**",
+  "`!music add <ссылка>` — сохранить трек или YouTube-плейлист",
+  "`!music search <название>` — найти трек; `sc: <название>` — поиск в SoundCloud",
+  "`!music list` — показать сохранённый плейлист",
+  "`!music jump <номер>` — включить выбранный трек",
+  "`!music remove <номер>` — удалить трек",
+  "",
+  "**Воспроизведение**",
+  "`!music play [ссылка]` — включить музыку",
+  "`!music pause` / `!music resume` — пауза / продолжить",
+  "`!music skip` — следующий трек",
+  "`!music stop` — остановить музыку",
+  "`!music leave` — выйти из голосового канала",
+  "`!music queue` — показать очередь",
+  "",
+  "**Режимы очереди**",
+  "`!music repeat off|track|all` — повтор выключен / одного трека / всей очереди",
+  "`!music shuffle on|off` — включить / выключить случайный порядок",
+  "`!music mix` — перемешать оставшуюся очередь",
+  "",
+  "Для управления войдите в голосовой канал бота.",
+].join("\n");
 
 type MusicRequest = {
   expectedTracks?: string[];
