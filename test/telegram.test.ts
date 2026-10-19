@@ -60,6 +60,30 @@ test("private chats render the model signature and do not include unrelated prev
   expect(calls.some((c) => c.method === "editMessageText" && c.payload.text === "answer\n\n· терн")).toBeTruthy();
 });
 
+test.each([
+  ["@testbot question", "question"],
+  ["  @TestBot\nquestion /think", "question"],
+  ["@testbot: question", ": question"],
+  ["@testbot_other question", "@testbot_other question"],
+  ["@other question", "@other question"],
+  ["question @testbot", "question @testbot"],
+  ["@testbot", ""],
+])("Telegram strips only its own leading username: %s", async (text, expected) => {
+  const { bot, inputs } = setup();
+  await bot.handleUpdate({ message: message(1, text) });
+  expect(inputs[0].conversation[0].content).toBe(`[Автор: Alice (username: нет, id: 10)]\n${expected}`);
+});
+
+test("Telegram strips a leading text mention of itself", async () => {
+  const { bot, inputs } = setup();
+  await bot.handleUpdate({ message: {
+    ...message(1, "Bot question"),
+    entities: [{ type: "text_mention", offset: 0, length: 3,
+      user: { id: 99, is_bot: true, first_name: "Bot" } }],
+  } });
+  expect(inputs[0].conversation[0].content).toBe("[Автор: Alice (username: нет, id: 10)]\nquestion");
+});
+
 test("group messages outside the reply chain are excluded", async () => {
   const { bot, inputs } = setup();
   const chat = { id: -123, type: "supergroup" as const };

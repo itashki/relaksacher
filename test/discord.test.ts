@@ -42,6 +42,31 @@ test("Discord maps messages to plain input and renders core updates", async () =
   expect(payloads.at(-1).content).toBe("hello\n\n-# терн");
 });
 
+test.each([
+  ["<@bot> question", "question"],
+  ["  <@!bot>\nquestion /think", "question"],
+  ["<@other> question", "<@other> question"],
+  ["question <@bot>", "question <@bot>"],
+  ["<@bot>", ""],
+])("Discord strips only its own leading ping: %s", async (content, expected) => {
+  let input: TestSessionOptions;
+  const bot = createDiscordBot({ config: {}, assistant: {
+    createSession(options) {
+      input = options;
+      return { stop() {}, async run() {} };
+    },
+  }});
+  onTestFinished(() => bot.client.destroy());
+  bot.client.user = fixture<ClientUser>({ id: "bot" });
+  await bot.client.listeners(Events.MessageCreate)[0]({
+    id: "request", content, author: { id: "user", username: "Alice", bot: false },
+    mentions: { has: () => true }, channel: { isThread: () => false },
+  });
+  expect(input.conversation).toStrictEqual([
+    { role: "user", content: `[Автор: Alice (username: Alice, id: user)]\n${expected}` },
+  ]);
+});
+
 test("Discord uses only the reply chain and never fetches nearby channel messages", async () => {
   let input: TestSessionOptions;
   const entry = (id: string, content: string, author = { id: "other", username: "Bob", bot: false }) => ({

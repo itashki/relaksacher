@@ -330,9 +330,16 @@ export function createDiscordBot({ config, assistant, memoryDirectory,
       }
     }
 
+    const stripLeadingPing = (text: string) => {
+      const trimmed = text.trimStart();
+      for (const ping of [`<@${client.user.id}>`, `<@!${client.user.id}>`]) {
+        if (trimmed.startsWith(ping)) return trimmed.slice(ping.length).trimStart();
+      }
+      return text;
+    };
     const modelConversation = conversation.map((entry) => entry.author.id === client.user.id
         ? { role: "assistant", content: entry.content }
-        : { role: "user", content: `[Автор: ${describeAuthor(entry)}]\n${parseCommands(entry.content).content}` });
+        : { role: "user", content: `[Автор: ${describeAuthor(entry)}]\n${parseCommands(stripLeadingPing(entry.content)).content}` });
     await attachImages(modelConversation, conversation.map(imageFiles), loadImage);
     const session = assistant.createSession({
       assistantName: "Релаксачер",

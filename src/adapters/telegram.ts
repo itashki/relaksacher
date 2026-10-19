@@ -148,13 +148,27 @@ export function createTelegramBot({ config, assistant, api = createTelegramApi(c
     const { flags } = parseCommands(cleanCommands(message.text));
     const conversation = conversationMessages.map((entry) => {
       if (entry.from.id === me.id) return { role: "assistant", content: entry.text };
+      let text = entry.text;
+      const offset = text.length - text.trimStart().length;
+      const leadingMention = (entry.entities ?? entry.caption_entities ?? []).find((entity) =>
+        entity.offset === offset && (
+          (entity.type === "text_mention" && entity.user.id === me.id) ||
+          (entity.type === "mention" && text.slice(offset, offset + entity.length).toLowerCase() === `@${me.username}`.toLowerCase())
+        ));
+      if (leadingMention) text = text.slice(offset + leadingMention.length).trimStart();
+      else {
+        const username = text.trimStart().match(/^@(\w+)/u);
+        if (username && username[1].toLowerCase() === me.username.toLowerCase()) {
+          text = text.trimStart().slice(username[0].length).trimStart();
+        }
+      }
       const quote = entry.quote?.text ? `Цитируемый фрагмент (JSON): ${JSON.stringify({
         text: entry.quote.text,
         messageId: entry.reply_to_message?.message_id ?? entry.external_reply?.message_id ?? null,
         position: entry.quote.position,
         manuallySelected: entry.quote.is_manual === true,
       })}\nТекст реплики:\n` : "";
-      return { role: "user", content: `[Автор: ${author(entry.from)}]\n${quote}${parseCommands(cleanCommands(entry.text)).content}` };
+      return { role: "user", content: `[Автор: ${author(entry.from)}]\n${quote}${parseCommands(cleanCommands(text)).content}` };
     });
     await attachImages(conversation, conversationMessages.map(imageFiles), (fileId) => api.downloadImage(fileId));
     const id = `${message.chat.id}:${message.message_id}`;
