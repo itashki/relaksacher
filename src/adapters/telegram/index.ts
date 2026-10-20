@@ -1,4 +1,5 @@
 /** @file Bridge Telegram polling, reply-chain caching, streamed messages and cancellation buttons. */
+import { handleTelegramRoll } from "../shared/dice.ts";
 import {
   splitText,
   imageFiles,
@@ -523,6 +524,7 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
         batches.flush(roomKey(update.message));
         return;
       }
+      if (await handleTelegramRoll(update.message, me.username, api)) return;
       await batches.push(update.message);
     }
   }

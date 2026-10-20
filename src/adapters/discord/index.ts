@@ -1,4 +1,5 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import { handleDiscordRoll } from "../shared/dice.ts";
 import { buildStopRow } from "./controls.ts";
 import { createDiscordDelivery } from "./delivery.ts";
 import { discordSpeechText } from "./speech-text.ts";
@@ -251,6 +252,7 @@ export function createDiscordBot({
         /^\s*!(?:tts|озвучь)(?:\s|$)/iu.test(entry.content ?? ""),
       );
     }
+    if (await handleDiscordRoll(message)) return;
     await batches.push(message);
   }
 
