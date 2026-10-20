@@ -1,5 +1,5 @@
 /** @file Bridge Telegram polling, reply-chain caching, streamed messages and cancellation buttons. */
-import { recordTelegramRequest, telegramRecorder } from "../shared/request-statistics.ts";
+import * as requests from "../shared/request-statistics.ts";
 import { handleTelegramRoll } from "../shared/dice.ts";
 import {
   splitText,
@@ -123,8 +123,8 @@ export function createTelegramBot({
    * @returns Resolves after session execution and UI cleanup.
    */
   async function handleMessage(message: import("@grammyjs/types").Message) {
-    const recordRequest = telegramRecorder(message, onRequest);
-    recordTelegramRequest(
+    const recordRequest = requests.telegramRecorder(message, onRequest);
+    requests.recordTelegramRequest(
       message.text ?? "",
       Boolean(transcribe && message.voice),
       me.username,
@@ -435,6 +435,7 @@ export function createTelegramBot({
     }
     recordRequest("model");
     const session = assistant.createSession({
+      onToolCall: requests.toolRecorder(recordRequest),
       conversation,
       background: [],
       assistantName: "Геймачер",
@@ -540,7 +541,7 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
           update.message,
           me.username,
           api,
-          telegramRecorder(update.message, onRequest),
+          requests.telegramRecorder(update.message, onRequest),
         )
       )
         return;

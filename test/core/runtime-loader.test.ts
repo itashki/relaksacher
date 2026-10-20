@@ -109,3 +109,39 @@ test("host statistics survive replacing application handlers", async () => {
     }
   }
 });
+
+test("runtime rebuild includes transitive TUI changes and rejects broken UI before replacement", async () => {
+  const directory = await temporaryDirectory("runtime-terminal-");
+  const terminalDirectory = `${projectDirectory}/src/adapters/terminal`;
+  for await (const filename of new Bun.Glob("*.ts").scan(terminalDirectory))
+    await Bun.write(
+      `${directory}/src/adapters/terminal/${filename}`,
+      Bun.file(`${terminalDirectory}/${filename}`),
+    );
+  await Bun.write(
+    `${directory}/src/core/statistics.ts`,
+    Bun.file(`${projectDirectory}/src/core/statistics.ts`),
+  );
+  await Bun.write(
+    `${directory}/src/runtime/application.ts`,
+    `
+    export async function loadConfig() { return {}; }
+    export { createCliControls } from "../adapters/terminal/cli.ts";
+    export { createTerminalSession } from "../adapters/terminal/session.ts";
+    export { renderDashboard } from "../adapters/terminal/tui.ts";
+  `,
+  );
+  type TerminalModule = typeof import("../../src/runtime/application.ts") &
+    Pick<typeof import("../../src/adapters/terminal/tui.ts"), "renderDashboard">;
+  const first = (await loadApplication(directory)).module as TerminalModule;
+  const uiPath = `${directory}/src/adapters/terminal/tui.ts`;
+  const original = await Bun.file(uiPath).text();
+  await Bun.write(uiPath, original.replaceAll("операторская панель", "обновлённый интерфейс"));
+  const second = (await loadApplication(directory)).module as TerminalModule;
+  expect(second.createCliControls).not.toBe(first.createCliControls);
+  expect(second.renderDashboard({ current: null, queue: [] })).toContain("обновлённый интерфейс");
+  expect(first.renderDashboard({ current: null, queue: [] })).toContain("операторская панель");
+  await Bun.write(uiPath, "export const broken = ;");
+  await expect(loadApplication(directory)).rejects.toThrow();
+  expect(second.renderDashboard({ current: null, queue: [] })).toContain("обновлённый интерфейс");
+});

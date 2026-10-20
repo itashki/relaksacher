@@ -209,6 +209,7 @@ export function createAssistant({
       platformInstructions = "",
       onUpdate = async () => {},
       onQueued = async () => {},
+      onToolCall,
     }: import("../../types.ts").SessionOptions): import("../../types.ts").Session {
       const toolContext = { ...context, imageState: { candidates: new Map(), sent: false } };
       const generation = {
@@ -475,6 +476,11 @@ export function createAssistant({
                   await flush(false);
                   lastUpdate = Date.now();
 
+                  try {
+                    onToolCall?.(call);
+                  } catch (error) {
+                    console.warn("Tool call logging failed:", error);
+                  }
                   let result;
                   if (call.function.name === "enable_thinking") {
                     useThinking = true;

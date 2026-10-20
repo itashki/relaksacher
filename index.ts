@@ -8,7 +8,6 @@ import { createStatistics } from "./src/core/statistics.ts";
 import { createMusicMonitor } from "./src/core/music/status.ts";
 import { createAssistantBridge } from "./src/core/assistant-bridge.ts";
 import { createRestartController, createRestartRouter } from "./src/core/restart.ts";
-import { createCliControls } from "./src/adapters/terminal/cli.ts";
 import { loadApplication } from "./src/runtime/loader.ts";
 import {
   createTransports,
@@ -19,14 +18,19 @@ import type { RuntimeEvent } from "./src/runtime/contracts.ts";
 
 const initial = await loadApplication();
 const config = initial.config;
+const terminalSession = initial.module.createTerminalSession();
 const music = createMusicMonitor();
 const statistics = createStatistics();
 const requestLog = createRequestLog(
   resolvePath(Bun.env.REQUEST_LOG_FILE || "logs/requests.jsonl", projectDirectory),
 );
-const recordRequest: import("./src/core/statistics.ts").RecordRequest = (feature, context) => {
-  statistics.record(feature);
-  requestLog.record(feature, context);
+const recordRequest: import("./src/core/statistics.ts").RecordRequest = (
+  feature,
+  context,
+  details,
+) => {
+  if (details?.kind !== "tool") statistics.record(feature);
+  requestLog.record(feature, context, details);
 };
 let draining = false;
 let replacing = false;
@@ -86,17 +90,33 @@ const restart = createRestartController({
     application = next;
     bridge.replace(next.assistant);
     music.publish([]);
+    if (cli) {
+      const previous = cliModule;
+      await cli.close();
+      if (shutdown.started) return;
+      try {
+        cli = openTerminal(module);
+        cliModule = module;
+      } catch (error) {
+        cli = openTerminal(previous);
+        console.error("Не удалось обновить TUI, восстановлен предыдущий интерфейс:", error);
+      }
+    }
     console.info("Рестарт завершён: обновлённый код принимает сообщения из буфера.");
   },
 });
-const cli = process.stdin.isTTY
-  ? createCliControls({
-      assistant: bridge.assistant,
-      statistics,
-      music: config.adapters.includes("discord") ? music : undefined,
-      onRestart: () => restart.restart(),
-    })
-  : null;
+/** Recreate only terminal handlers, retaining process telemetry, logs and live connections. */
+function openTerminal(module: typeof initial.module) {
+  return module.createCliControls({
+    assistant: bridge.assistant,
+    statistics,
+    session: terminalSession,
+    music: config.adapters.includes("discord") ? music : undefined,
+    onRestart: () => restart.restart(),
+  });
+}
+let cliModule = initial.module;
+let cli = process.stdin.isTTY ? openTerminal(cliModule) : null;
 const whisper = createWhisperServer({
   url: config.whisperUrl,
   model: config.whisperModel,

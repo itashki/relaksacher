@@ -8,10 +8,12 @@ export function createCliControls({
   output,
   music,
   statistics,
+  session,
   onRestart,
 }: {
   /** Reload bot code after accepted requests finish, preserving live messenger connections. */
   onRestart?: () => Promise<void>;
+  session?: import("./session.ts").TerminalSession;
   statistics?: import("../../core/statistics.ts").StatisticsSource;
   music?: import("../../core/music/status.ts").MusicStatusSource;
   assistant: import("../../types.ts").Assistant;
@@ -19,7 +21,7 @@ export function createCliControls({
   output?: Pick<Bun.FileSink, "write">;
 }) {
   if (!input && !output && process.stdin.isTTY && process.stdout.isTTY)
-    return createTui({ assistant, music, statistics, onRestart });
+    return createTui({ assistant, music, statistics, session, onRestart });
   const reader = (input ?? Bun.stdin.stream()).getReader();
   const sink = output ? null : Bun.stdout.writer();
   const writer = output ?? sink;
@@ -97,7 +99,10 @@ export function createCliControls({
     close() {
       if (closed) return;
       closed = true;
-      void reader.cancel().catch(() => {});
+      return reader
+        .cancel()
+        .catch(() => {})
+        .then(() => done);
     },
   };
 }

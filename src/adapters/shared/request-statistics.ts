@@ -1,5 +1,5 @@
 /** @file Count messenger feature requests at routing boundaries, excluding ignored chatter. */
-export { discordRecorder, telegramRecorder } from "./request-context.ts";
+export { discordRecorder, telegramRecorder, toolRecorder } from "./request-context.ts";
 import type { RecordRequest, RequestFeature } from "../../core/statistics.ts";
 
 /** Classify explicit non-roll commands; dice are counted by their immediate delivery handler. */

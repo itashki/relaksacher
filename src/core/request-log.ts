@@ -2,7 +2,7 @@
 // Bun has no append-to-path API; retain Node appendFile to preserve existing journal contents.
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { RequestFeature } from "./statistics.ts";
+import type { RequestFeature, RequestDetails } from "./statistics.ts";
 
 /** Incoming request metadata only; never include reply history, generated answers or transcripts. */
 export type RequestContext = {
@@ -29,7 +29,7 @@ export function createRequestLog(
   let pending = Promise.resolve();
   let closed = false;
   return {
-    record(feature: RequestFeature, context?: RequestContext) {
+    record(feature: RequestFeature, context?: RequestContext, details?: RequestDetails) {
       if (closed || !context) return;
       // Explicit fields prevent accidental runtime extras (responses, history) from leaking.
       const line =
@@ -45,7 +45,18 @@ export function createRequestLog(
             name: context.channel.name,
             threadId: context.channel.threadId,
           },
-          ...(feature === "transcribe" ? {} : { text: context.text }),
+          ...(details?.kind === "tool"
+            ? {
+                event: "tool_call",
+                tool: {
+                  name: details.call.function.name,
+                  arguments: details.call.function.arguments ?? {},
+                },
+              }
+            : feature === "transcribe"
+              ? {}
+              : { text: context.text }),
+          ...(feature === "roll" && details?.kind === "roll" ? { result: details.result } : {}),
         }) + "\n";
       pending = pending
         .then(async () => {

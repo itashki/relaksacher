@@ -16,6 +16,8 @@ import type { AppConfig } from "../types.ts";
 import type { RuntimeEvent, RuntimeTransports } from "./contracts.ts";
 
 export { loadConfig };
+export { createCliControls } from "../adapters/terminal/cli.ts";
+export { createTerminalSession } from "../adapters/terminal/session.ts";
 
 /** Construct fresh handlers without logging in, polling, or consuming incoming events. */
 export function createApplication(

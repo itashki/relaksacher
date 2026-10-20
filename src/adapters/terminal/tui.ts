@@ -4,6 +4,7 @@ import {
   type RequestStatistics,
   type StatisticsSource,
 } from "../../core/statistics.ts";
+import { createTerminalSession, type TerminalSession } from "./session.ts";
 import { statisticsLines } from "./statistics.ts";
 import type { MusicStatus, MusicStatusSource } from "../../core/music/status.ts";
 import { PassThrough } from "node:stream";
@@ -279,6 +280,7 @@ export function createTui({
   assistant,
   music,
   statistics = createStatistics(),
+  session = createTerminalSession(),
   input = process.stdin,
   output = process.stdout,
   consoleTarget = console,
@@ -287,6 +289,7 @@ export function createTui({
 }: {
   onRestart?: () => Promise<void>;
   statistics?: StatisticsSource;
+  session?: TerminalSession;
   music?: MusicStatusSource;
   assistant: import("../../types.ts").Assistant;
   input?: NodeJS.ReadableStream & {
@@ -300,9 +303,8 @@ export function createTui({
 }) {
   let state: import("../../types.ts").TerminalState = { current: null, last: null, queue: [] };
   let musicState: MusicStatus[] | undefined = music ? [] : undefined;
-  const logs: string[] = [];
-  const navigation = createNavigation();
-  let search = createSearch();
+  const { logs, navigation } = session;
+  let search = session.search;
   let searchMove: SearchMove | undefined;
   let viewports: Partial<Record<PanelId, Viewport>> = {};
   let regions: PanelRegion[] = [];
@@ -536,6 +538,7 @@ export function createTui({
   function close() {
     if (closed) return;
     closed = true;
+    session.search = search;
     clearInterval(timer);
     unsubscribe();
     unsubscribeMusic?.();

@@ -493,6 +493,7 @@ export function createDiscordBot({
     await attachImages(modelConversation, conversation.map(imageFiles), loadImage);
     recordRequest("model");
     const session = assistant.createSession({
+      onToolCall: requests.toolRecorder(recordRequest),
       assistantName: "Релаксачер",
       background: [],
       conversation: modelConversation,

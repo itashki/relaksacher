@@ -10,8 +10,9 @@ export async function handleDiscordRoll(
   const command = parseRollCommand(message.content ?? "");
   if (!command) return false;
   if (command.username) return true;
-  onRequest?.("roll");
-  for (const content of splitMessage(rollDice(command.argument), 1900))
+  const result = rollDice(command.argument);
+  onRequest?.("roll", undefined, { kind: "roll", result });
+  for (const content of splitMessage(result, 1900))
     await message.reply({ content, allowedMentions: { parse: [], repliedUser: false } });
   return true;
 }
@@ -26,8 +27,9 @@ export async function handleTelegramRoll(
   const command = parseRollCommand(message.text ?? "");
   if (!command || !message.from || message.from.is_bot) return false;
   if (command.username && command.username.toLowerCase() !== username?.toLowerCase()) return true;
-  onRequest?.("roll");
-  for (const text of splitMessage(rollDice(command.argument), 1900))
+  const result = rollDice(command.argument);
+  onRequest?.("roll", undefined, { kind: "roll", result });
+  for (const text of splitMessage(result, 1900))
     await api("sendMessage", {
       chat_id: message.chat.id,
       ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),

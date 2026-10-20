@@ -8,7 +8,7 @@ export function discordRecorder(
   event: Message | Interaction,
   record?: RecordRequest,
 ): RecordRequest {
-  return (feature) => {
+  return (feature, _context, details) => {
     if (!record) return;
     const message = "author" in event ? event : null;
     const user = message?.author ?? (event as Interaction).user;
@@ -42,7 +42,7 @@ export function discordRecorder(
         context.text = JSON.stringify({ customId: event.customId, values, fields });
       }
     }
-    record(feature, context);
+    record(feature, context, details);
   };
 }
 
@@ -54,22 +54,32 @@ export function telegramRecorder(
   const user = message.from;
   const chat = message.chat;
   const text = message.text ?? message.caption ?? "";
-  return (feature) => {
+  return (feature, _context, details) => {
     if (!record || !user) return;
-    record(feature, {
-      platform: "telegram",
-      requestId: String(message.message_id),
-      user: {
-        id: String(user.id),
-        name: [user.first_name, user.last_name].filter(Boolean).join(" "),
-        username: user.username,
+    record(
+      feature,
+      {
+        platform: "telegram",
+        requestId: String(message.message_id),
+        user: {
+          id: String(user.id),
+          name: [user.first_name, user.last_name].filter(Boolean).join(" "),
+          username: user.username,
+        },
+        server: { id: String(chat.id), name: "title" in chat ? chat.title : "Личные сообщения" },
+        channel: {
+          id: String(chat.id),
+          threadId: message.message_thread_id ? String(message.message_thread_id) : undefined,
+        },
+        ...(feature === "transcribe" ? {} : { text }),
       },
-      server: { id: String(chat.id), name: "title" in chat ? chat.title : "Личные сообщения" },
-      channel: {
-        id: String(chat.id),
-        threadId: message.message_thread_id ? String(message.message_thread_id) : undefined,
-      },
-      ...(feature === "transcribe" ? {} : { text }),
-    });
+      details,
+    );
   };
+}
+
+/** Attribute each executed model tool to its parent request without counting another request. */
+export function toolRecorder(record: RecordRequest) {
+  return (call: import("../../types.ts").ToolCall) =>
+    record("model", undefined, { kind: "tool", call });
 }

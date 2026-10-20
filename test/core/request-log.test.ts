@@ -53,8 +53,12 @@ test("journal strips transcripts and unexpected response/history fields", async 
     history: ["old answer"],
     thinking: "thoughts",
   };
-  journal.record("transcribe", extra);
-  journal.record("model", { ...extra, text: "user input" });
+  journal.record("transcribe", extra, { kind: "roll", result: "excluded transcript result" });
+  journal.record(
+    "model",
+    { ...extra, text: "user input" },
+    { kind: "roll", result: "excluded model result" },
+  );
   await journal.flush();
   const text = await Bun.file(filename).text();
   for (const excluded of ["voice transcript", "model answer", "old answer", "thoughts"])
@@ -63,6 +67,8 @@ test("journal strips transcripts and unexpected response/history fields", async 
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line));
+  expect(entries[0].result).toBeUndefined();
+  expect(entries[1].result).toBeUndefined();
   expect(entries[0].text).toBeUndefined();
   expect(entries[0].user.name).toBe("Alice");
   expect(entries[1].text).toBe("user input");

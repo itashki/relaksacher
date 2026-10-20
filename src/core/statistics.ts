@@ -9,10 +9,14 @@ export const requestFeatures = [
   "access",
 ] as const;
 export type RequestFeature = (typeof requestFeatures)[number];
-/** Record one user request, including failed attempts; internal model/tool calls are excluded. */
+/** Additional journal events; tool calls belong to an existing model request. */
+export type RequestDetails =
+  { kind: "roll"; result: string } | { kind: "tool"; call: import("../types.ts").ToolCall };
+/** Record a request or its tool call; internal calls must not increase request counters. */
 export type RecordRequest = (
   feature: RequestFeature,
   context?: import("./request-log.ts").RequestContext,
+  details?: RequestDetails,
 ) => void;
 export type RequestStatistics = {
   uptimeMs: number;

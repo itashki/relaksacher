@@ -66,6 +66,8 @@ export type SessionOptions = {
   assistantName?: string;
   platformInstructions?: string;
   onUpdate?: (arg0: GenerationUpdate) => void | Promise<void>;
+  /** Called once before each tool execution, including enable_thinking; excludes tool results. */
+  onToolCall?: (call: ToolCall) => void;
   onQueued?: (arg0: number) => void | Promise<void>;
 };
 /** Single-use generation lifecycle; stop cancels both queued and running sessions. */
