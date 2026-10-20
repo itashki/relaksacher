@@ -1,20 +1,20 @@
 /** @file Application composition and adapter lifecycle entry point. */
-import { createVoiceSynthesizer } from "./src/adapters/silero.ts";
-import { createWhisperServer } from "./src/core/whisper-server.ts";
-import { createTranscriber } from "./src/core/transcription.ts";
+import { createVoiceSynthesizer } from "./src/adapters/speech/silero.ts";
+import { createWhisperServer } from "./src/core/speech/whisper-server.ts";
+import { createTranscriber } from "./src/core/speech/transcription.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
-import { createMusicMonitor } from "./src/core/music-status.ts";
+import { createMusicMonitor } from "./src/core/music/status.ts";
 import { resolvePath } from "./src/core/paths.ts";
 import { Ollama } from "ollama";
 import { loadConfig } from "./src/config.ts";
-import { createMemoryStore } from "./src/core/memory.ts";
-import { createGifSearch } from "./src/core/gif-search.ts";
-import { createToolService } from "./src/core/tools.ts";
-import { createSupervisor } from "./src/core/supervisor.ts";
-import { createAssistant } from "./src/core/assistant.ts";
-import { createTelegramBot } from "./src/adapters/telegram.ts";
-import { createDiscordBot } from "./src/adapters/discord.ts";
-import { createCliControls } from "./src/adapters/cli.ts";
+import { createMemoryStore } from "./src/core/memory/index.ts";
+import { createGifSearch } from "./src/core/tools/gif-search.ts";
+import { createToolService } from "./src/core/tools/index.ts";
+import { createSupervisor } from "./src/core/assistant/supervisor.ts";
+import { createAssistant } from "./src/core/assistant/index.ts";
+import { createTelegramBot } from "./src/adapters/telegram/index.ts";
+import { createDiscordBot } from "./src/adapters/discord/index.ts";
+import { createCliControls } from "./src/adapters/terminal/cli.ts";
 
 const config = await loadConfig();
 const voice = createVoiceSynthesizer({

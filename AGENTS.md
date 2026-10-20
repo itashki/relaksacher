@@ -17,3 +17,8 @@ rule suppression next to the code.
 Document module responsibilities and public function contracts. Update user-facing
 command documentation when behavior changes. Format edits with `bun run format`
 and verify them with `bun run format:check`.
+
+Keep every TypeScript source, test and tooling file at or below 600 physical
+lines, including comments and blank lines. Prefer modules of 200–400 lines split
+by responsibility. `bun run check:size` enforces the limit and runs as part of
+`bun run lint`; do not compress formatting or remove useful documentation to pass.

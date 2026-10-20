@@ -92,7 +92,7 @@ export type Assistant = {
   stopObserving: () => void;
 };
 /** Scoped storage operations backed by serialized, atomic JSON updates. */
-export type MemoryStore = ReturnType<typeof import("./core/memory.ts").createMemoryStore>;
+export type MemoryStore = ReturnType<typeof import("./core/memory/index.ts").createMemoryStore>;
 /** Tool definitions and execution; capability flags depend on adapter context and providers. */
 export type ToolService = {
   runTool: (call: ToolCall, context: RequestContext) => Promise<string>;
@@ -113,7 +113,7 @@ export type AssistantOptions = {
   updateIntervalMs?: number;
   facts?: string[];
   personality?: string;
-  supervisor?: ReturnType<typeof import("./core/supervisor.ts").createSupervisor>;
+  supervisor?: ReturnType<typeof import("./core/assistant/supervisor.ts").createSupervisor>;
   spontaneous?: {
     enabled?: boolean;
     chance?: number;
@@ -127,7 +127,7 @@ export type AssistantOptions = {
 /** Validated startup configuration shared with enabled platform adapters. */
 export type AppConfig = {
   messageBatchWindowMs?: number;
-  silero?: import("./adapters/silero.ts").SileroOptions;
+  silero?: import("./adapters/speech/silero.ts").SileroOptions;
   whisperModel?: string;
   whisperAutoStart?: boolean;
   whisperUrl?: string;
