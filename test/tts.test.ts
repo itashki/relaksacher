@@ -132,3 +132,36 @@ test("TTS forwards a speaker for explicit text and reply-based commands", async 
     await tts.stop();
   }
 });
+
+test("TTS resolves mentions in explicit text and the replied source before execution", async () => {
+  const texts: string[] = [];
+  const tts = createDiscordTts({
+    execute: async (_, text) => {
+      texts.push(text);
+    },
+  });
+  try {
+    const explicit = message("!tts Привет, <@123>!");
+    explicit.request.mentions = fixture<Message["mentions"]>({
+      members: new Map([["123", { displayName: "Алиса" }]]),
+    });
+    await tts.handle(explicit.request);
+    const reply = message("!tts");
+    reply.request.fetchReference = async () =>
+      fixture<Awaited<ReturnType<Message["fetchReference"]>>>({
+        content: "Привет, <@!456>!",
+        mentions: { users: new Map([["456", { globalName: "Борис", username: "boris" }]]) },
+      });
+    await tts.handle(reply.request);
+    expect(texts).toEqual(["Привет, Алиса!", "Привет, Борис!"]);
+    const expanded = message("!tts <@123>");
+    expanded.request.mentions = fixture<Message["mentions"]>({
+      members: new Map([["123", { displayName: "А".repeat(2001) }]]),
+    });
+    await tts.handle(expanded.request);
+    expect(texts).toHaveLength(2);
+    expect(expanded.replies.at(-1)).toContain("2000");
+  } finally {
+    await tts.stop();
+  }
+});

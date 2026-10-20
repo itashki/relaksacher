@@ -1,4 +1,6 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import { discordSpeechText } from "./discord-speech-text.ts";
+import { createDiscordAccess, isAccessCommand } from "./discord-access.ts";
 import { parseSpeechArguments } from "./silero.ts";
 import { createMessageBatches } from "../core/message-batches.ts";
 import { createDiscordTts } from "./discord-tts.ts";
@@ -20,78 +22,8 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
+import { splitMessage, describeToolCall, imageFiles } from "./discord-message.ts";
 import { parseCommands, truncate } from "../core/text.ts";
-
-/**
- * Split Discord text at whitespace when possible, preserving Unicode code points.
- * @param content Raw text.
- * @param maxLength Maximum code points per chunk.
- * @returns Message pieces.
- */
-function splitMessage(content: string, maxLength: number = 2000) {
-  const remaining = Array.from(content);
-  const chunks = [];
-
-  while (remaining.length > maxLength) {
-    let splitAt = maxLength;
-    for (let index = maxLength - 1; index >= Math.floor(maxLength / 2); index--) {
-      if (/\s/u.test(remaining[index])) {
-        splitAt = index + 1;
-        break;
-      }
-    }
-
-    chunks.push(remaining.splice(0, splitAt).join(""));
-  }
-
-  if (remaining.length > 0 || chunks.length === 0) {
-    chunks.push(remaining.join(""));
-  }
-
-  return chunks;
-}
-// Короткий статус для отображения в Discord, пока выполняется инструмент.
-/**
- * Render a short, temporary Discord status for a tool call.
- * @param call Active tool.
- * @returns Human-readable status.
- */
-function describeToolCall(call: import("../types.ts").ToolCall) {
-  const args = call.function.arguments ?? {};
-  if (["search_images", "send_image"].includes(call.function.name)) return "🖼 Подбираю картинку";
-  if (call.function.name === "read_history") return "📜 Читаю историю чата";
-  if (call.function.name === "enable_thinking") {
-    return "💭 Обдумываю запрос";
-  }
-  if (call.function.name === "web_search") {
-    return `🔍 Ищу в интернете: ${truncate(args.query, 100)}`;
-  }
-  if (call.function.name === "web_fetch") {
-    return `🌐 Открываю страницу: <${truncate(args.url, 150)}>`;
-  }
-  if (call.function.name === "remember") {
-    return `🧠 Запоминаю: ${truncate(args.fact, 100)}`;
-  }
-  if (call.function.name === "forget") {
-    return `🧠 Забываю запись #${truncate(args.id, 10)}`;
-  }
-  return `⚙️ Использую инструмент ${call.function.name}`;
-}
-
-/**
- * Collect supported image attachment URLs.
- * @param message Source message.
- * @returns Image URLs.
- */
-function imageFiles(message: import("discord.js").Message<boolean>) {
-  return [...(message.attachments?.values() ?? [])]
-    .filter(
-      (file) =>
-        /^image\/(jpeg|png|webp)$/.test(file.contentType ?? "") ||
-        /\.(png|jpe?g|webp)$/i.test(file.name ?? ""),
-    )
-    .map((file) => file.url);
-}
 
 /**
  * Construct the Discord adapter without logging in.
@@ -127,6 +59,7 @@ export function createDiscordBot({
   const tts = createDiscordTts({
     silero: config.silero,
   });
+  const access = createDiscordAccess(memoryDirectory);
   const transcripts = createTranscriptHistory();
   const music = createDiscordMusic(memoryDirectory, { onStatus: onMusicStatus });
 
@@ -198,6 +131,7 @@ export function createDiscordBot({
       immediate:
         /^\s*!(?:tts|озвучь)\s+(?:stop|стоп)\s*$/iu.test(message.content ?? "") ||
         isMusicCommand(message.content ?? "") ||
+        isAccessCommand(message.content ?? "") ||
         Boolean(message.flags?.has(MessageFlags.IsVoiceMessage)) ||
         (!message.content?.trim() && !imageFiles(message).length),
     }),
@@ -247,12 +181,33 @@ export function createDiscordBot({
       generation.stop();
     }
     const musicStopped = music.stop();
-    shutdownTask = Promise.all([tts.stop(), musicStopped, client.destroy()]).then(() => {});
+    shutdownTask = Promise.all([tts.stop(), musicStopped, access.close(), client.destroy()]).then(
+      () => {},
+    );
     return shutdownTask;
   }
 
   // Обработка нажатия кнопки «Остановить генерацию»
   client.on(Events.InteractionCreate, async (interaction) => {
+    if (await access.handleInteraction(interaction)) return;
+    if (
+      (interaction.isButton() ||
+        interaction.isStringSelectMenu?.() ||
+        interaction.isModalSubmit?.()) &&
+      interaction.customId.startsWith("music:") &&
+      interaction.customId !== "music:dismiss"
+    ) {
+      const denial = await access.denial(
+        interaction.guild,
+        interaction.user.id,
+        "music",
+        interaction.guildId,
+      );
+      if (denial) {
+        await interaction.reply({ content: denial, flags: MessageFlags.Ephemeral });
+        return;
+      }
+    }
     if (
       tts.busy(interaction.guildId) &&
       "customId" in interaction &&
@@ -314,10 +269,19 @@ export function createDiscordBot({
       batches.flush(batchRoom(message));
       return;
     }
-    if (/^\s*!(?:tts|озвучь)\s+(?:stop|стоп)\s*$/iu.test(message.content ?? ""))
+    if (/^\s*!(?:tts|озвучь)\s+(?:stop|стоп)\s*$/iu.test(message.content ?? "")) {
+      const denial = await access.denial(message.guild, message.author.id, "tts", message.guildId);
+      if (denial) {
+        await message.reply({
+          content: denial,
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
       batches.cancel(batchRoom(message), (entry) =>
         /^\s*!(?:tts|озвучь)(?:\s|$)/iu.test(entry.content ?? ""),
       );
+    }
     await batches.push(message);
   });
 
@@ -325,13 +289,37 @@ export function createDiscordBot({
     if (message.author.bot) return;
 
     if (!client.user) return;
+    if (await access.handle(message)) return;
+    const feature = /^\s*!(?:voice|голос)(?:\s|$)/iu.test(message.content ?? "")
+      ? "voice"
+      : /^\s*!(?:tts|озвучь)(?:\s|$)/iu.test(message.content ?? "")
+        ? "tts"
+        : isMusicCommand(message.content ?? "")
+          ? "music"
+          : null;
+    if (feature) {
+      const denial = await access.denial(
+        message.guild,
+        message.author.id,
+        feature,
+        message.guildId,
+      );
+      if (denial) {
+        await message.reply({
+          content: denial,
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+        return;
+      }
+    }
     const voiceCommand = message.content?.trim().match(/^!(?:voice|голос)(?:\s+([\s\S]*))?$/iu);
     if (voiceCommand) {
       try {
         const argument = parseSpeechArguments(voiceCommand[1]);
-        const text = (
-          argument.text || (message.reference ? (await message.fetchReference()).content : "")
-        ).trim();
+        const source = !argument.text && message.reference ? await message.fetchReference() : null;
+        const rawText = (argument.text || source?.content || "").trim();
+        const text =
+          rawText.length <= 2000 ? await discordSpeechText(rawText, source ?? message) : rawText;
         if (!text || text.length > 2000)
           throw new Error(
             "Используйте !voice [--speaker имя] <текст> или !voice ответом на сообщение, до 2000 символов.",
@@ -421,6 +409,29 @@ export function createDiscordBot({
       return;
     }
     if (await music.handle(message)) return;
+
+    const modelDenial = await access.denial(
+      message.guild,
+      message.author.id,
+      "model",
+      message.guildId,
+    );
+    if (modelDenial) {
+      const referenced = message.reference
+        ? await message.fetchReference().catch((): null => null)
+        : null;
+      if (
+        message.mentions.has(client.user) ||
+        referenced?.author.id === client.user.id ||
+        (message.channel.isThread() && message.channel.ownerId === client.user.id)
+      ) {
+        await message.reply({
+          content: modelDenial,
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+      }
+      return;
+    }
 
     if (message.guildId && message.content.trim())
       assistant.observeMessage?.({

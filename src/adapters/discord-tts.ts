@@ -1,4 +1,5 @@
 /** @file Route bounded Silero speech requests and temporarily borrow Discord's music connection. */
+import { discordSpeechText } from "./discord-speech-text.ts";
 import { ChannelType, PermissionFlagsBits, type Message } from "discord.js";
 import {
   AudioPlayerStatus,
@@ -146,7 +147,9 @@ export function createDiscordTts({
         const readingOwnMessage = Boolean(
           source?.author?.id && source.author.id === message.client?.user?.id,
         );
-        const text = (argument.text || source?.content || "").trim();
+        const rawText = (argument.text || source?.content || "").trim();
+        const text =
+          rawText.length <= 2000 ? await discordSpeechText(rawText, source ?? message) : rawText;
         if (!text)
           throw new Error(
             "Используйте !tts [--speaker имя] <текст> или !tts ответом на текстовое сообщение.",

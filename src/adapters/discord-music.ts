@@ -1,4 +1,4 @@
-/** @file Handle per-guild music commands, interactive panels, playlist storage and voice playback. */
+/** @file Coordinate per-guild music commands, interactions, persistent playlists and voice playback. */
 import {
   createPlaybackQueue,
   startQueue,
@@ -20,8 +20,13 @@ import {
 import { resolvePath } from "../core/paths.ts";
 import { musicMessageComponents } from "./music-messages.ts";
 import { parseMusicCommand } from "./music-commands.ts";
-import { searchMusicIndex, type MusicIndexSearch } from "./music-index-search.ts";
-import { createMusicPipeline, runMusicCommand } from "./music-process.ts";
+import { musicUrl, youtubePlaylistUrl } from "./music-url.ts";
+import { loadYouTubePlaylist, type PlaylistResult } from "./music-youtube-playlist.ts";
+import { searchMusic } from "./music-search.ts";
+import { createMusicTrackList } from "./music-track-list.ts";
+import { panel } from "./music-panel.ts";
+import { help } from "./music-help.ts";
+import { createMusicPipeline } from "./music-process.ts";
 import { exportPlaylist, parsePlaylist, downloadPlaylist } from "./music-transfer.ts";
 import {
   type Message,
@@ -52,304 +57,9 @@ import {
   type VoiceConnection,
 } from "@discordjs/voice";
 
-/** Validate a bounded HTTPS media URL against supported music hosts.
- * @throws When the protocol, host, credentials, port or URL length is unsupported. */
-export function musicUrl(input: string) {
-  const url = new URL(input.replace(/^<|>$/g, ""));
-  if (
-    input.length > 500 ||
-    url.protocol !== "https:" ||
-    url.username ||
-    url.password ||
-    url.port ||
-    !(
-      /^[a-z0-9-]+\.bandcamp\.com$/.test(url.hostname) ||
-      [
-        "bandcamp.com",
-        "audiomack.com",
-        "www.audiomack.com",
-        "music.yandex.ru",
-        "music.yandex.com",
-        "music.yandex.kz",
-        "music.yandex.by",
-        "youtube.com",
-        "www.youtube.com",
-        "m.youtube.com",
-        "music.youtube.com",
-        "youtu.be",
-        "soundcloud.com",
-        "www.soundcloud.com",
-        "on.soundcloud.com",
-      ].includes(url.hostname)
-    )
-  ) {
-    throw new Error(
-      "Нужна HTTPS-ссылка на YouTube, SoundCloud, Bandcamp, Audiomack или Яндекс Музыку.",
-    );
-  }
-  return url.href;
-}
-
-/** Normalize YouTube URLs with a list parameter to a playlist URL, or return null for single tracks. */
-export function youtubePlaylistUrl(input: string): string | null {
-  const url = new URL(musicUrl(input));
-  const id = url.searchParams.get("list");
-  if (
-    !["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be"].includes(
-      url.hostname,
-    ) ||
-    !id
-  )
-    return null;
-  if (!/^[A-Za-z0-9_-]{2,150}$/.test(id))
-    throw new Error("Некорректная ссылка на YouTube-плейлист.");
-  return `https://www.youtube.com/playlist?list=${id}`;
-}
-
-type PlaylistResult = { tracks: string[]; truncated: boolean; skipped: number };
-type PlaylistRunner = (args: string[], signal: AbortSignal) => Promise<string>;
-const runPlaylist: PlaylistRunner = (args, signal) =>
-  runMusicCommand(["yt-dlp", ...args], { signal });
-
-/** Extract the first bounded playlist entries in source order without downloading audio.
- * @param limit Remaining capacity in the saved guild playlist, from 1 to 100.
- * @param signal Cancels metadata extraction during shutdown.
- * @returns Canonical video URLs and counts describing skipped or truncated entries.
- * @throws For inaccessible, malformed or empty playlists. */
-export async function loadYouTubePlaylist(
-  url: string,
-  limit: number,
-  signal: AbortSignal,
-  run: PlaylistRunner = runPlaylist,
-): Promise<PlaylistResult> {
-  const canonical = youtubePlaylistUrl(url);
-  if (!canonical || !Number.isInteger(limit) || limit < 1 || limit > 100)
-    throw new Error("Некорректный запрос плейлиста.");
-  let data: { entries?: unknown[] };
-  try {
-    data = JSON.parse(
-      await run(
-        [
-          "--ignore-config",
-          "--flat-playlist",
-          "--yes-playlist",
-          "--ignore-errors",
-          "--dump-single-json",
-          "--skip-download",
-          "--socket-timeout",
-          "15",
-          "--retries",
-          "1",
-          "--playlist-end",
-          String(limit + 1),
-          "--",
-          canonical,
-        ],
-        signal,
-      ),
-    );
-  } catch {
-    throw new Error(
-      "Не удалось загрузить YouTube-плейлист. Проверьте ссылку, доступность плейлиста и установку yt-dlp.",
-    );
-  }
-  if (!data || !Array.isArray(data.entries)) throw new Error("YouTube не вернул список треков.");
-  const tracks: string[] = [];
-  let skipped = 0;
-  for (const value of data.entries.slice(0, limit)) {
-    const entry = value as { id?: unknown; availability?: string; title?: unknown } | null;
-    if (
-      !entry ||
-      typeof entry.id !== "string" ||
-      !/^[A-Za-z0-9_-]{11}$/.test(entry.id) ||
-      (typeof entry.title === "string" &&
-        /^\[(?:deleted|private) video\]$/i.test(entry.title.trim())) ||
-      ["private", "premium_only", "subscriber_only", "needs_auth"].includes(
-        entry.availability ?? "",
-      )
-    ) {
-      skipped++;
-      continue;
-    }
-    tracks.push(`https://www.youtube.com/watch?v=${entry.id}`);
-  }
-  if (!tracks.length) throw new Error("В плейлисте нет доступных треков.");
-  return { tracks, truncated: data.entries.length > limit, skipped };
-}
-
-/** A display title and validated playable URL returned by a music search. */
-export type MusicSearchResult = { title: string; url: string; duration?: number };
-
-/** Search up to five tracks without downloading audio.
- * yt:/sc: use yt-dlp; bc:/am:/ym: search indexed public track pages. Default: YouTube. */
-export async function searchMusic(
-  query: string,
-  signal: AbortSignal,
-  run: PlaylistRunner = runPlaylist,
-  indexed: MusicIndexSearch = searchMusicIndex,
-): Promise<MusicSearchResult[]> {
-  const prefix =
-    query
-      .trim()
-      .match(/^(yt|sc|bc|am|ym):/i)?.[1]
-      .toLowerCase() ?? "yt";
-  const soundcloud = prefix === "sc";
-  const text = query
-    .trim()
-    .replace(/^(sc|yt|bc|am|ym):/i, "")
-    .trim();
-  if (!text || text.length > 200) throw new Error("Введите название трека (до 200 символов).");
-  signal.throwIfAborted();
-  if (["bc", "am", "ym"].includes(prefix)) {
-    const scopes: Record<string, string> = {
-      bc: "site:bandcamp.com inurl:track",
-      am: "site:audiomack.com inurl:song",
-      ym: "(site:music.yandex.ru OR site:music.yandex.com OR site:music.yandex.kz OR site:music.yandex.by) inurl:album inurl:track",
-    };
-    let candidates: { title: string; url: string }[];
-    try {
-      candidates = await indexed(`${scopes[prefix]} ${text}`, signal);
-    } catch {
-      signal.throwIfAborted();
-      throw new Error("Не удалось выполнить поиск. Попробуйте позже.");
-    }
-    signal.throwIfAborted();
-    const results: MusicSearchResult[] = [];
-    for (const candidate of candidates.slice(0, 8)) {
-      try {
-        const url = new URL(musicUrl(candidate.url));
-        const matches =
-          prefix === "bc"
-            ? /^[a-z0-9-]+\.bandcamp\.com$/.test(url.hostname) &&
-              /^\/track\/[^/]+\/?$/.test(url.pathname)
-            : prefix === "am"
-              ? ["audiomack.com", "www.audiomack.com"].includes(url.hostname) &&
-                /^\/(?:song\/[^/]+\/[^/]+|[^/]+\/song\/[^/]+)\/?$/.test(url.pathname)
-              : [
-                  "music.yandex.ru",
-                  "music.yandex.com",
-                  "music.yandex.kz",
-                  "music.yandex.by",
-                ].includes(url.hostname) && /^\/album\/\d+\/track\/\d+\/?$/.test(url.pathname);
-        if (!matches) continue;
-        url.search = "";
-        url.hash = "";
-        if (results.some((item) => item.url === url.href)) continue;
-        results.push({
-          title: candidate.title.replace(/\s+/g, " ").trim().slice(0, 150) || url.href,
-          url: url.href,
-        });
-        if (results.length === 5) break;
-      } catch {
-        /* Ignore non-track, foreign-service or malformed index results. */
-      }
-    }
-    if (!results.length) throw new Error("Ничего не найдено. Уточните название трека.");
-    return results;
-  }
-  let data: { entries?: unknown[] };
-  try {
-    data = JSON.parse(
-      await run(
-        [
-          "--ignore-config",
-          "--flat-playlist",
-          "--dump-single-json",
-          "--skip-download",
-          "--socket-timeout",
-          "15",
-          "--retries",
-          "1",
-          "--",
-          `${soundcloud ? "scsearch5" : "ytsearch5"}:${text}`,
-        ],
-        signal,
-      ),
-    );
-  } catch {
-    throw new Error(
-      "Не удалось выполнить поиск. Проверьте доступность сервиса и установку yt-dlp.",
-    );
-  }
-  const results: MusicSearchResult[] = [];
-  for (const value of Array.isArray(data?.entries) ? data.entries.slice(0, 5) : []) {
-    if (!value || typeof value !== "object") continue;
-    const entry = value as {
-      id?: unknown;
-      title?: unknown;
-      url?: unknown;
-      webpage_url?: unknown;
-      duration?: unknown;
-    };
-    try {
-      const url = musicUrl(
-        !soundcloud && typeof entry.id === "string" && /^[A-Za-z0-9_-]{11}$/.test(entry.id)
-          ? `https://www.youtube.com/watch?v=${entry.id}`
-          : String(entry.webpage_url ?? entry.url ?? ""),
-      );
-      results.push({
-        ...(typeof entry.duration === "number" &&
-        Number.isFinite(entry.duration) &&
-        entry.duration >= 0
-          ? { duration: Math.floor(entry.duration) }
-          : {}),
-        url,
-        title:
-          typeof entry.title === "string" ? entry.title.replace(/\s+/g, " ").slice(0, 150) : url,
-      });
-    } catch {
-      /* Skip malformed or unsupported provider entries. */
-    }
-  }
-  if (!results.length) throw new Error("Ничего не найдено. Уточните название трека.");
-  return results;
-}
-
-const help = [
-  "🎵 **Музыка**",
-  "`!music` — открыть панель с кнопками",
-  "",
-  "**Плейлист и поиск**",
-  "`!music playlists` — управление плейлистами и переключение",
-  "`!music playlist create <название>` — создать плейлист",
-  "`!music playlist use <название>` — переключить плейлист",
-  "`!music playlist rename <название> | <новое>` — переименовать плейлист",
-  "`!music playlist add <название> <ссылка>` — добавить трек или YouTube-плейлист",
-  "`!music playlist delete [название]` — удалить с подтверждением",
-  "`!music playlist export [название]` — скачать плейлист в JSON",
-  "`!music playlist import [название]` + JSON-файл — импортировать копию",
-  "`!music add <ссылка>` — сохранить трек или YouTube-плейлист",
-  "`!music search [источник:] <название>` — найти трек",
-  "Источники: `yt:` YouTube (по умолчанию), `sc:` SoundCloud, `bc:` Bandcamp, `am:` Audiomack, `ym:` Яндекс Музыка.",
-  "`!music list` — показать сохранённый плейлист",
-  "`!music jump <номер>` — включить выбранный трек",
-  "`!music remove <номер>` — удалить трек",
-  "",
-  "**Воспроизведение**",
-  "`!music play [ссылка]` — включить музыку",
-  "`!music pause` / `!music resume` — пауза / продолжить",
-  "`!music skip` — следующий трек",
-  "`!music stop` — остановить музыку",
-  "`!music leave` — выйти из голосового канала",
-  "`!music queue` — показать очередь",
-  "",
-  "**Режимы очереди**",
-  "`!music repeat off|track|all` — повтор выключен / одного трека / всей очереди",
-  "`!music shuffle on|off` — включить / выключить случайный порядок",
-  "`!music mix` — перемешать оставшуюся очередь",
-  "",
-  "**Управление через меню**",
-  "В «Плейлистах» выберите нужный список. «Сделать активным» переключает плейлист. «Поиск» добавляет результат в выбранный плейлист.",
-  "Создание и импорт копии не меняют активный выбор. Переключение плейлиста сохраняет текущую очередь.",
-  "Для импорта прикрепите JSON-файл к команде import. «← Назад» возвращает к предыдущему меню, ❌ удаляет сообщение.",
-  "Для управления войдите в голосовой канал бота.",
-  "",
-  "**Русские команды**",
-  "`!музыка` = `!music`; языки можно смешивать: `!музыка add`, `!music добавить`.",
-  "Команды: панель, помощь, добавить, поиск, список, играть, пауза, продолжить, пропустить, стоп, выйти, очередь, перейти, удалить, повтор, случайно, перемешать, плейлист, плейлисты.",
-  "Действия плейлиста: создать, выбрать, управление, переименовать, удалить, добавить, поиск, экспорт, импорт.",
-  "Режимы: `повтор выкл|трек|всё`, `случайно вкл|выкл`. Например: `!музыка playlist создать Для работы`.",
-].join("\n");
+export { musicUrl, youtubePlaylistUrl } from "./music-url.ts";
+export { loadYouTubePlaylist } from "./music-youtube-playlist.ts";
+export { searchMusic, type MusicSearchResult } from "./music-search.ts";
 
 type MusicRequest = {
   /** Render private player controls without replacing the shared guild panel. */
@@ -419,98 +129,15 @@ export function createDiscordMusic(
   >();
   const metadataTasks = new Set<Promise<void>>();
   const listingTasks = new Set<Promise<void>>();
-  const metadataCache = new Map<string, { value: MusicMetadata | null; expires: number }>();
-  const listingLookups = new Map<string, Promise<MusicMetadata | null>>();
-  /** Cache successful lookups for an hour and provider failures for a minute, bounded to 500 URLs. */
-  async function trackMetadata(url: string, signal: AbortSignal): Promise<MusicMetadata | null> {
-    signal.throwIfAborted();
-    const cached = metadataCache.get(url);
-    if (cached && cached.expires > Date.now()) return cached.value;
-    let value: MusicMetadata | null = null;
-    try {
-      value = await loadMetadata(url, signal);
-    } catch {
-      signal.throwIfAborted();
-    }
-    signal.throwIfAborted();
-    while (metadataCache.size >= 500) metadataCache.delete(metadataCache.keys().next().value!);
-    metadataCache.set(url, { value, expires: Date.now() + (value ? 3_600_000 : 60_000) });
-    return value;
-  }
-  /** Coalesce list lookups while keeping playback cancellation independent. */
-  function listingMetadata(url: string): Promise<MusicMetadata | null> {
-    const existing = listingLookups.get(url);
-    if (existing) return existing;
-    const task = trackMetadata(url, imports.signal).finally(() => listingLookups.delete(url));
-    listingLookups.set(url, task);
-    return task;
-  }
-  /** Render a stable queue snapshot with at most three concurrent lookups and bounded Discord pages. */
-  async function sendTrackList(
-    tracks: string[],
-    current: string,
-    empty: string,
-    reply: (
-      text: string,
-      components?: ActionRowBuilder<StringSelectMenuBuilder>[],
-    ) => Promise<void>,
-    selectionToken?: string,
-    heading?: string,
-  ) {
-    const urls = [...new Set([...(current ? [current] : []), ...tracks])];
-    const metadata = new Map<string, MusicMetadata | null>();
-    let cursor = 0;
-    await Promise.all(
-      Array.from({ length: Math.min(3, urls.length) }, async () => {
-        while (cursor < urls.length) {
-          imports.signal.throwIfAborted();
-          const url = urls[cursor++];
-          metadata.set(url, await listingMetadata(url));
-        }
-      }),
-    );
-    if (closed) return;
-    const lines = [
-      ...(heading ? [heading] : []),
-      ...(current ? [`Сейчас: ${formatMusicTrack(current, metadata.get(current) ?? null)}`] : []),
-      ...(tracks.length
-        ? tracks.map((url, i) => `${i + 1}. ${formatMusicTrack(url, metadata.get(url) ?? null)}`)
-        : [empty]),
-    ];
-    let page = "";
-    for (const line of lines) {
-      if (page && page.length + line.length + 1 > 1900) {
-        await reply(page);
-        page = "";
-      }
-      page += `${page ? "\n" : ""}${line}`;
-    }
-    if (page && !closed) {
-      const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
-      if (selectionToken)
-        for (let offset = 0; offset < tracks.length; offset += 25) {
-          const select = new StringSelectMenuBuilder()
-            .setCustomId(`music:jump:${selectionToken}:${offset}`)
-            .setPlaceholder(`Включить трек ${offset + 1}–${Math.min(offset + 25, tracks.length)}`)
-            .addOptions(
-              tracks.slice(offset, offset + 25).map((url, i) => ({
-                label: `${offset + i + 1}. ${metadata.get(url)?.title ?? url}`.slice(0, 100),
-                value: String(offset + i),
-                description: formatMusicTrack(url, metadata.get(url) ?? null)
-                  .split(" · ")
-                  .at(-1)!
-                  .slice(0, 100),
-              })),
-            );
-          components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select));
-        }
-      await reply(page, components.length ? components : undefined);
-    }
-  }
   const locks = new Map<string, Promise<unknown>>();
   let closed = false;
   let shutdownTask: Promise<void> | undefined;
   const imports = new AbortController();
+  const { trackMetadata, listingMetadata, sendTrackList } = createMusicTrackList(
+    loadMetadata,
+    imports.signal,
+    () => closed,
+  );
   const panels = new Map<string, Message>();
   const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Emit detached scalar snapshots for every initialized guild, including playback modes and errors. */
@@ -543,62 +170,6 @@ export function createDiscordMusic(
         shuffle: s.shuffle,
       })),
     );
-  }
-  /** Render current playback controls; disable actions that cannot apply to the current state. */
-  function panel(s: State) {
-    const paused =
-      s.player.state.status === AudioPlayerStatus.Paused ||
-      s.player.state.status === AudioPlayerStatus.AutoPaused;
-    const active = Boolean(s.current);
-    const button = (
-      action: string,
-      label: string | { emoji: string },
-      style = ButtonStyle.Secondary,
-      disabled = false,
-    ) => {
-      const control = new ButtonBuilder()
-        .setCustomId(`music:${action}`)
-        .setStyle(style)
-        .setDisabled(disabled);
-      return typeof label === "string" ? control.setLabel(label) : control.setEmoji(label.emoji);
-    };
-    return {
-      content:
-        `🎵 **Музыкальный плеер**\n${active ? `${paused ? "⏸ На паузе" : "▶ Сейчас"}: ${formatMusicTrack(s.current, s.metadata, Boolean(s.metadataAbort))}` : "⏹ Воспроизведение остановлено"}\n` +
-        `Плейлист: **${escapeMarkdown(s.library.playlists.find((item) => item.id === s.library.activeId)!.name)}**\n` +
-        `Сохранено: **${s.tracks.length}/100** · Далее в очереди: **${s.pending.length}**\n` +
-        `Повтор: **${{ off: "выкл", track: "трек", all: "вся очередь" }[s.repeat]}** · Случайный порядок: **${s.shuffle ? "вкл" : "выкл"}**`,
-      components: [
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
-          button("play", { emoji: "▶️" }, ButtonStyle.Success, active || !s.tracks.length),
-          button("toggle", { emoji: paused ? "▶️" : "⏸️" }, ButtonStyle.Primary, !active),
-          button("skip", { emoji: "⏭️" }, ButtonStyle.Secondary, !active),
-          button("stop", { emoji: "⏹️" }, ButtonStyle.Danger, !s.connection),
-        ),
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
-          button("add", "＋"),
-          button("remove", "−", ButtonStyle.Secondary, !s.tracks.length),
-          button("list", "☷"),
-          button("search", { emoji: "🔎" }),
-          button("playlists", "Плейлисты"),
-        ),
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
-          button(
-            "repeat",
-            `🔁 Повтор: ${{ off: "выкл", track: "трек", all: "всё" }[s.repeat]}`,
-            s.repeat === "off" ? ButtonStyle.Secondary : ButtonStyle.Primary,
-          ),
-          button(
-            "shuffle",
-            `🔀 Случайно: ${s.shuffle ? "вкл" : "выкл"}`,
-            s.shuffle ? ButtonStyle.Primary : ButtonStyle.Secondary,
-          ),
-          button("mix", "Перемешать", ButtonStyle.Secondary, s.pending.length < 2),
-          button("queue", "Очередь"),
-        ),
-      ],
-      allowedMentions: { parse: [] as never[], repliedUser: false },
-    };
   }
   /** Publish local telemetry immediately and coalesce edits to the latest Discord panel. */
   function refresh(guildId: string) {

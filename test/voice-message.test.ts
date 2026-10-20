@@ -177,3 +177,35 @@ test("Discord and Telegram voice commands forward speaker overrides and retain r
     { text: "Явный текст", speaker: "random" },
   ]);
 });
+
+test("Discord voice files resolve user mentions from explicit and replied messages", async () => {
+  const texts: string[] = [];
+  const bot = createDiscordBot({
+    config: {},
+    assistant: {},
+    generateVoice: async (text) => {
+      texts.push(text);
+      return recording();
+    },
+  });
+  onTestFinished(() => bot.stop());
+  bot.client.user = fixture<ClientUser>({ id: "bot" });
+  const handle = bot.client.listeners(Events.MessageCreate)[0];
+  await handle({
+    content: "!voice Привет, <@123>!",
+    author: { id: "user" },
+    mentions: { users: new Map([["123", { globalName: "Алиса" }]]) },
+    reply: async () => ({}),
+  });
+  await handle({
+    content: "!voice",
+    author: { id: "user" },
+    reference: { messageId: "original" },
+    fetchReference: async () => ({
+      content: "<@!456>, привет!",
+      mentions: { users: new Map([["456", { username: "boris" }]]) },
+    }),
+    reply: async () => ({}),
+  });
+  expect(texts).toEqual(["Привет, Алиса!", "boris, привет!"]);
+});
