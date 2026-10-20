@@ -44,6 +44,7 @@ export function createMusicInteractionHandler(
       flags?: MessageFlags.Ephemeral;
     };
     const privateSource = Boolean(interaction.message?.flags?.has(MessageFlags.Ephemeral));
+    let silentAction = false;
     let backAction: string | undefined = "music:back:panel";
     const controls = (payload: ResponsePayload) =>
       musicMessageComponents(payload.components, backAction);
@@ -510,7 +511,11 @@ export function createMusicInteractionHandler(
         return true;
       }
       // Acknowledge before waiting on the per-guild command queue or network calls.
-      await deferResponse();
+      silentAction =
+        interaction.isButton() &&
+        ["play", "toggle", "skip", "stop", "repeat", "shuffle", "mix"].includes(action);
+      if (silentAction) await interaction.deferUpdate();
+      else await deferResponse();
       const argument = interaction.isModalSubmit()
         ? interaction.fields.getTextInputValue("value").trim()
         : selectedUrl;
@@ -519,10 +524,13 @@ export function createMusicInteractionHandler(
         content: `!music ${action}${argument ? ` ${argument}` : ""}`,
         guild: interaction.guild,
         author: interaction.user,
+        silentSuccess: silentAction,
         expectedPlaylistId: selectedPlaylistId,
         targetPlaylistId: selectedDestinationId,
         reply: async (payload) => {
-          if (first || !["list", "queue"].includes(action)) {
+          if (silentAction) {
+            await followUp({ ...payload, flags: MessageFlags.Ephemeral });
+          } else if (first || !["list", "queue"].includes(action)) {
             first = false;
             await editResponse(payload);
           } else await followUp({ ...payload, flags: MessageFlags.Ephemeral });
@@ -533,7 +541,7 @@ export function createMusicInteractionHandler(
         content: "Не удалось выполнить действие. Откройте !music и попробуйте снова.",
         flags: MessageFlags.Ephemeral as const,
       };
-      if (privateSource && (interaction.deferred || interaction.replied))
+      if (!silentAction && privateSource && (interaction.deferred || interaction.replied))
         await editResponse({ content: payload.content }).catch(() => {});
       else if (interaction.deferred || interaction.replied) await followUp(payload).catch(() => {});
       else await respond(payload).catch(() => {});

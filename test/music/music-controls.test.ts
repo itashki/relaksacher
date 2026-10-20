@@ -65,6 +65,9 @@ test("music panel buttons, modal submissions and voice checks share command beha
         calls.push("modal");
         modal = payload;
       },
+      deferUpdate: async () => {
+        calls.push("update");
+      },
       deferReply: async (payload: Payload) => {
         calls.push("defer");
         responses.push(payload);
@@ -115,12 +118,12 @@ test("music panel buttons, modal submissions and voice checks share command beha
     await new Promise((resolve) => setTimeout(resolve, 400));
     expect(edits.at(-1).content).toContain("**1/100**");
     expect(edits.at(-1).components[0].components[0].toJSON().disabled).toBe(false);
-    await music.handleInteraction(interaction("repeat"));
-    expect(responses.at(-1).content).toContain("одного трека");
-    await music.handleInteraction(interaction("repeat"));
-    expect(responses.at(-1).content).toContain("всей очереди");
-    await music.handleInteraction(interaction("shuffle"));
-    expect(responses.at(-1).content).toContain("включён");
+    calls.length = 0;
+    const responseCount = responses.length;
+    for (const action of ["repeat", "repeat", "shuffle"])
+      await music.handleInteraction(interaction(action));
+    expect(calls).toEqual(["update", "update", "update"]);
+    expect(responses).toHaveLength(responseCount);
     await music.handle(request("!music repeat invalid"));
     expect(posted.at(-1).content).toContain("off, track или all");
     await music.handle(request("!music shuffle invalid"));
@@ -141,8 +144,9 @@ test("music panel buttons, modal submissions and voice checks share command beha
     for (const action of ["play", "toggle", "skip", "stop", "repeat", "shuffle", "mix"]) {
       calls.length = 0;
       await music.handleInteraction(interaction(action));
-      expect(calls).toEqual(["defer", "edit"]);
+      expect(calls).toEqual(["update"]);
       expect(responses.at(-1).content).toContain("войдите");
+      expect(responses.at(-1).flags).toBe(64);
     }
     await music.handleInteraction(interaction("remove", "1"));
     expect(responses.at(-1).content).toContain("войдите");
@@ -178,12 +182,10 @@ test("music panel buttons, modal submissions and voice checks share command beha
     expect(responses.at(-1).content).toContain("Плейлист пуст");
     await music.handleInteraction(interaction("mix"));
     expect(responses.at(-1).content).toContain("хотя бы два");
-    await music.handleInteraction(interaction("stop"));
-    expect(responses.at(-1).content).toContain("Музыка остановлена");
-    await music.handleInteraction(interaction("repeat"));
-    expect(responses.at(-1).content).toContain("выключен");
-    await music.handleInteraction(interaction("shuffle"));
-    expect(responses.at(-1).content).toContain("выключен");
+    const beforeSuccess = responses.length;
+    for (const action of ["stop", "repeat", "shuffle"])
+      await music.handleInteraction(interaction(action));
+    expect(responses).toHaveLength(beforeSuccess);
     await music.handleInteraction(interaction("search"));
     expect(modal.toJSON().custom_id).toBe("music:search");
     await music.handleInteraction(interaction("search", "artist song"));

@@ -10,6 +10,8 @@ import {
 
 /** A text message or interaction forwarded through the same music authorization and queue boundary. */
 export type MusicRequest = {
+  /** Omit routine success replies for playback buttons; errors remain visible. */
+  silentSuccess?: boolean;
   /** Render private player controls without replacing the shared guild panel. */
   transientPanel?: boolean;
   /** Bind an edit to a saved playlist ID independently of the server's active selection. */

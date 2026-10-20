@@ -59,6 +59,9 @@ export function createMusicCommandHandler(runtime: MusicRuntime) {
     const reply = async (content: string) => {
       await send({ content, allowedMentions: { parse: [], repliedUser: false } });
     };
+    const success = async (content: string) => {
+      if (!message.silentSuccess) await reply(content);
+    };
     /** Keep expanded bilingual help within Discord's message limit, preserving paragraph boundaries. */
     const showHelp = async () => {
       let page = "";
@@ -333,7 +336,7 @@ export function createMusicCommandHandler(runtime: MusicRuntime) {
             if (!modes.includes(mode as RepeatMode))
               throw new Error("Используйте !music repeat off, track или all.");
             s.repeat = mode as RepeatMode;
-            await reply(
+            await success(
               `🔁 Повтор: ${{ off: "выключен", track: "одного трека", all: "всей очереди" }[s.repeat]}.`,
             );
             break;
@@ -344,14 +347,14 @@ export function createMusicCommandHandler(runtime: MusicRuntime) {
               throw new Error("Используйте !music shuffle on или off.");
             s.shuffle = value ? value === "on" : !s.shuffle;
             if (s.shuffle) s.pending = shuffled(s.pending);
-            await reply(`🔀 Случайный порядок ${s.shuffle ? "включён" : "выключен"}.`);
+            await success(`🔀 Случайный порядок ${s.shuffle ? "включён" : "выключен"}.`);
             break;
           }
           case "mix": {
             if (s.pending.length < 2)
               throw new Error("Для перемешивания нужны хотя бы два следующих трека.");
             s.pending = shuffled(s.pending);
-            await reply("🔀 Очередь перемешана.");
+            await success("🔀 Очередь перемешана.");
             break;
           }
           case "remove": {
@@ -365,7 +368,7 @@ export function createMusicCommandHandler(runtime: MusicRuntime) {
             if (!/^\d+$/.test(argument) || index < 1 || index > s.tracks.length)
               throw new Error("Укажите номер трека из !music list.");
             await save(s.tracks.filter((_, i) => i !== index - 1));
-            await reply("Трек удалён из плейлиста.");
+            await success("Трек удалён из плейлиста.");
             break;
           }
           case "jump":
@@ -442,27 +445,27 @@ export function createMusicCommandHandler(runtime: MusicRuntime) {
             next(s, (text) => {
               void reply(text).catch(() => {});
             });
-            await reply("▶ Включаю музыку.");
+            await success("▶ Включаю музыку.");
             break;
           }
           case "pause":
             s.player.pause();
-            await reply("⏸ Пауза.");
+            await success("⏸ Пауза.");
             break;
           case "resume":
             s.player.unpause();
-            await reply("▶ Продолжаю.");
+            await success("▶ Продолжаю.");
             break;
           case "skip":
             s.advanceReason = "skip";
             cleanup(s);
             s.player.stop(true);
-            await reply("⏭ Следующий трек.");
+            await success("⏭ Следующий трек.");
             break;
           case "stop":
           case "leave":
             disconnect(s);
-            await reply("⏹ Музыка остановлена, вышел из канала. Плейлист сохранён.");
+            await success("⏹ Музыка остановлена, вышел из канала. Плейлист сохранён.");
             break;
           default:
             await showHelp();
