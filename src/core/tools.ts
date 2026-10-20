@@ -1,4 +1,5 @@
 /** @file Expose bounded model tools for memory, web access, history and selected media delivery. */
+import { createWeatherForecast } from "./weather.ts";
 import { createImageSearch } from "./image-search.ts";
 import { createWebFallback, createWebClient } from "./web-fallback.ts";
 import { truncate } from "./text.ts";
@@ -113,6 +114,37 @@ const MEMORY_TOOLS = [
 // Сколько первых результатов поиска сразу подгружать целиком (полный текст страницы).
 const SEARCH_FETCH_TOP = 2;
 
+const WEATHER_TOOL = {
+  type: "function",
+  function: {
+    name: "weather_forecast",
+    description:
+      "Получает свежий почасовой прогноз Open-Meteo для локации на час, день или период до 16 дней вперёд. Даты и часы местные для локации. Для неоднозначного названия автоматически выбирается столица или крупнейший город. Учитывай страну и регион из запроса: при необходимости повтори с location_id подходящего варианта из результата без уточнения у пользователя. Не выдумывай прогноз вне доступного периода.",
+    parameters: {
+      type: "object",
+      required: ["location", "start"],
+      properties: {
+        location: { type: "string", description: "Название города или населённого пункта" },
+        start: {
+          type: "string",
+          description:
+            "Начало: YYYY-MM-DD (весь день) или YYYY-MM-DDTHH:00 (час). Относительную дату переведи в календарную.",
+        },
+        end: {
+          type: "string",
+          description:
+            "Включительный конец в том же формате. Без end — один час или весь день start.",
+        },
+        location_id: {
+          type: "integer",
+          description:
+            "Id подходящего места из предыдущего результата для того же location; явная страна/регион пользователя важнее автоматического выбора",
+        },
+      },
+    },
+  },
+};
+
 const TOOLS = [
   {
     type: "function",
@@ -159,8 +191,10 @@ export function createToolService({
   fallbackClient = createWebFallback(),
   imageSearch = createImageSearch(),
   gifSearch = null,
+  weatherForecast = createWeatherForecast(),
   memory,
 }: {
+  weatherForecast?: ReturnType<typeof createWeatherForecast>;
   searchClient?: import("../types.ts").WebClient | null;
   imageSearch?: (arg0: string) => Promise<import("../types.ts").ImageCandidate[]>;
   gifSearch?: (arg0: string) => Promise<import("../types.ts").ImageCandidate[]> | null;
@@ -186,6 +220,16 @@ export function createToolService({
     console.log(`[tool] ${name}`, JSON.stringify(args));
 
     try {
+      if (name === "weather_forecast") {
+        return JSON.stringify(
+          await weatherForecast({
+            location: String(args.location ?? ""),
+            start: String(args.start ?? ""),
+            ...(args.end !== undefined ? { end: String(args.end) } : {}),
+            ...(args.location_id !== undefined ? { location_id: Number(args.location_id) } : {}),
+          }),
+        );
+      }
       if (["search_images", "send_image", "search_gifs", "send_gif"].includes(name)) {
         if (!context?.sendImage || !context.imageState) return "Отправка картинок недоступна.";
         const isGif = name === "search_gifs" || name === "send_gif";
@@ -291,6 +335,7 @@ export function createToolService({
       ...(history ? [HISTORY_TOOL] : []),
       ...(scopeId ? MEMORY_TOOLS : []),
       ...(searchClient ? TOOLS : []),
+      WEATHER_TOOL,
     ],
   };
 }

@@ -95,7 +95,7 @@ test("web tools are exposed without an Ollama API key", () => {
     service
       .definitions({ search: true } as Parameters<typeof service.definitions>[0])
       .map((tool) => tool.function.name),
-  ).toStrictEqual(["web_search", "web_fetch"]);
+  ).toStrictEqual(["web_search", "web_fetch", "weather_forecast"]);
 });
 
 test("local, private and credential-bearing page URLs are rejected", () => {

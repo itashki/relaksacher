@@ -97,6 +97,7 @@ test("streams plain snapshots and carries memory/tools into the next model round
   expect(env.requests[0].tools.map((tool) => tool.function.name)).toStrictEqual([
     "remember",
     "forget",
+    "weather_forecast",
   ]);
   expect(env.requests[1].messages.at(-1).content).toBe("saved");
   expect(env.updates.some((state) => state.status === call)).toBeTruthy();
@@ -108,7 +109,10 @@ test("streams plain snapshots and carries memory/tools into the next model round
 test("unscoped requests have no memory tools", async () => {
   const env = setup([[{ message: { content: "answer" } }]]);
   const result = await env.assistant.createSession(env.options).run();
-  expect(env.requests[0].tools.map((t) => t.function.name)).toStrictEqual(["enable_thinking"]);
+  expect(env.requests[0].tools.map((t) => t.function.name)).toStrictEqual([
+    "weather_forecast",
+    "enable_thinking",
+  ]);
   expect(env.requests[0].messages[0].content).not.toMatch(/shared fact|Discord/);
   expect(result.text).toBe("answer");
 });
@@ -239,12 +243,13 @@ test("web search fetches top results and falls back to snippets for failed pages
   expect(service.definitions({}).map((tool) => tool.function.name)).toStrictEqual([
     "web_search",
     "web_fetch",
+    "weather_forecast",
   ]);
   expect(
     service
       .definitions({ search: true } as Parameters<typeof service.definitions>[0])
       .map((tool) => tool.function.name),
-  ).toStrictEqual(["web_search", "web_fetch"]);
+  ).toStrictEqual(["web_search", "web_fetch", "weather_forecast"]);
   const result = JSON.parse(
     await service.runTool(
       {
@@ -296,7 +301,7 @@ test("background stays separate from the dialogue and the current request stays 
   expect(messages[1].content).toMatch(/Фоновый контекст канала/);
   expect(messages[1].content).toMatch(/question for Alice/);
   expect(messages.at(-1)).toStrictEqual({ role: "user", content: "hello" });
-  expect(tools.map((t) => t.function.name)).toStrictEqual(["enable_thinking"]);
+  expect(tools.map((t) => t.function.name)).toStrictEqual(["weather_forecast", "enable_thinking"]);
 });
 
 test("model can enable thinking in response to a natural-language request", async () => {
