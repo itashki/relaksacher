@@ -1,4 +1,5 @@
 /** @file Dependency-free ANSI operator dashboard with independent scrollable panels. */
+import { dashboardHeader } from "./header.ts";
 import {
   createStatistics,
   type RequestStatistics,
@@ -68,6 +69,8 @@ export type DashboardOptions = {
   searchMove?: SearchMove;
   /** Presence enables the restart button; true indicates a pending restart. */
   restarting?: boolean;
+  /** Presence enables the AI pause/resume control. */
+  repliesPaused?: boolean;
 };
 const panelNames: Record<PanelId, string> = {
   answer: "Ответ",
@@ -100,6 +103,7 @@ export function buildDashboard(
     search = createSearch(),
     searchMove,
     restarting,
+    repliesPaused,
     statistics,
   }: DashboardOptions = {},
 ) {
@@ -116,20 +120,8 @@ export function buildDashboard(
     Bun.sliceAnsi(clean(value).replace(/\n/g, " "), 0, Math.max(1, size));
   const add = (value = "", code = "0") => lines.push(paint(fit(value), code));
   const current = state.current ?? state.last;
-  let restartRegion: { x: number; y: number; width: number; height: number } | undefined;
-  if (restarting !== undefined) {
-    const label = fit(restarting ? "[Рестарт…]" : "[R Рестарт]");
-    const titleWidth = Math.max(0, width - Bun.stringWidth(label) - 1);
-    const title = titleWidth ? fit(" РЕЛАКСАЧЕР / операторская панель", titleWidth) : "";
-    const padding = width - Bun.stringWidth(title) - Bun.stringWidth(label);
-    add(`${title}${" ".repeat(padding)}${label}`, "1;36");
-    restartRegion = {
-      x: width - Bun.stringWidth(label) + 1,
-      y: 1,
-      width: Bun.stringWidth(label),
-      height: 1,
-    };
-  } else add(" РЕЛАКСАЧЕР / операторская панель", "1;36");
+  const { restartRegion, pauseRegion, header } = dashboardHeader(width, restarting, repliesPaused);
+  add(header, "1;36");
   if (height > 3)
     add(
       state.current
@@ -271,6 +263,7 @@ export function buildDashboard(
     regions,
     available,
     restartRegion,
+    pauseRegion,
     searchResult: { index: matchIndex, row: matchRow, total: searched?.matches.length ?? 0 },
   };
 }
@@ -309,6 +302,7 @@ export function createTui({
   let viewports: Partial<Record<PanelId, Viewport>> = {};
   let regions: PanelRegion[] = [];
   let restartRegion: ReturnType<typeof buildDashboard>["restartRegion"];
+  let pauseRegion: ReturnType<typeof buildDashboard>["pauseRegion"];
   let restarting = false;
   const original = new Map<
     "log" | "info" | "warn" | "error" | "debug",
@@ -341,6 +335,7 @@ export function createTui({
       navigation,
       search,
       searchMove,
+      repliesPaused: assistant.repliesPaused?.(),
       restarting: onRestart ? restarting : undefined,
     });
     if (searchMove && search.panel && rendered.searchResult.row !== undefined) {
@@ -351,6 +346,7 @@ export function createTui({
     viewports = rendered.viewports;
     regions = rendered.regions;
     restartRegion = rendered.restartRegion;
+    pauseRegion = rendered.pauseRegion;
     for (const [id, view] of Object.entries(viewports)) {
       if (navigation.positions[id as PanelId] !== "tail")
         navigation.positions[id as PanelId] = view.start;
@@ -424,6 +420,13 @@ export function createTui({
         dirty = true;
       });
   };
+  const toggleReplies = () => {
+    if (!assistant.setRepliesPaused) return;
+    const paused = !assistant.repliesPaused();
+    assistant.setRepliesPaused(paused);
+    notice = paused ? "Ответы ИИ временно отключены." : "Ответы ИИ включены.";
+    dirty = true;
+  };
   // readline requires a Node stream; feed it only bytes which are not mouse reports.
   const keyboard = new PassThrough();
   emitKeypressEvents(keyboard);
@@ -438,6 +441,16 @@ export function createTui({
         event.x < restartRegion.x + restartRegion.width
       ) {
         requestRestart();
+        return;
+      }
+      if (
+        event.kind === "click" &&
+        pauseRegion &&
+        event.y === 1 &&
+        event.x >= pauseRegion.x &&
+        event.x < pauseRegion.x + pauseRegion.width
+      ) {
+        toggleReplies();
         return;
       }
       const id = panelAt(regions, event.x, event.y);
@@ -513,6 +526,8 @@ export function createTui({
         viewports[navigation.selected],
         key.name === "j" ? "down" : key.name === "k" ? "up" : key.name,
       );
+    } else if (key.name === "p" && !key.ctrl && !key.meta) {
+      toggleReplies();
     } else if (key.name === "r" && !key.ctrl && !key.meta) {
       requestRestart();
     } else if (key.name === "s" || text === "s" || text === "S") {
@@ -521,7 +536,7 @@ export function createTui({
         : "Нет активной генерации.";
     } else if (text === "?") {
       notice =
-        "Tab/Shift+Tab, h/l — панели; q — выход; R — рестарт; j/k — вниз/вверх; / — поиск; n/N — совпадения; Enter — развернуть; мышь — клик/скролл.";
+        "Tab/Shift+Tab, h/l — панели; q — выход; P — пауза ИИ; R — рестарт; j/k — вниз/вверх; / — поиск; n/N — совпадения; Enter — развернуть; мышь — клик/скролл.";
     }
     dirty = true;
   };

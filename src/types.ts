@@ -79,6 +79,9 @@ export type Session = {
 export type Assistant = {
   subscribeTerminal: (arg0: (state: TerminalState) => void) => () => void;
   stopCurrentGeneration: () => boolean;
+  /** Pause future and queued AI replies; active generation may finish. */
+  setRepliesPaused: (paused: boolean) => void;
+  repliesPaused: () => boolean;
   createSession: (arg0: SessionOptions) => Session;
   observeMessage: (arg0: {
     scopeId?: string;

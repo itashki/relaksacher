@@ -17,6 +17,8 @@ export function createAssistantBridge(initial: Assistant) {
       listener(structuredClone(snapshot));
       return () => listeners.delete(listener);
     },
+    repliesPaused: () => current.repliesPaused?.() ?? false,
+    setRepliesPaused: (paused) => current.setRepliesPaused(paused),
     stopCurrentGeneration: () => current.stopCurrentGeneration(),
     createSession: (options) => current.createSession(options),
     observeMessage: (message) => current.observeMessage(message),
@@ -28,7 +30,9 @@ export function createAssistantBridge(initial: Assistant) {
     assistant,
     replace(next: Assistant) {
       unsubscribe();
+      const paused = current.repliesPaused?.() ?? false;
       current = next;
+      current.setRepliesPaused?.(paused);
       unsubscribe = current.subscribeTerminal(publish);
     },
     close() {

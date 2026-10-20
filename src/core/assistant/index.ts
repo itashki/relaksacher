@@ -40,6 +40,7 @@ export function createAssistant({
   autoMemoryCheckIntervalMs = 60000,
   spontaneous = {},
 }: import("../../types.ts").AssistantOptions): import("../../types.ts").Assistant {
+  let repliesPaused = false;
   const enqueue = createRequestQueue();
   let activeGeneration: { stopped: boolean; stop(): void };
   const terminalListeners = new Set<(state: import("../../types.ts").TerminalState) => void>();
@@ -138,6 +139,10 @@ export function createAssistant({
       : undefined,
   });
   return {
+    repliesPaused: () => repliesPaused,
+    setRepliesPaused(paused) {
+      repliesPaused = paused;
+    },
     /** Subscribe to local operator state, including reasoning; never sent to messenger callbacks. */
     subscribeTerminal(listener) {
       terminalListeners.add(listener);
@@ -152,7 +157,7 @@ export function createAssistant({
     },
     /** @param message Scoped group message. @returns Optional contribution angle. */
     considerMessage(message: any) {
-      return observerClosed ? Promise.resolve(null) : consider(message);
+      return observerClosed || repliesPaused ? Promise.resolve(null) : consider(message);
     },
     /**
      * Buffer an ordinary group statement for conservative, silent fact extraction.
@@ -237,6 +242,20 @@ export function createAssistant({
         async run() {
           if (started) throw new Error("Session already started");
           started = true;
+          const disabled = async (): Promise<import("../../types.ts").GenerationResult> => {
+            const text = "Ответы ИИ временно отключены.";
+            await onUpdate({ text, status: "", final: true });
+            return {
+              text,
+              thinkingLog: "",
+              model,
+              incompleteReason: null,
+              failed: false,
+              stopped: false,
+              timedOut: false,
+            };
+          };
+          if (repliesPaused) return disabled();
           const requestId = ++nextRequestId;
           const request = {
             id: requestId,
@@ -252,6 +271,7 @@ export function createAssistant({
           pendingRequests.set(requestId, request);
           publishTerminal();
           return enqueue(async () => {
+            if (repliesPaused) return disabled();
             activeGeneration = generation;
             pendingRequests.delete(requestId);
             currentRequest = { ...request, startedAt: Date.now(), status: "Подготовка" };
