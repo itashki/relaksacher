@@ -34,6 +34,7 @@ async function menuFixture() {
   const privateReplies: Payload[] = [];
   const acknowledgements: number[] = [];
   const deleted: string[] = [];
+  const launchersDeleted: string[] = [];
   await bot.client.listeners(Events.MessageCreate)[0]({
     content: "!access",
     author: {
@@ -56,6 +57,11 @@ async function menuFixture() {
       guildId: "10",
       user: { id: userId },
       values,
+      message: {
+        delete: async () => {
+          launchersDeleted.push(customId);
+        },
+      },
       isButton: () => kind === "button",
       isStringSelectMenu: () => kind === "string",
       isRoleSelectMenu: () => kind === "role",
@@ -90,6 +96,7 @@ async function menuFixture() {
     directory,
     publicReplies,
     deleted,
+    launchersDeleted,
     privateReplies,
     acknowledgements,
     launchId,
@@ -178,17 +185,17 @@ test("failed saves keep the previous policy and report the error only in the pri
   expect(ui.publicReplies).toHaveLength(1);
 });
 
-test("only the caller can dismiss the public launcher, including after opening the private menu", async () => {
+test("opening settings removes the launcher only for its author and consumes the request", async () => {
   const ui = await menuFixture();
-  const closeId = ui.publicReplies[0].components[0].components[1].data.custom_id;
-  expect(closeId).toContain("access:close:");
-  await ui.event(closeId, "button", [], "2");
-  expect(ui.deleted).toEqual([]);
+  expect(ui.publicReplies[0].components[0].components).toHaveLength(1);
+  await ui.event(ui.launchId, "button", [], "2");
+  expect(ui.launchersDeleted).toEqual([]);
   await ui.event(ui.launchId);
-  await ui.event(closeId);
-  expect(ui.deleted).toEqual([closeId]);
+  expect(ui.launchersDeleted).toEqual([ui.launchId]);
+  expect(ui.latest().content).toContain("Выберите функцию");
   await ui.event(ui.launchId);
   expect(ui.latest().content).toContain("устарела");
+  expect(ui.launchersDeleted).toEqual([ui.launchId]);
 });
 
 test("private Close deletes the menu and discards the draft even after administrator rights are lost", async () => {

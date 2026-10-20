@@ -1,4 +1,5 @@
 /** @file Render and operate private, owner-bound Discord access settings menus. */
+import { closeButton, backButton } from "../controls.ts";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -115,17 +116,9 @@ export function createDiscordAccessMenu(store: Store) {
           .setCustomId(id("save"))
           .setLabel("Сохранить")
           .setStyle(ButtonStyle.Success),
-        new ButtonBuilder()
-          .setCustomId(id("back"))
-          .setLabel("Назад")
-          .setStyle(ButtonStyle.Secondary),
+        backButton(id("back")),
       );
-    buttons.addComponents(
-      new ButtonBuilder()
-        .setCustomId(id("close"))
-        .setLabel("Закрыть")
-        .setStyle(ButtonStyle.Secondary),
-    );
+    buttons.addComponents(closeButton(id("close")));
     components.push(buttons);
     // Lists can contain legacy 100-entry policies; keep the Discord message within its limit.
     if (content.length > 1600)

@@ -48,7 +48,7 @@ export function createDiscordAccess(directory?: string) {
   const menu = createDiscordAccessMenu(store);
   const requests = new Map<
     string,
-    { userId: string; guildId: string | null; args: string[]; expires: number; opened?: boolean }
+    { userId: string; guildId: string | null; args: string[]; expires: number }
   >();
   /** Apply an administrator request through the caller's private response transport. */
   async function configure(
@@ -165,10 +165,6 @@ export function createDiscordAccess(directory?: string) {
                 .setCustomId(`access:open:${token}`)
                 .setLabel("Открыть настройки")
                 .setStyle(ButtonStyle.Primary),
-              new ButtonBuilder()
-                .setCustomId(`access:close:${token}`)
-                .setLabel("Закрыть")
-                .setStyle(ButtonStyle.Secondary),
             ),
           ],
           allowedMentions: { parse: [] as never[], repliedUser: false },
@@ -182,19 +178,9 @@ export function createDiscordAccess(directory?: string) {
     /** Bind private responses to the caller, then recheck administrator permissions at execution. */
     async handleInteraction(interaction: Interaction): Promise<boolean> {
       if (await menu.handle(interaction)) return true;
-      if (!interaction.isButton() || !/^access:(?:open|close):/.test(interaction.customId))
-        return false;
-      const token = interaction.customId.split(":")[2];
+      if (!interaction.isButton() || !interaction.customId.startsWith("access:open:")) return false;
+      const token = interaction.customId.slice("access:open:".length);
       const request = requests.get(token);
-      const owner =
-        request?.userId === interaction.user.id &&
-        request.guildId === (interaction.guildId ?? interaction.guild?.id ?? null);
-      if (interaction.customId.startsWith("access:close:") && owner) {
-        await interaction.deferUpdate();
-        requests.delete(token);
-        await interaction.deleteReply();
-        return true;
-      }
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       if (!request || request.expires <= Date.now()) {
         requests.delete(token);
@@ -210,13 +196,10 @@ export function createDiscordAccess(directory?: string) {
         });
         return true;
       }
-      if (request.opened) {
-        await interaction.editReply({
-          content: "Настройки уже открыты. Для нового меню используйте !access.",
-        });
-        return true;
-      }
-      request.opened = true;
+      requests.delete(token);
+      await interaction.message.delete().catch((error: unknown) => {
+        console.warn("Failed to remove access settings launcher:", error);
+      });
       if (!request.args.length || request.args[0] === "help") {
         await menu.open(interaction);
         return true;

@@ -1,10 +1,6 @@
 /** @file Shared Discord music message controls, including dismissal independent of playback. */
-import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  type StringSelectMenuBuilder,
-} from "discord.js";
+import { closeButton, backButton } from "../controls.ts";
+import { ActionRowBuilder, ButtonBuilder, type StringSelectMenuBuilder } from "discord.js";
 
 export type MusicMessageRow =
   ActionRowBuilder<ButtonBuilder> | ActionRowBuilder<StringSelectMenuBuilder>;
@@ -35,18 +31,8 @@ export function musicMessageComponents(
           ),
     ),
     new ActionRowBuilder<ButtonBuilder>().addComponents(
-      ...(back
-        ? [
-            new ButtonBuilder()
-              .setCustomId(back)
-              .setLabel("← Назад")
-              .setStyle(ButtonStyle.Secondary),
-          ]
-        : []),
-      new ButtonBuilder()
-        .setCustomId("music:dismiss")
-        .setEmoji("❌")
-        .setStyle(ButtonStyle.Secondary),
+      ...(back ? [backButton(back)] : []),
+      closeButton("music:dismiss"),
     ),
   ];
 }

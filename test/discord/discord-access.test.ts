@@ -74,6 +74,7 @@ function guildFixture() {
       guildId: guild.id,
       user: { id: userId },
       customId,
+      message: { delete: async () => {} },
       isButton: () => true,
       deferReply: async (payload: { flags: number }) => {
         expect(payload.flags).toBe(64);
