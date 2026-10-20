@@ -1,5 +1,5 @@
 /** @file Load and validate local JSON5 configuration and environment settings before clients start. */
-const projectDirectory = Bun.fileURLToPath(new URL("../", import.meta.url));
+import { projectDirectory } from "./core/project.ts";
 
 /** Resolve a local configuration file and parse JSON5; missing or invalid files reject startup. */
 async function readConfigFile(filename: string) {

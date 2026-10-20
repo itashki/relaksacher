@@ -58,6 +58,8 @@ export type DashboardOptions = {
   navigation?: Navigation;
   search?: SearchState;
   searchMove?: SearchMove;
+  /** Presence enables the restart button; true indicates a pending restart. */
+  restarting?: boolean;
 };
 const panelNames: Record<PanelId, string> = {
   answer: "Ответ",
@@ -89,6 +91,7 @@ export function buildDashboard(
     navigation = createNavigation(),
     search = createSearch(),
     searchMove,
+    restarting,
   }: DashboardOptions = {},
 ) {
   const width = Math.max(1, Math.floor(columns) - 1);
@@ -104,7 +107,20 @@ export function buildDashboard(
     Bun.sliceAnsi(clean(value).replace(/\n/g, " "), 0, Math.max(1, size));
   const add = (value = "", code = "0") => lines.push(paint(fit(value), code));
   const current = state.current ?? state.last;
-  add(" РЕЛАКСАЧЕР / операторская панель", "1;36");
+  let restartRegion: { x: number; y: number; width: number; height: number } | undefined;
+  if (restarting !== undefined) {
+    const label = fit(restarting ? "[Рестарт…]" : "[R Рестарт]");
+    const titleWidth = Math.max(0, width - Bun.stringWidth(label) - 1);
+    const title = titleWidth ? fit(" РЕЛАКСАЧЕР / операторская панель", titleWidth) : "";
+    const padding = width - Bun.stringWidth(title) - Bun.stringWidth(label);
+    add(`${title}${" ".repeat(padding)}${label}`, "1;36");
+    restartRegion = {
+      x: width - Bun.stringWidth(label) + 1,
+      y: 1,
+      width: Bun.stringWidth(label),
+      height: 1,
+    };
+  } else add(" РЕЛАКСАЧЕР / операторская панель", "1;36");
   if (height > 3)
     add(
       state.current
@@ -240,6 +256,7 @@ export function buildDashboard(
     viewports,
     regions,
     available,
+    restartRegion,
     searchResult: { index: matchIndex, row: matchRow, total: searched?.matches.length ?? 0 },
   };
 }
@@ -252,7 +269,9 @@ export function createTui({
   output = process.stdout,
   consoleTarget = console,
   onInterrupt = () => process.emit("SIGINT"),
+  onRestart,
 }: {
+  onRestart?: () => Promise<void>;
   music?: MusicStatusSource;
   assistant: import("../../types.ts").Assistant;
   input?: NodeJS.ReadableStream & {
@@ -272,6 +291,8 @@ export function createTui({
   let searchMove: SearchMove | undefined;
   let viewports: Partial<Record<PanelId, Viewport>> = {};
   let regions: PanelRegion[] = [];
+  let restartRegion: ReturnType<typeof buildDashboard>["restartRegion"];
+  let restarting = false;
   const original = new Map<
     "log" | "info" | "warn" | "error" | "debug",
     (...args: unknown[]) => void
@@ -296,6 +317,7 @@ export function createTui({
       navigation,
       search,
       searchMove,
+      restarting: onRestart ? restarting : undefined,
     });
     if (searchMove && search.panel && rendered.searchResult.row !== undefined) {
       navigation.positions[search.panel] = rendered.searchResult.row;
@@ -304,6 +326,7 @@ export function createTui({
     searchMove = undefined;
     viewports = rendered.viewports;
     regions = rendered.regions;
+    restartRegion = rendered.restartRegion;
     for (const [id, view] of Object.entries(viewports)) {
       if (navigation.positions[id as PanelId] !== "tail")
         navigation.positions[id as PanelId] = view.start;
@@ -356,12 +379,43 @@ export function createTui({
     };
   }
   output.write(`\x1b[?1049h\x1b[?25l${enableMouse}`);
+  const requestRestart = () => {
+    if (!onRestart || restarting || closed) return;
+    restarting = true;
+    notice =
+      "Рестарт: ожидаю завершения запросов. Новые сообщения будут обработаны после рестарта.";
+    dirty = true;
+    void Promise.resolve()
+      .then(onRestart)
+      .then(
+        () => {
+          if (!closed) notice = "Рестарт завершён.";
+        },
+        (error) => {
+          if (!closed) notice = `Ошибка рестарта: ${String(error)}`;
+        },
+      )
+      .finally(() => {
+        restarting = false;
+        dirty = true;
+      });
+  };
   // readline requires a Node stream; feed it only bytes which are not mouse reports.
   const keyboard = new PassThrough();
   emitKeypressEvents(keyboard);
   const mouse = createMouseDecoder(
     (event) => {
       if (dirty) draw();
+      if (
+        event.kind === "click" &&
+        restartRegion &&
+        event.y === restartRegion.y &&
+        event.x >= restartRegion.x &&
+        event.x < restartRegion.x + restartRegion.width
+      ) {
+        requestRestart();
+        return;
+      }
       const id = panelAt(regions, event.x, event.y);
       if (!id) return;
       if (id !== navigation.selected) search = createSearch();
@@ -435,13 +489,15 @@ export function createTui({
         viewports[navigation.selected],
         key.name === "j" ? "down" : key.name === "k" ? "up" : key.name,
       );
+    } else if (key.name === "r" && !key.ctrl && !key.meta) {
+      requestRestart();
     } else if (key.name === "s" || text === "s" || text === "S") {
       notice = assistant.stopCurrentGeneration()
         ? "Остановка запрошена."
         : "Нет активной генерации.";
     } else if (text === "?") {
       notice =
-        "Tab/Shift+Tab, h/l — панели; q — выход; j/k — вниз/вверх; / — поиск; n/N — совпадения; Enter — развернуть; мышь — клик/скролл.";
+        "Tab/Shift+Tab, h/l — панели; q — выход; R — рестарт; j/k — вниз/вверх; / — поиск; n/N — совпадения; Enter — развернуть; мышь — клик/скролл.";
     }
     dirty = true;
   };

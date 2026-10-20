@@ -1,6 +1,8 @@
 /** @file Synthesize Silero speech as a live PCM stream or a bounded OGG/Opus voice recording. */
 import { createMusicPipeline } from "../music/process.ts";
 import PQueue from "p-queue";
+import { projectDirectory } from "../../core/project.ts";
+import { resolvePath } from "../../core/paths.ts";
 import { normalizeSpeechText } from "../../core/speech/text.ts";
 /** Local CPU Silero runtime and independent Russian/English models and speaker IDs. */
 export type SileroOptions = {
@@ -64,7 +66,7 @@ export function speechSource(text: string, options: SpeechOptions, requestedSpea
   return {
     command: [
       silero.python,
-      Bun.fileURLToPath(new URL("../../../scripts/silero-tts.py", import.meta.url)),
+      resolvePath("scripts/silero-tts.py", projectDirectory),
       "--model",
       english ? silero.englishModel : silero.model,
       "--speaker",

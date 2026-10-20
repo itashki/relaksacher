@@ -7,18 +7,23 @@ export function createCliControls({
   input,
   output,
   music,
+  onRestart,
 }: {
+  /** Reload bot code after accepted requests finish, preserving live messenger connections. */
+  onRestart?: () => Promise<void>;
   music?: import("../../core/music/status.ts").MusicStatusSource;
   assistant: import("../../types.ts").Assistant;
   input?: ReadableStream<Uint8Array>;
   output?: Pick<Bun.FileSink, "write">;
 }) {
   if (!input && !output && process.stdin.isTTY && process.stdout.isTTY)
-    return createTui({ assistant, music });
+    return createTui({ assistant, music, onRestart });
   const reader = (input ?? Bun.stdin.stream()).getReader();
   const sink = output ? null : Bun.stdout.writer();
   const writer = output ?? sink;
-  const help = "CLI: stop — остановить текущую генерацию; help — показать команды.\n";
+  const help =
+    "CLI: stop — остановить текущую генерацию; restart — мягкий рестарт; help — показать команды.\n";
+  let restarting = false;
   let closed = false;
   const write = (text: string) => {
     writer.write(text);
@@ -32,6 +37,25 @@ export function createCliControls({
           ? "Остановка генерации запрошена. Бот продолжает работать.\n"
           : "Нет активной генерации для остановки.\n",
       );
+    } else if (value === "restart") {
+      if (!onRestart) write("Рестарт недоступен в этом режиме.\n");
+      else if (!restarting) {
+        restarting = true;
+        write("Рестарт запрошен. Ожидаю завершения принятых запросов.\n");
+        void Promise.resolve()
+          .then(onRestart)
+          .then(
+            () => {
+              if (!closed) write("Рестарт завершён.\n");
+            },
+            (error) => {
+              if (!closed) write(`Не удалось перезапустить бота: ${String(error)}\n`);
+            },
+          )
+          .finally(() => {
+            restarting = false;
+          });
+      }
     } else if (value === "help") {
       write(help);
     } else if (value) {

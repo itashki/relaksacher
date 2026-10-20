@@ -67,3 +67,38 @@ test("closing CLI cancels input and ignores unfinished commands", async () => {
   expect(cancelled).toBe(true);
   expect(calls).toBe(0);
 });
+
+test("CLI restart leaves input responsive, coalesces repeats, and reports build failures", async () => {
+  const input = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = input.writable.getWriter();
+  let text = "",
+    calls = 0;
+  const pending = Promise.withResolvers<void>();
+  const controls = createCliControls({
+    input: input.readable,
+    output: {
+      write(value: string) {
+        text += value;
+        return value.length;
+      },
+    },
+    assistant: { stopCurrentGeneration: () => false },
+    onRestart: () => {
+      calls++;
+      return pending.promise;
+    },
+  });
+  try {
+    await writer.write(new TextEncoder().encode("restart\nrestart\nhelp\n"));
+    await Bun.sleep(0);
+    expect(calls).toBe(1);
+    expect(text.match(/CLI:/g)).toHaveLength(2);
+    pending.reject(new Error("broken build"));
+    await Bun.sleep(0);
+    expect(text).toContain("broken build");
+    await writer.close();
+    if ("done" in controls) await controls.done;
+  } finally {
+    controls.close();
+  }
+});

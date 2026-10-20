@@ -1,4 +1,5 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import { buildStopRow } from "./controls.ts";
 import { createDiscordDelivery } from "./delivery.ts";
 import { discordSpeechText } from "./speech-text.ts";
 import { createDiscordAccess, isAccessCommand } from "./access/index.ts";
@@ -14,9 +15,6 @@ import { attachImages, downloadImage } from "../shared/images.ts";
 import {
   AttachmentBuilder,
   Collection,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   Client,
   Events,
   GatewayIntentBits,
@@ -37,6 +35,7 @@ export function createDiscordBot({
   generateVoice,
   memoryDirectory,
   onMusicStatus,
+  externalClient,
   loadImage = (url) =>
     downloadImage(url, { allowedHosts: ["cdn.discordapp.com", "media.discordapp.net"] }),
 }: {
@@ -49,16 +48,20 @@ export function createDiscordBot({
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   memoryDirectory: string;
   onMusicStatus?: (statuses: import("../../core/music/status.ts").MusicStatus[]) => void;
+  /** Keep the host gateway connected across a managed runtime restart. */
+  externalClient?: Client;
   loadImage?: (arg0: string) => Promise<string>;
 }) {
-  const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.GuildVoiceStates,
-      GatewayIntentBits.MessageContent,
-    ],
-  });
+  const client =
+    externalClient ??
+    new Client({
+      intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildVoiceStates,
+        GatewayIntentBits.MessageContent,
+      ],
+    });
 
   const tts = createDiscordTts({
     silero: config.silero,
@@ -72,28 +75,14 @@ export function createDiscordBot({
   // id запроса -> состояние активной генерации
   const activeGenerations = new Map();
 
-  /**
-   * Create the stop button associated with a request.
-   * @param generationId Request identifier.
-   * @returns Button row.
-   */
-  function buildStopRow(generationId: string) {
-    return new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`${STOP_PREFIX}${generationId}`)
-        .setLabel("Остановить генерацию")
-        .setEmoji("⏹️")
-        .setStyle(ButtonStyle.Secondary),
-    );
-  }
-
-  client.once(Events.ClientReady, () => {
-    client.user.setPresence({ status: "online" });
-    console.log(`Logged in as ${client.user.tag}`);
-    console.log("Ollama model:", config.OLLAMA_MODEL);
-    console.log("Ollama URL:", config.OLLAMA_URL);
-    console.log("Memory dir:", memoryDirectory);
-  });
+  if (!externalClient)
+    client.once(Events.ClientReady, () => {
+      client.user.setPresence({ status: "online" });
+      console.log(`Logged in as ${client.user.tag}`);
+      console.log("Ollama model:", config.OLLAMA_MODEL);
+      console.log("Ollama URL:", config.OLLAMA_URL);
+      console.log("Memory dir:", memoryDirectory);
+    });
 
   const batchRoom = (message: import("discord.js").Message) =>
     message.channelId ?? message.channel?.id ?? "dm";
@@ -158,14 +147,17 @@ export function createDiscordBot({
       generation.stop();
     }
     const musicStopped = music.stop();
-    shutdownTask = Promise.all([tts.stop(), musicStopped, access.close(), client.destroy()]).then(
-      () => {},
-    );
+    shutdownTask = Promise.all([
+      tts.stop(),
+      musicStopped,
+      access.close(),
+      externalClient ? undefined : client.destroy(),
+    ]).then(() => {});
     return shutdownTask;
   }
 
   // Обработка нажатия кнопки «Остановить генерацию»
-  client.on(Events.InteractionCreate, async (interaction) => {
+  async function handleInteraction(interaction: import("discord.js").Interaction) {
     if (await access.handleInteraction(interaction)) return;
     if (
       (interaction.isButton() ||
@@ -238,9 +230,9 @@ export function createDiscordBot({
 
     generation.stop();
     await interaction.deferUpdate().catch(() => {});
-  });
+  }
 
-  client.on(Events.MessageCreate, async (message) => {
+  async function receiveMessage(message: import("discord.js").Message) {
     if (!client.user || shutdownTask) return;
     if (message.author.bot) {
       batches.flush(batchRoom(message));
@@ -260,7 +252,12 @@ export function createDiscordBot({
       );
     }
     await batches.push(message);
-  });
+  }
+
+  if (!externalClient) {
+    client.on(Events.InteractionCreate, handleInteraction);
+    client.on(Events.MessageCreate, receiveMessage);
+  }
 
   async function handleMessage(message: import("discord.js").Message) {
     if (message.author.bot) return;
@@ -587,5 +584,11 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
     }
   }
 
-  return { client, start: () => client.login(config.token), stop: () => shutdown("stop") };
+  return {
+    client,
+    receiveMessage,
+    handleInteraction,
+    start: () => (externalClient ? Promise.resolve(client.token) : client.login(config.token)),
+    stop: () => shutdown("stop"),
+  };
 }
