@@ -1,4 +1,10 @@
 /** @file Dependency-free ANSI operator dashboard with independent scrollable panels. */
+import {
+  createStatistics,
+  type RequestStatistics,
+  type StatisticsSource,
+} from "../../core/statistics.ts";
+import { statisticsLines } from "./statistics.ts";
 import type { MusicStatus, MusicStatusSource } from "../../core/music/status.ts";
 import { PassThrough } from "node:stream";
 import {
@@ -49,6 +55,7 @@ const wrappedLines = (content: string[], width: number) =>
 
 /** Terminal dimensions, local content and independent navigation state for one render. */
 export type DashboardOptions = {
+  statistics?: RequestStatistics;
   columns?: number;
   rows?: number;
   logs?: string[];
@@ -92,6 +99,7 @@ export function buildDashboard(
     search = createSearch(),
     searchMove,
     restarting,
+    statistics,
   }: DashboardOptions = {},
 ) {
   const width = Math.max(1, Math.floor(columns) - 1);
@@ -129,6 +137,11 @@ export function buildDashboard(
       state.current ? "1;32" : "2",
     );
   if (current && height > 7) add(` ${current.author} / ${current.scope}`, "36");
+  if (statistics && height > 7)
+    for (const line of statisticsLines(statistics)
+      .flatMap((line) => wrapLine(line, width))
+      .slice(0, Math.max(0, height - lines.length - 4)))
+      add(line, "2");
   const content: Record<PanelId, string[]> = {
     prompt: [String(current?.prompt || "Запрос появится здесь…")],
     thinking: [current?.thinking || "Пока нет мыслей…"],
@@ -265,6 +278,7 @@ export function buildDashboard(
 export function createTui({
   assistant,
   music,
+  statistics = createStatistics(),
   input = process.stdin,
   output = process.stdout,
   consoleTarget = console,
@@ -272,6 +286,7 @@ export function createTui({
   onRestart,
 }: {
   onRestart?: () => Promise<void>;
+  statistics?: StatisticsSource;
   music?: MusicStatusSource;
   assistant: import("../../types.ts").Assistant;
   input?: NodeJS.ReadableStream & {
@@ -300,12 +315,18 @@ export function createTui({
   let notice = "";
   let closed = false;
   let dirty = true;
+  let statisticsVersion = "";
   const wasRaw = input.isRaw ?? false;
   // A fresh stdin has readableFlowing=null but isPaused()=false. Restoring only
   // isPaused leaves the read started by resume() alive after the TUI closes.
   const wasFlowing = input.readableFlowing === true;
   const draw = () => {
-    if (closed || !dirty) return;
+    if (closed) return;
+    const snapshot = statistics.snapshot();
+    const version = `${Math.floor(snapshot.uptimeMs / 1000)}:${snapshot.total}`;
+    if (version !== statisticsVersion) dirty = true;
+    statisticsVersion = version;
+    if (!dirty) return;
     dirty = false;
     const rendered = buildDashboard(state, {
       columns: output.columns,
@@ -314,6 +335,7 @@ export function createTui({
       notice,
       color: true,
       music: musicState,
+      statistics: snapshot,
       navigation,
       search,
       searchMove,

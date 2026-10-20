@@ -1,4 +1,5 @@
 /** @file Bridge Telegram polling, reply-chain caching, streamed messages and cancellation buttons. */
+import { recordTelegramRequest, telegramRecorder } from "../shared/request-statistics.ts";
 import { handleTelegramRoll } from "../shared/dice.ts";
 import {
   splitText,
@@ -26,10 +27,12 @@ export function createTelegramBot({
   assistant,
   transcribe,
   generateVoice,
+  onRequest,
   api = createTelegramApi(config.telegramToken, fetch, {
     timeoutMs: config.telegramTimeoutMs ?? 60000,
   }),
 }: {
+  onRequest?: import("../../core/statistics.ts").RecordRequest;
   config: import("../../types.ts").AppConfig;
   assistant: import("../../types.ts").Assistant;
   generateVoice?: (
@@ -120,6 +123,13 @@ export function createTelegramBot({
    * @returns Resolves after session execution and UI cleanup.
    */
   async function handleMessage(message: import("@grammyjs/types").Message) {
+    const recordRequest = telegramRecorder(message, onRequest);
+    recordTelegramRequest(
+      message.text ?? "",
+      Boolean(transcribe && message.voice),
+      me.username,
+      recordRequest,
+    );
     if (message.reply_to_message) {
       const images = imageFiles(message);
       message = {
@@ -423,6 +433,7 @@ export function createTelegramBot({
       }
       if (state.final) finalized = true;
     }
+    recordRequest("model");
     const session = assistant.createSession({
       conversation,
       background: [],
@@ -524,7 +535,15 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
         batches.flush(roomKey(update.message));
         return;
       }
-      if (await handleTelegramRoll(update.message, me.username, api)) return;
+      if (
+        await handleTelegramRoll(
+          update.message,
+          me.username,
+          api,
+          telegramRecorder(update.message, onRequest),
+        )
+      )
+        return;
       await batches.push(update.message);
     }
   }

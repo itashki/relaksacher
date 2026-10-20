@@ -1,6 +1,10 @@
 /** @file Persistent operator/transport host with drainable, replaceable application code. */
 import { createWhisperServer } from "./src/core/speech/whisper-server.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
+import { createRequestLog } from "./src/core/request-log.ts";
+import { resolvePath } from "./src/core/paths.ts";
+import { projectDirectory } from "./src/core/project.ts";
+import { createStatistics } from "./src/core/statistics.ts";
 import { createMusicMonitor } from "./src/core/music/status.ts";
 import { createAssistantBridge } from "./src/core/assistant-bridge.ts";
 import { createRestartController, createRestartRouter } from "./src/core/restart.ts";
@@ -16,6 +20,14 @@ import type { RuntimeEvent } from "./src/runtime/contracts.ts";
 const initial = await loadApplication();
 const config = initial.config;
 const music = createMusicMonitor();
+const statistics = createStatistics();
+const requestLog = createRequestLog(
+  resolvePath(Bun.env.REQUEST_LOG_FILE || "logs/requests.jsonl", projectDirectory),
+);
+const recordRequest: import("./src/core/statistics.ts").RecordRequest = (feature, context) => {
+  statistics.record(feature);
+  requestLog.record(feature, context);
+};
 let draining = false;
 let replacing = false;
 const transports = createTransports(config, (event, cancellation) => {
@@ -28,7 +40,12 @@ const transports = createTransports(config, (event, cancellation) => {
   }
   return router.dispatch(event);
 });
-let application = initial.module.createApplication(config, transports.connections, music.publish);
+let application = initial.module.createApplication(
+  config,
+  transports.connections,
+  music.publish,
+  recordRequest,
+);
 const bridge = createAssistantBridge(application.assistant);
 const router = createRestartRouter<RuntimeEvent>((event) => application.handle(event));
 const restart = createRestartController({
@@ -55,7 +72,12 @@ const restart = createRestartController({
     },
   },
   replace: async ({ module, config: nextConfig }) => {
-    const next = module.createApplication(nextConfig, transports.connections, music.publish);
+    const next = module.createApplication(
+      nextConfig,
+      transports.connections,
+      music.publish,
+      recordRequest,
+    );
     await application.dispose().catch((error) => console.error("Runtime cleanup failed:", error));
     if (shutdown.started) {
       await next.dispose();
@@ -70,6 +92,7 @@ const restart = createRestartController({
 const cli = process.stdin.isTTY
   ? createCliControls({
       assistant: bridge.assistant,
+      statistics,
       music: config.adapters.includes("discord") ? music : undefined,
       onRestart: () => restart.restart(),
     })
@@ -85,7 +108,10 @@ const shutdown = createShutdown({
     () => cli?.close(),
     () => bridge.close(),
     () => process.stdin.pause(),
-    () => application.dispose(),
+    async () => {
+      await application.dispose();
+      await requestLog.close();
+    },
     () => transports.stop(),
     () => whisper.stop(),
   ],

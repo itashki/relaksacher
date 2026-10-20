@@ -1,4 +1,5 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import * as requests from "../shared/request-statistics.ts";
 import { handleDiscordRoll } from "../shared/dice.ts";
 import { buildStopRow } from "./controls.ts";
 import { createDiscordDelivery } from "./delivery.ts";
@@ -36,23 +37,11 @@ export function createDiscordBot({
   generateVoice,
   memoryDirectory,
   onMusicStatus,
+  onRequest,
   externalClient,
   loadImage = (url) =>
     downloadImage(url, { allowedHosts: ["cdn.discordapp.com", "media.discordapp.net"] }),
-}: {
-  config: import("../../types.ts").AppConfig;
-  assistant: import("../../types.ts").Assistant;
-  generateVoice?: (
-    text: string,
-    speaker?: string,
-  ) => Promise<import("../../types.ts").VoiceRecording>;
-  transcribe?: (load: () => Promise<Blob>) => Promise<string>;
-  memoryDirectory: string;
-  onMusicStatus?: (statuses: import("../../core/music/status.ts").MusicStatus[]) => void;
-  /** Keep the host gateway connected across a managed runtime restart. */
-  externalClient?: Client;
-  loadImage?: (arg0: string) => Promise<string>;
-}) {
+}: import("./options.ts").DiscordBotOptions) {
   const client =
     externalClient ??
     new Client({
@@ -159,6 +148,9 @@ export function createDiscordBot({
 
   // Обработка нажатия кнопки «Остановить генерацию»
   async function handleInteraction(interaction: import("discord.js").Interaction) {
+    const recordRequest = requests.discordRecorder(interaction, onRequest);
+    if ("customId" in interaction)
+      requests.recordDiscordInteraction(interaction.customId, recordRequest);
     if (await access.handleInteraction(interaction)) return;
     if (
       (interaction.isButton() ||
@@ -234,6 +226,7 @@ export function createDiscordBot({
   }
 
   async function receiveMessage(message: import("discord.js").Message) {
+    const recordRequest = requests.discordRecorder(message, onRequest);
     if (!client.user || shutdownTask) return;
     if (message.author.bot) {
       batches.flush(batchRoom(message));
@@ -242,6 +235,7 @@ export function createDiscordBot({
     if (/^\s*!(?:tts|озвучь)\s+(?:stop|стоп)\s*$/iu.test(message.content ?? "")) {
       const denial = await access.denial(message.guild, message.author.id, "tts", message.guildId);
       if (denial) {
+        recordRequest("tts");
         await message.reply({
           content: denial,
           allowedMentions: { parse: [], repliedUser: false },
@@ -252,7 +246,7 @@ export function createDiscordBot({
         /^\s*!(?:tts|озвучь)(?:\s|$)/iu.test(entry.content ?? ""),
       );
     }
-    if (await handleDiscordRoll(message)) return;
+    if (await handleDiscordRoll(message, recordRequest)) return;
     await batches.push(message);
   }
 
@@ -262,9 +256,15 @@ export function createDiscordBot({
   }
 
   async function handleMessage(message: import("discord.js").Message) {
+    const recordRequest = requests.discordRecorder(message, onRequest);
     if (message.author.bot) return;
 
     if (!client.user) return;
+    requests.recordDiscordRequest(
+      message.content ?? "",
+      Boolean(transcribe && message.flags?.has(MessageFlags.IsVoiceMessage)),
+      recordRequest,
+    );
     if (await access.handle(message)) return;
     const feature = /^\s*!(?:voice|голос)(?:\s|$)/iu.test(message.content ?? "")
       ? "voice"
@@ -491,6 +491,7 @@ export function createDiscordBot({
           },
     );
     await attachImages(modelConversation, conversation.map(imageFiles), loadImage);
+    recordRequest("model");
     const session = assistant.createSession({
       assistantName: "Релаксачер",
       background: [],

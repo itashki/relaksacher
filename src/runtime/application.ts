@@ -22,6 +22,7 @@ export function createApplication(
   config: AppConfig,
   transports: RuntimeTransports,
   onMusicStatus: Parameters<typeof createDiscordBot>[0]["onMusicStatus"],
+  onRequest?: import("../core/statistics.ts").RecordRequest,
 ) {
   const voice = createVoiceSynthesizer({ silero: config.silero });
   const transcribe = createTranscriber({
@@ -66,6 +67,7 @@ export function createApplication(
     ? createDiscordBot({
         config,
         assistant,
+        onRequest,
         transcribe,
         generateVoice: voice.generate,
         memoryDirectory,
@@ -77,6 +79,7 @@ export function createApplication(
     ? createTelegramBot({
         config,
         assistant,
+        onRequest,
         transcribe,
         generateVoice: voice.generate,
         api: transports.telegram,

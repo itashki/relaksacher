@@ -7,17 +7,19 @@ export function createCliControls({
   input,
   output,
   music,
+  statistics,
   onRestart,
 }: {
   /** Reload bot code after accepted requests finish, preserving live messenger connections. */
   onRestart?: () => Promise<void>;
+  statistics?: import("../../core/statistics.ts").StatisticsSource;
   music?: import("../../core/music/status.ts").MusicStatusSource;
   assistant: import("../../types.ts").Assistant;
   input?: ReadableStream<Uint8Array>;
   output?: Pick<Bun.FileSink, "write">;
 }) {
   if (!input && !output && process.stdin.isTTY && process.stdout.isTTY)
-    return createTui({ assistant, music, onRestart });
+    return createTui({ assistant, music, statistics, onRestart });
   const reader = (input ?? Bun.stdin.stream()).getReader();
   const sink = output ? null : Bun.stdout.writer();
   const writer = output ?? sink;

@@ -3,10 +3,14 @@ import { parseRollCommand, rollDice } from "../../core/dice.ts";
 import { splitMessage } from "../discord/message.ts";
 
 /** Reply to a Discord dice command and report whether it was consumed. */
-export async function handleDiscordRoll(message: import("discord.js").Message) {
+export async function handleDiscordRoll(
+  message: import("discord.js").Message,
+  onRequest?: import("../../core/statistics.ts").RecordRequest,
+) {
   const command = parseRollCommand(message.content ?? "");
   if (!command) return false;
   if (command.username) return true;
+  onRequest?.("roll");
   for (const content of splitMessage(rollDice(command.argument), 1900))
     await message.reply({ content, allowedMentions: { parse: [], repliedUser: false } });
   return true;
@@ -17,10 +21,12 @@ export async function handleTelegramRoll(
   message: import("@grammyjs/types").Message,
   username: string,
   api: import("../../types.ts").TelegramApi,
+  onRequest?: import("../../core/statistics.ts").RecordRequest,
 ) {
   const command = parseRollCommand(message.text ?? "");
   if (!command || !message.from || message.from.is_bot) return false;
   if (command.username && command.username.toLowerCase() !== username?.toLowerCase()) return true;
+  onRequest?.("roll");
   for (const text of splitMessage(rollDice(command.argument), 1900))
     await api("sendMessage", {
       chat_id: message.chat.id,

@@ -313,6 +313,8 @@ test("real TUI mouse selects and scrolls the pointed panel and disables tracking
   const module = Bun.resolveSync("../../src/adapters/terminal/tui.ts", import.meta.dir);
   const script = `
     import { createTui, buildDashboard } from ${JSON.stringify(module)};
+    import { createStatistics } from ${JSON.stringify(Bun.resolveSync("../../src/core/statistics.ts", import.meta.dir))};
+    const statistics = createStatistics();
     const target = { log() {}, info() {}, warn() {}, error() {}, debug() {} };
     const rows = Array.from({ length: 80 }, (_, i) => String(i).padStart(3, "0"));
     const state = { current: { id: 1, text: rows.map((i) => "ANSWER-" + i).join("\\n"), thinking: "thought" }, queue: [] };
@@ -323,7 +325,7 @@ test("real TUI mouse selects and scrolls the pointed panel and disables tracking
     } });
     for (const log of logs) target.log(log);
     process.once("SIGINT", () => { ui.close(); void Bun.write(Bun.stdout, "CLOSED"); });
-    await Bun.write(Bun.stdout, "REGIONS" + JSON.stringify(buildDashboard(state, { logs }).regions) + "READY");
+    await Bun.write(Bun.stdout, "REGIONS" + JSON.stringify(buildDashboard(state, { logs, statistics: statistics.snapshot() }).regions) + "READY");
   `;
   let rendered = "";
   const child = Bun.spawn([Bun.argv[0], "-e", script], {
@@ -368,7 +370,11 @@ test("real TUI mouse selects and scrolls the pointed panel and disables tracking
   await waitFor(() => frame().includes("LOG-000"));
   child.terminal.resize(40, 12);
   await waitFor(() => frame().split(/\r+\n/).length === 12);
-  child.terminal.write("\x1b[<65;2;5M");
+  const resizedLogsY =
+    Bun.stripANSI(frame())
+      .split(/\r+\n/)
+      .findIndex((line) => line.includes("▶ Логи")) + 1;
+  child.terminal.write(`\x1b[<65;2;${resizedLogsY}M`);
   await waitFor(() => frame().includes("LOG-003") && !frame().includes("LOG-000"));
   child.terminal.write("\x03");
   await waitFor(() => rendered.includes("CLOSED"));
