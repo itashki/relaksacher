@@ -33,6 +33,7 @@ async function menuFixture() {
   const publicReplies: Payload[] = [];
   const privateReplies: Payload[] = [];
   const acknowledgements: number[] = [];
+  const deleted: string[] = [];
   await bot.client.listeners(Events.MessageCreate)[0]({
     content: "!access",
     author: {
@@ -64,6 +65,9 @@ async function menuFixture() {
         expect(flags).toBe(64);
       },
       deferUpdate: async () => {},
+      deleteReply: async () => {
+        deleted.push(customId);
+      },
       editReply: async (payload: Payload) => {
         privateReplies.push(payload);
       },
@@ -85,6 +89,7 @@ async function menuFixture() {
   return {
     directory,
     publicReplies,
+    deleted,
     privateReplies,
     acknowledgements,
     launchId,
@@ -171,4 +176,29 @@ test("failed saves keep the previous policy and report the error only in the pri
   expect(ui.latest().components).toEqual([]);
   expect(await createDiscordAccessStore(ui.directory).get("10")).toEqual({});
   expect(ui.publicReplies).toHaveLength(1);
+});
+
+test("only the caller can dismiss the public launcher, including after opening the private menu", async () => {
+  const ui = await menuFixture();
+  const closeId = ui.publicReplies[0].components[0].components[1].data.custom_id;
+  expect(closeId).toContain("access:close:");
+  await ui.event(closeId, "button", [], "2");
+  expect(ui.deleted).toEqual([]);
+  await ui.event(ui.launchId);
+  await ui.event(closeId);
+  expect(ui.deleted).toEqual([closeId]);
+  await ui.event(ui.launchId);
+  expect(ui.latest().content).toContain("устарела");
+});
+
+test("private Close deletes the menu and discards the draft even after administrator rights are lost", async () => {
+  const ui = await menuFixture();
+  await ui.event(ui.launchId);
+  await ui.event(ui.control("feature"), "string", ["model"]);
+  await ui.event(ui.control("mode"), "string", ["whitelist"]);
+  const closeId = ui.control("close");
+  ui.revokeAdmin();
+  await ui.event(closeId);
+  expect(ui.deleted).toEqual([closeId]);
+  expect(await createDiscordAccessStore(ui.directory).get("10")).toEqual({});
 });

@@ -193,6 +193,11 @@ export function createDiscordAccessMenu(store: Store) {
       session.busy = true;
       try {
         await interaction.deferUpdate();
+        if (action === "close") {
+          sessions.delete(token);
+          await interaction.deleteReply();
+          return true;
+        }
         if (
           !interaction.guild ||
           !(await interaction.guild.members.fetch(interaction.user.id)).permissions.has(
@@ -205,11 +210,6 @@ export function createDiscordAccessMenu(store: Store) {
         session.expires = Date.now() + 600_000;
         let settings = await store.get(session.guildId);
         let notice = "";
-        if (action === "close") {
-          sessions.delete(token);
-          await interaction.editReply({ content: "Настройки закрыты.", components: [] });
-          return true;
-        }
         if (
           action === "feature" &&
           interaction.isStringSelectMenu() &&
