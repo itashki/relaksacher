@@ -6,7 +6,50 @@ import {
   startQueueAt,
   advanceQueue,
   shuffled,
+  replaceUpcomingQueue,
 } from "../../src/core/music/queue.ts";
+
+test("switching keeps the current song once and replaces pending and repeat selections", () => {
+  for (const repeat of ["off", "track", "all"] as const) {
+    for (const shuffle of [false, true]) {
+      const queue = createPlaybackQueue();
+      queue.repeat = repeat;
+      queue.shuffle = shuffle;
+      startQueue(queue, ["old"]);
+      advanceQueue(queue);
+      queue.pending = ["old-next"];
+      queue.failedTracks.add("new");
+      replaceUpcomingQueue(queue, ["new", "new"]);
+      expect(queue.current).toBe("old");
+      expect(queue.pending).toEqual(["new", "new"]);
+      expect(queue.cycle).toEqual(["new", "new"]);
+      expect(queue.failedTracks.size).toBe(0);
+      expect(advanceQueue(queue)).toBe("new");
+      expect(advanceQueue(queue, "skip")).toBe("new");
+      expect(advanceQueue(queue, "skip")).toBe(repeat === "all" ? "new" : "");
+    }
+  }
+});
+
+test("repeated switches, empty selections, skips and failures leave no old queue entries", () => {
+  for (const reason of ["finished", "skip", "failed"] as const) {
+    const queue = createPlaybackQueue();
+    queue.repeat = "track";
+    startQueue(queue, ["old", "old-next"]);
+    advanceQueue(queue);
+    replaceUpcomingQueue(queue, ["intermediate"]);
+    replaceUpcomingQueue(queue, ["new"]);
+    expect(advanceQueue(queue, reason)).toBe("new");
+    expect(advanceQueue(queue)).toBe("new");
+    replaceUpcomingQueue(queue, []);
+    expect(advanceQueue(queue)).toBe("");
+    queue.repeat = "all";
+    expect(advanceQueue(queue)).toBe("");
+    startQueue(queue, ["restart"]);
+    expect(queue.transitionPending).toBe(false);
+    expect(advanceQueue(queue)).toBe("restart");
+  }
+});
 
 test("repeat track replays on completion while skip and failure advance", () => {
   const queue = createPlaybackQueue();

@@ -41,6 +41,23 @@ test("prefixes and command words can be freely mixed in either language", () => 
     expect(parseMusicCommand(input)).toBeNull();
 });
 
+test("bare links use add while preserving URLs and validation arguments", () => {
+  for (const prefix of ["music", "музыка", "MUSIC"]) {
+    for (const argument of [
+      "https://youtu.be/AbCdEfGhIjK?list=PL_Test&index=2",
+      "http://soundcloud.com/Artist/Track",
+      "<https://youtu.be/AbCdEfGhIjK>",
+      "HTTPS://youtu.be/AbCdEfGhIjK",
+      "https://youtu.be/AbCdEfGhIjK extra",
+    ]) {
+      expect(parseMusicCommand(`  !${prefix} ${argument}  `)).toEqual(
+        parseMusicCommand(`!${prefix} add ${argument}`),
+      );
+    }
+  }
+  expect(parseMusicCommand("!music unknown")).toEqual({ command: "unknown", argument: "" });
+});
+
 test("mixed aliases edit the same stored playlists and bilingual help fits Discord messages", async () => {
   const directory = await temporaryDirectory("music-aliases-");
   const music = createDiscordMusic(directory);

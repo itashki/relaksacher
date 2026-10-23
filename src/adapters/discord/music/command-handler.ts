@@ -1,6 +1,12 @@
 /** @file Serialize guild music commands and dispatch playlist or playback operations. */
 import { showMusicLibrary } from "./library-view.ts";
-import { startQueue, startQueueAt, shuffled, type RepeatMode } from "../../../core/music/queue.ts";
+import {
+  startQueue,
+  startQueueAt,
+  replaceUpcomingQueue,
+  shuffled,
+  type RepeatMode,
+} from "../../../core/music/queue.ts";
 import { formatMusicTrack } from "../../music/metadata.ts";
 import { readMusicLibrary, writeMusicLibrary, type MusicLibrary } from "../../music/library.ts";
 import { resolvePath } from "../../../core/paths.ts";
@@ -187,8 +193,13 @@ export function createMusicCommandHandler(runtime: MusicRuntime) {
         /** Commit the complete library before exposing a new selected playlist to other commands. */
         const saveLibrary = async (library: MusicLibrary) => {
           await writeMusicLibrary(file, library);
+          const switched = s.library.activeId !== library.activeId;
           s.library = library;
           s.tracks = library.playlists.find((item) => item.id === library.activeId)!.tracks;
+          if (switched && s.connection) {
+            replaceUpcomingQueue(s, s.tracks);
+            if (!s.current) next(s, (text) => void reply(text).catch(() => {}));
+          }
         };
         let destinationId = message.targetPlaylistId;
         if (command === "playlist" && /^(add|search)(?:\s|$)/i.test(argument)) {

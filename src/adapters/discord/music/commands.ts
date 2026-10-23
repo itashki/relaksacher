@@ -48,10 +48,13 @@ export function isMusicCommand(content: string): boolean {
   return /^\s*!(?:music|музыка)(?:\s|$)/iu.test(content);
 }
 
-/** Parse freely mixed aliases while preserving case, names, search text and URLs in arguments. */
+/** Parse mixed aliases and bare HTTP(S) links as add, preserving argument case and content. */
 export function parseMusicCommand(content: string): { command: string; argument: string } | null {
   const match = content.trim().match(/^!(?:music|музыка)(?:\s+(\S+))?(?:\s+([\s\S]*))?$/iu);
   if (!match) return null;
+  if (/^<?https?:\/\//iu.test(match[1] ?? "")) {
+    return { command: "add", argument: content.trim().replace(/^!\S+\s+/u, "") };
+  }
   const word = (match[1] ?? "panel").toLowerCase();
   const command = commands[word] ?? word;
   let argument = match[2]?.trim() ?? "";

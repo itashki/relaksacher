@@ -30,7 +30,7 @@ test("music serializes playlist edits and restores them after restart", async ()
     }) as unknown as Message;
   try {
     await Promise.all([
-      music.handle(message("!music add https://youtu.be/one")),
+      music.handle(message("!music https://youtu.be/one")),
       music.handle(message("!music add https://soundcloud.com/a/b")),
     ]);
     music.stop();
@@ -89,7 +89,7 @@ test("playlist imports persist ordered tracks, respect remaining capacity and pr
     }) as unknown as Message;
   try {
     await music.handle(message("!music add https://youtu.be/one"));
-    await music.handle(message("!music add https://youtube.com/watch?v=abcdefghijk&list=PL_test"));
+    await music.handle(message("!music https://youtube.com/watch?v=abcdefghijk&list=PL_test"));
     expect(replies.at(-1)).toContain("Добавлено треков: 2");
     expect(replies.at(-1)).toContain("начальная часть");
     expect(replies.at(-1)).toContain("пропущено: 1");

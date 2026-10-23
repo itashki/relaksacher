@@ -182,6 +182,7 @@ export function createMusicRuntime(
   function disconnect(s: MusicState) {
     s.pending = [];
     s.current = "";
+    s.transitionPending = false;
     s.cycle = [];
     s.failedTracks.clear();
     s.advanceReason = "finished";
