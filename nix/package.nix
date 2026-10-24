@@ -11,7 +11,11 @@
   deno,
   python3,
   whisper-cpp,
+  fetchurl,
 }:
+let
+  models = import ./models.nix { inherit fetchurl; };
+in
 stdenvNoCC.mkDerivation {
   pname = "relaksacher";
   version = "1.0.0";
@@ -53,6 +57,9 @@ stdenvNoCC.mkDerivation {
     makeWrapper ${bun}/bin/bun $out/bin/relaksacher \
       --add-flags "$out/lib/relaksacher/index.ts" \
       --set RELAKSACHER_PACKAGED 1 \
+      --set-default WHISPER_MODEL ${models.whisper} \
+      --set-default SILERO_MODEL ${models.sileroRu} \
+      --set-default SILERO_MODEL_EN ${models.sileroEn} \
       --set-default RELAKSACHER_SOCKET /run/relaksacher/control.sock \
       --prefix PATH : ${
         lib.makeBinPath [

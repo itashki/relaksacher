@@ -64,8 +64,12 @@ yt-dlp, Deno для извлечения YouTube, Python с PyTorch и NumPy (CP
 в системный конфиг не требуется.
 
 Создайте `.env`, `facts.json5` и `personality.json5` по инструкции выше.
-Модели не входят в shell: скачайте их отдельно и укажите `WHISPER_MODEL`,
-`SILERO_MODEL`, `SILERO_MODEL_EN` и модели Ollama.
+Nix автоматически скачивает Whisper small и Silero v5_6_ru/v3_en, проверяет их
+хеши и хранит в Nix store. Пакет и shell задают `WHISPER_MODEL`, `SILERO_MODEL`
+и `SILERO_MODEL_EN` автоматически. Удалите старые значения этих переменных из
+`.env` и настроек сервиса, чтобы использовать модели Nix. Для пакета можно
+переопределить пути через окружение; внутри dev shell — через `export` после входа.
+Модели Ollama загружаются отдельно через `ollama pull`.
 Whisper запускается самим ботом при `WHISPER_AUTO_START=true` и завершается вместе
 с ним; уже работающий сервер используется повторно. Silero вызывается по запросу.
 Отдельные системные сервисы для Whisper и Silero не нужны. Их логи не нарушают TUI.
@@ -114,11 +118,11 @@ WHISPER_AUTO_START=true
 WHISPER_URL=http://127.0.0.1:8080/inference
 ```
 
-Модели скачиваются отдельно от системных пакетов. Для Ollama выполните
+Для Ollama выполните
 `ollama pull <имя>` внутри shell для основной и вспомогательной моделей из
 `.env`: команды обращаются к системному серверу. `ollama ps` показывает
-загруженные модели и использование GPU. Пути к уже скачанным моделям Whisper
-и Silero укажите в `WHISPER_MODEL`, `SILERO_MODEL` и `SILERO_MODEL_EN`. Токены платформ и локальные JSON5-файлы настраиваются по
+загруженные модели и использование GPU. Whisper и Silero уже доступны по путям,
+заданным Nix. Токены платформ и локальные JSON5-файлы настраиваются по
 основной инструкции запуска. После этого достаточно:
 
 ```sh
@@ -481,7 +485,8 @@ Telegram отправляет анимацию через `sendAnimation`, Disco
 
 Распознавание выполняет отдельный локальный сервер
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp/tree/master/examples/server).
-Установите Git, CMake, компилятор C/C++ и FFmpeg средствами своей системы.
+В Nix программа и модель уже настроены. Для ручной установки без Nix
+установите Git, CMake, компилятор C/C++ и FFmpeg средствами своей системы.
 Программа `whisper-server` должна быть доступна боту в PATH; модель можно
 хранить по любому пути, указанному в `WHISPER_MODEL`.
 Затем в отдельном каталоге выполните:
@@ -492,8 +497,8 @@ cd whisper.cpp
 cmake -B build -DGGML_CUDA=OFF
 cmake --build build --config Release -j 2
 sh models/download-ggml-model.sh small
-mkdir -p /home/ktrd/ai
-cp models/ggml-small.bin /home/ktrd/ai/ggml-small.bin
+mkdir -p /path/to/relaksacher/models
+cp models/ggml-small.bin /path/to/relaksacher/models/ggml-small.bin
 # Добавьте каталог build/bin в PATH или установите whisper-server средствами системы.
 ```
 
@@ -507,7 +512,7 @@ cp models/ggml-small.bin /home/ktrd/ai/ggml-small.bin
 WHISPER_URL=http://127.0.0.1:8080/inference
 WHISPER_TIMEOUT_MS=300000
 WHISPER_AUTO_START=true
-WHISPER_MODEL=/home/ktrd/ai/ggml-small.bin
+WHISPER_MODEL=models/ggml-small.bin
 ```
 
 Укажите путь `WHISPER_MODEL` в `.env` (резервный путь — `models/ggml-small.bin`). При запуске бот проверяет `/health` и при необходимости
@@ -558,13 +563,14 @@ Discord-команды `!tts <текст>`, `!tts` ответом на сооб�
 Распознавание Whisper и синтез речи независимы. HTTP-сервер для TTS не требуется.
 
 Для Silero установите Python с CPU-версией PyTorch и NumPy (они уже входят в Nix shell).
-Скачайте [русскую v5_6_ru](https://models.silero.ai/models/tts/ru/v5_6_ru.pt)
+При использовании Nix модели уже доступны автоматически. Для ручной установки
+скачайте [русскую v5_6_ru](https://models.silero.ai/models/tts/ru/v5_6_ru.pt)
 и [английскую v3_en](https://models.silero.ai/models/tts/en/v3_en.pt) в каталог голосов:
 
 ```dotenv
 SILERO_PYTHON=python3
-SILERO_MODEL=/home/ktrd/ai/piper-voices/silero-v5_6_ru.pt
-SILERO_MODEL_EN=/home/ktrd/ai/piper-voices/silero-v3_en.pt
+SILERO_MODEL=models/silero-v5_6_ru.pt
+SILERO_MODEL_EN=models/silero-v3_en.pt
 SILERO_SPEAKER=random
 SILERO_SPEAKER_EN=random
 ```
@@ -615,8 +621,10 @@ Flake экспортирует `packages.<system>.default` и `nixosModules.defa
 и заполните `BOT_ADAPTERS`, токены, `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT`
 по `.env.example`. Не включайте секреты в Nix-конфигурацию или Nix store.
 Создайте JSON5-файлы из массивов строк, доступные пользователю `relaksacher`.
-Для моделей речи используйте абсолютные пути; для автоматического Whisper
-включите `WHISPER_AUTO_START` и укажите `WHISPER_MODEL`.
+Пакет автоматически загружает модели речи в Nix store и задаёт пути к ним.
+Для автоматического Whisper включите `WHISPER_AUTO_START`. При необходимости
+задайте собственные абсолютные пути через `WHISPER_MODEL`, `SILERO_MODEL`
+и `SILERO_MODEL_EN` в окружении сервиса.
 
 После `sudo nixos-rebuild switch --flake ...` сервис запускается автоматически.
 Память и журнал запросов хранятся в `/var/lib/relaksacher`, сокет — в `/run/relaksacher`.

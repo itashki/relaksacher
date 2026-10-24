@@ -1,7 +1,13 @@
-# Shared shell contract: runtime tools in PATH.
+# Shared shell contract: runtime tools in PATH and speech models in the Nix store.
 { pkgs }:
+let
+  models = import ./models.nix { inherit (pkgs) fetchurl; };
+in
 pkgs.mkShell {
   name = "relaksacher";
+  WHISPER_MODEL = toString models.whisper;
+  SILERO_MODEL = toString models.sileroRu;
+  SILERO_MODEL_EN = toString models.sileroEn;
   packages = with pkgs; [
     bun
     ollama-cuda
@@ -13,7 +19,10 @@ pkgs.mkShell {
     ffmpeg
     yt-dlp
     deno
-    (python3.withPackages (ps: [ ps.torch ps.numpy ]))
+    (python3.withPackages (ps: [
+      ps.torch
+      ps.numpy
+    ]))
     nodejs
     git
     curl
