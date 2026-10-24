@@ -589,3 +589,50 @@ FFmpeg преобразует звук для Discord и Telegram; лимит �
 Бот передаёт текст Silero аргументом без shell. Поток PCM направляется в FFmpeg и далее
 в Discord без постоянного аудиофайла. Вывод процессов не попадает в терминал.
 Ошибки воспроизведения возвращаются в чат. Для бота нужны права Connect и Speak.
+
+## Установка сервиса NixOS
+
+Flake экспортирует `packages.<system>.default` и `nixosModules.default`.
+Добавьте репозиторий как input `relaksacher` в системный flake и импортируйте
+`inputs.relaksacher.nixosModules.default` в модуль конфигурации:
+
+```nix
+{
+  services.relaksacher = {
+    enable = true;
+    environmentFile = "/etc/relaksacher/environment";
+    operators = [ "your-login" ];
+    environment = {
+      FACTS_FILE = "/var/lib/relaksacher/facts.json5";
+      PERSONALITY_FILE = "/var/lib/relaksacher/personality.json5";
+      WHISPER_AUTO_START = "false";
+    };
+  };
+}
+```
+
+Создайте файл `/etc/relaksacher/environment` с правами `0600`, принадлежащий root,
+и заполните `BOT_ADAPTERS`, токены, `OLLAMA_URL`, `OLLAMA_MODEL`, `OLLAMA_TIMEOUT`
+по `.env.example`. Не включайте секреты в Nix-конфигурацию или Nix store.
+Создайте JSON5-файлы из массивов строк, доступные пользователю `relaksacher`.
+Для моделей речи используйте абсолютные пути; для автоматического Whisper
+включите `WHISPER_AUTO_START` и укажите `WHISPER_MODEL`.
+
+После `sudo nixos-rebuild switch --flake ...` сервис запускается автоматически.
+Память и журнал запросов хранятся в `/var/lib/relaksacher`, сокет — в `/run/relaksacher`.
+Ollama настраивается отдельно, как описано выше. Пакет включает инструменты
+для музыки и речи; модели скачиваются отдельно.
+
+```sh
+sudo systemctl status relaksacher
+sudo journalctl -u relaksacher -f
+sudo -u relaksacher relaksacher tui
+```
+
+`q` или Ctrl+C закрывает TUI, сохраняя работающий бот. Указанные в `operators`
+пользователи могут запускать именно эту команду через sudo без пароля.
+Сборка пакета отдельно: `nix build path:.`; установка: `nix profile add path:.`.
+Для обычного Linux systemd используйте `ExecStart=/absolute/path/to/bun /absolute/path/to/index.ts service`,
+`WorkingDirectory` репозитория, отдельного пользователя, `EnvironmentFile`,
+`RuntimeDirectory=relaksacher` и `RELAKSACHER_SOCKET=/run/relaksacher/control.sock`.
+Клиент запускается от того же пользователя с тем же `RELAKSACHER_SOCKET`.

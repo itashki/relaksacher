@@ -16,6 +16,15 @@ import {
 } from "./src/runtime/transports.ts";
 import type { RuntimeEvent } from "./src/runtime/contracts.ts";
 
+import { controlSocket, createControlServer } from "./src/runtime/control.ts";
+
+const mode = Bun.argv[2];
+if (mode === "tui") {
+  const { attachTerminal } = await import("./src/adapters/terminal/attach.ts");
+  await attachTerminal(controlSocket());
+  process.exit(0);
+}
+if (mode && mode !== "service") throw new Error("Usage: relaksacher [service|tui]");
 const initial = await loadApplication();
 const config = initial.config;
 const terminalSession = initial.module.createTerminalSession();
@@ -116,7 +125,17 @@ function openTerminal(module: typeof initial.module) {
   });
 }
 let cliModule = initial.module;
-let cli = process.stdin.isTTY ? openTerminal(cliModule) : null;
+let cli = mode !== "service" && process.stdin.isTTY ? openTerminal(cliModule) : null;
+const control =
+  mode === "service"
+    ? await createControlServer({
+        socket: controlSocket(),
+        assistant: bridge.assistant,
+        music,
+        statistics,
+        restart: () => restart.restart(),
+      })
+    : null;
 const whisper = createWhisperServer({
   url: config.whisperUrl,
   model: config.whisperModel,
@@ -124,6 +143,7 @@ const whisper = createWhisperServer({
 });
 const shutdown = createShutdown({
   steps: [
+    () => control?.close(),
     () => restart.close(),
     () => cli?.close(),
     () => bridge.close(),

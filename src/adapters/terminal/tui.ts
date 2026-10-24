@@ -284,7 +284,10 @@ export function createTui({
   statistics?: StatisticsSource;
   session?: TerminalSession;
   music?: MusicStatusSource;
-  assistant: import("../../types.ts").Assistant;
+  assistant: Pick<
+    import("../../types.ts").Assistant,
+    "subscribeTerminal" | "repliesPaused" | "setRepliesPaused" | "stopCurrentGeneration"
+  >;
   input?: NodeJS.ReadableStream & {
     readableFlowing?: boolean | null;
     isRaw?: boolean;

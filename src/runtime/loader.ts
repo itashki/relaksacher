@@ -13,6 +13,10 @@ export async function loadApplication(
   root = projectDirectory,
   env: Record<string, string | undefined> = Bun.env,
 ) {
+  if (Bun.env.RELAKSACHER_PACKAGED === "1") {
+    const module = await import("./application.ts");
+    return { module, config: await module.loadConfig(env) };
+  }
   const result = await Bun.build({
     entrypoints: [resolvePath("src/runtime/application.ts", root)],
     target: "bun",

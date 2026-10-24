@@ -134,7 +134,7 @@ test("runtime rebuild includes transitive TUI changes and rejects broken UI befo
   type TerminalModule = typeof import("../../src/runtime/application.ts") &
     Pick<typeof import("../../src/adapters/terminal/tui.ts"), "renderDashboard">;
   const first = (await loadApplication(directory)).module as TerminalModule;
-  const uiPath = `${directory}/src/adapters/terminal/tui.ts`;
+  const uiPath = `${directory}/src/adapters/terminal/header.ts`;
   const original = await Bun.file(uiPath).text();
   await Bun.write(uiPath, original.replaceAll("операторская панель", "обновлённый интерфейс"));
   const second = (await loadApplication(directory)).module as TerminalModule;
