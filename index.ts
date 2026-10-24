@@ -21,7 +21,12 @@ import { controlSocket, createControlServer } from "./src/runtime/control.ts";
 const mode = Bun.argv[2];
 if (mode === "tui") {
   const { attachTerminal } = await import("./src/adapters/terminal/attach.ts");
-  await attachTerminal(controlSocket());
+  try {
+    await attachTerminal(controlSocket());
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
   process.exit(0);
 }
 if (mode && mode !== "service") throw new Error("Usage: relaksacher [service|tui]");

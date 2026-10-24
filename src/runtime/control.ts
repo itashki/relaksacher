@@ -107,11 +107,21 @@ export async function createControlServer(options: {
 
 /** Make a bounded local request; the Unix socket never exposes a TCP listener. */
 export async function controlRequest(socket: string, path: string, method = "GET") {
-  const response = await fetch(`http://localhost${path}`, {
-    unix: socket,
-    method,
-    signal: AbortSignal.timeout(path === "/restart" ? 3600000 : 5000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`http://localhost${path}`, {
+      unix: socket,
+      method,
+      signal: AbortSignal.timeout(path === "/restart" ? 3600000 : 5000),
+    });
+  } catch (cause) {
+    throw new Error(
+      `Cannot reach the Relaksacher service at Unix socket ${socket}: ${String(cause)}\n` +
+        "Check that the service is running and that RELAKSACHER_SOCKET matches its socket path.\n" +
+        "On NixOS: systemctl status relaksacher.service; journalctl -u relaksacher.service -b -n 80",
+      { cause },
+    );
+  }
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 }

@@ -263,7 +263,7 @@ test("real TUI keys scroll panels, hold log position and resume following withou
     await child.exited;
     child.terminal.close();
   });
-  const frame = () => rendered.split("\x1b[H\x1b[2J").at(-1);
+  const frame = () => rendered.split("\x1b[?2026h\x1b[H").at(-1);
   const waitFor = async (condition: () => boolean) => {
     for (let i = 0; i < 200; i++) {
       if (condition()) return;
@@ -342,7 +342,7 @@ test("real TUI mouse selects and scrolls the pointed panel and disables tracking
     await child.exited;
     child.terminal.close();
   });
-  const frame = () => rendered.split("\x1b[H\x1b[2J").at(-1);
+  const frame = () => rendered.split("\x1b[?2026h\x1b[H").at(-1);
   const waitFor = async (condition: () => boolean) => {
     for (let i = 0; i < 200; i++) {
       if (condition()) return;
@@ -410,7 +410,7 @@ test("real TUI supports hjkl, slash search editing and navigation, and exits on 
     await child.exited;
     child.terminal.close();
   });
-  const rawFrame = () => rendered.split("\x1b[H\x1b[2J").at(-1);
+  const rawFrame = () => rendered.split("\x1b[?2026h\x1b[H").at(-1);
   const frame = () => Bun.stripANSI(rawFrame());
   const waitFor = async (condition: () => boolean) => {
     for (let i = 0; i < 200; i++) {

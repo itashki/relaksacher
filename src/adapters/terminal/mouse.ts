@@ -65,6 +65,11 @@ export function createMouseDecoder(
           continue;
         }
         if (pending.length === 1 || (pending[1] === 91 && pending.length === 2)) break;
+        // Some terminals report focus when the pointer enters/leaves the window.
+        if (pending[1] === 91 && (pending[2] === 73 || pending[2] === 79)) {
+          pending = pending.slice(3);
+          continue;
+        }
         if (pending[1] === 91 && pending[2] === 77) {
           if (pending.length < 6) break;
           emit(pending[3] - 32, pending[4] - 32, pending[5] - 32);

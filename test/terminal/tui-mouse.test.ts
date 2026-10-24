@@ -39,6 +39,7 @@ test("legacy mouse coordinates and malformed reports never become keys, while UT
   );
   input.write(new Uint8Array([27, 91, 77, 32, 115, 104]));
   input.write("\x1b[<32;1;1M\x1b[<66;2;2M\x1b[<0;0;1M\x1b[<99999;1;1M\x1b[<bad;1;1M");
+  input.write("\x1b[I\x1b[O\x1b[<35;2;2M");
   const keyboard = new TextEncoder().encode("я\x1b[A\t\x03");
   input.write(keyboard.subarray(0, 1));
   input.write(keyboard.subarray(1));

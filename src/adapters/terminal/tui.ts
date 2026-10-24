@@ -1,5 +1,6 @@
 /** @file Dependency-free ANSI operator dashboard with independent scrollable panels. */
 import { dashboardHeader } from "./header.ts";
+import { createFrameWriter } from "./frame.ts";
 import {
   createStatistics,
   type RequestStatistics,
@@ -315,6 +316,7 @@ export function createTui({
   let closed = false;
   let dirty = true;
   let statisticsVersion = "";
+  const writeFrame = createFrameWriter((data) => output.write(data));
   const wasRaw = input.isRaw ?? false;
   // A fresh stdin has readableFlowing=null but isPaused()=false. Restoring only
   // isPaused leaves the read started by resume() alive after the TUI closes.
@@ -354,7 +356,7 @@ export function createTui({
       if (navigation.positions[id as PanelId] !== "tail")
         navigation.positions[id as PanelId] = view.start;
     }
-    output.write(`\x1b[H\x1b[2J${rendered.screen}`);
+    writeFrame(rendered.screen);
   };
   const unsubscribe = assistant.subscribeTerminal((next) => {
     if ((next.current ?? next.last)?.id !== (state.current ?? state.last)?.id) {

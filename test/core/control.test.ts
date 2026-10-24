@@ -7,6 +7,21 @@ import { createMusicMonitor } from "../../src/core/music/status.ts";
 import { fixture } from "../support/fixtures.ts";
 import type { Assistant } from "../../src/types.ts";
 
+test("unavailable service identifies its socket and provides diagnostics", async () => {
+  const socket = `/tmp/relaksacher-missing-${crypto.randomUUID()}.sock`;
+  try {
+    await controlRequest(socket, "/snapshot");
+    throw new Error("Expected an unavailable socket to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(Error);
+    const failure = error as Error;
+    expect(failure.message).toContain(socket);
+    expect(failure.message).toContain("RELAKSACHER_SOCKET");
+    expect(failure.message).toContain("systemctl status relaksacher.service");
+    expect(failure.cause).toBeInstanceOf(Error);
+  }
+});
+
 test("private socket replays telemetry and controls the live assistant", async () => {
   const socket = `/tmp/relaksacher-test-${crypto.randomUUID()}.sock`;
   let paused = false;

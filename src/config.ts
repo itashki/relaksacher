@@ -1,12 +1,10 @@
 /** @file Load and validate local JSON5 configuration and environment settings before clients start. */
+import { resolve } from "node:path";
 import { projectDirectory } from "./core/project.ts";
 
 /** Resolve a local configuration file and parse JSON5; missing or invalid files reject startup. */
 async function readConfigFile(filename: string) {
-  const file = Bun.resolveSync(
-    filename.startsWith("/") ? filename : `./${filename}`,
-    projectDirectory,
-  );
+  const file = resolve(projectDirectory, filename);
   return Bun.JSON5.parse(await Bun.file(file).text());
 }
 
