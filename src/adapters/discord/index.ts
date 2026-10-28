@@ -1,4 +1,5 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import { watchEmptyVoice } from "./voice-presence.ts";
 import * as requests from "../shared/request-statistics.ts";
 import { handleDiscordRoll } from "../shared/dice.ts";
 import { buildStopRow } from "./controls.ts";
@@ -23,7 +24,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
-import { splitMessage, imageFiles, threadName, describeAuthor } from "./message.ts";
+import { splitMessage, imageFiles, threadName, describeAuthor, batchRoom } from "./message.ts";
 import { parseCommands } from "../../core/text.ts";
 
 /**
@@ -60,6 +61,8 @@ export function createDiscordBot({
   const transcripts = createTranscriptHistory();
   const music = createDiscordMusic(memoryDirectory, { onStatus: onMusicStatus });
 
+  const stopWatchingVoice = watchEmptyVoice(client, tts.cancel);
+
   const STOP_PREFIX = "stop_generation:";
 
   // id запроса -> состояние активной генерации
@@ -74,8 +77,6 @@ export function createDiscordBot({
       console.log("Memory dir:", memoryDirectory);
     });
 
-  const batchRoom = (message: import("discord.js").Message) =>
-    message.channelId ?? message.channel?.id ?? "dm";
   const batches = createMessageBatches<import("discord.js").Message>({
     windowMs: config.messageBatchWindowMs ?? 1200,
     describe: (message) => ({
@@ -132,6 +133,7 @@ export function createDiscordBot({
   function shutdown(signal: string) {
     if (shutdownTask) return shutdownTask;
     console.log(`Received ${signal}, shutting down.`);
+    stopWatchingVoice();
     batches.stop();
     for (const generation of activeGenerations.values()) {
       generation.stop();

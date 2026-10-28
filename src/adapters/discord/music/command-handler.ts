@@ -423,6 +423,9 @@ export function createMusicCommandHandler(runtime: MusicRuntime) {
               });
               const state = s;
               s.connection.on(VoiceConnectionStatus.Disconnected, () => disconnect(state));
+              s.connection.on(VoiceConnectionStatus.Destroyed, () => {
+                if (state.connection) disconnect(state);
+              });
               s.connection.on("error", () => {
                 state.error = "Ошибка голосового подключения.";
                 disconnect(state);

@@ -121,6 +121,12 @@ export function createDiscordTts({
     }
   }
   return {
+    /** Cancel active and queued speech for one guild, allowing later requests. */
+    cancel(guildId: string) {
+      const room = rooms.get(guildId);
+      room?.controller.abort();
+      if (room) room.controller = new AbortController();
+    },
     /** Report queued or active speech, allowing callers to prevent conflicting music commands. */
     busy(guildId: string) {
       const room = rooms.get(guildId);

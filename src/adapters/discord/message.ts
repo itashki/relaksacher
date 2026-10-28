@@ -97,3 +97,8 @@ export function describeAuthor(entry: import("discord.js").Message<boolean>) {
   const displayName = entry.member?.displayName ?? entry.author.globalName ?? entry.author.username;
   return `${displayName} (username: ${entry.author.username}, id: ${entry.author.id})`;
 }
+
+/** Return the channel identity used to batch messages, including direct messages. */
+export function batchRoom(message: import("discord.js").Message) {
+  return message.channelId ?? message.channel?.id ?? "dm";
+}
