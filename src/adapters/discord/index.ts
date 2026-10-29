@@ -1,4 +1,5 @@
 /** @file Bridge Discord events, explicit reply chains, streamed responses and music interactions. */
+import { readDiscordHistory } from "./history.ts";
 import { watchEmptyVoice } from "./voice-presence.ts";
 import * as requests from "../shared/request-statistics.ts";
 import { handleDiscordRoll } from "../shared/dice.ts";
@@ -500,6 +501,7 @@ export function createDiscordBot({
       background: [],
       conversation: modelConversation,
       context: {
+        chatId: `discord_${newThread?.id ?? message.channel.id}`,
         scopeId: message.guildId,
         authorName: message.member?.displayName ?? message.author.username,
         sendImage: async (image) => {
@@ -511,58 +513,7 @@ export function createDiscordBot({
           else await message.reply(payload);
           delivery.markMediaDelivered();
         },
-        readHistory: async (limit) => {
-          const entries = await message.channel.messages.fetch({ limit, before: message.id });
-          const formatEntries = (
-            entries: Map<string, import("discord.js").Message>,
-            channel: { id: string; name?: string },
-          ) =>
-            transcripts.normalize(
-              [...entries.values()]
-                .reverse()
-                .filter((entry) => !entry.author.bot || entry.author.id === client.user.id)
-                .map((entry) => ({
-                  id: entry.id,
-                  author: describeAuthor(entry),
-                  content: entry.content,
-                  channelId: channel.id,
-                  channelName: channel.name,
-                })),
-            );
-          const history: {
-            source: string;
-            messages: import("../../types.ts").BackgroundMessage[];
-            note?: string;
-            limited?: boolean;
-          } = { source: "discord", messages: formatEntries(entries, message.channel) };
-          if (message.channel.isThread()) {
-            try {
-              const parent =
-                message.channel.parent ?? (await client.channels.fetch(message.channel.parentId));
-              if (!parent || !("messages" in parent))
-                throw new Error("Parent channel history is unavailable");
-              const parentEntries = await parent.messages.fetch({ limit, before: message.id });
-              const parentMessages = formatEntries(parentEntries, parent);
-              // Reserve space for both sources before the tool applies its total limit.
-              const parentCount = Math.min(
-                parentMessages.length,
-                Math.max(Math.ceil(limit / 2), limit - history.messages.length),
-              );
-              const threadCount = limit - parentCount;
-              history.messages = [
-                ...(parentCount > 0 ? parentMessages.slice(-parentCount) : []),
-                ...(threadCount > 0 ? history.messages.slice(-threadCount) : []),
-              ];
-              history.note =
-                "История родительского канала и ветки до текущего запроса, в пределах общего лимита. Источники обозначены channelId и channelName.";
-            } catch {
-              history.limited = true;
-              history.note =
-                "Доступна только история ветки: не удалось прочитать родительский канал.";
-            }
-          }
-          return history;
-        },
+        readHistory: (limit) => readDiscordHistory(message, client, transcripts, limit),
       },
       think: flags.think,
       platformInstructions: `Платформа: Discord.

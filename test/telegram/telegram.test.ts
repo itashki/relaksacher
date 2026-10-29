@@ -13,6 +13,7 @@ test("private chats render the model signature and do not include unrelated prev
   expect(send.payload.reply_markup.inline_keyboard.length).toBe(1);
   expect(inputs[0].think).toBe(true);
   expect(inputs[0].context.scopeId).toBe(undefined);
+  expect(inputs[0].context.chatId).toBe("telegram_1:0");
   await bot.handleUpdate({ message: message(100, "next") });
   expect(inputs[1].conversation.length).toBe(1);
   expect(inputs[1].conversation[0].content).toMatch(/next/);
@@ -71,6 +72,7 @@ test("group messages outside the reply chain are excluded", async () => {
   };
   await bot.handleUpdate({ message: addressed });
   expect(inputs[0].context.scopeId).toBe("telegram_-123");
+  expect(inputs[0].context.chatId).toBe("telegram_-123:2");
   expect(inputs[0].background).toStrictEqual([]);
   expect(inputs[0].conversation.length).toBe(1);
 });

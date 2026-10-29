@@ -7,6 +7,8 @@ export type ToolDefinition = import("ollama").Tool;
 export type ToolCall = import("ollama").ToolCall;
 /** Adapter-scoped capabilities; history and media are available only when explicitly supplied. */
 export type RequestContext = {
+  /** Platform-namespaced channel/topic identity, including private chats; separate from group memory. */
+  chatId?: string;
   scopeId?: string;
   authorName?: string;
   sendImage?: (arg0: ImageCandidate) => Promise<void>;
@@ -102,6 +104,7 @@ export type MemoryStore = ReturnType<typeof import("./core/memory/index.ts").cre
 export type ToolService = {
   runTool: (call: ToolCall, context: RequestContext) => Promise<string>;
   definitions: (options: {
+    chatId?: string;
     scopeId?: string;
     history?: boolean;
     images?: boolean;

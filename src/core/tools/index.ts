@@ -3,6 +3,7 @@ import { createWeatherForecast } from "./weather.ts";
 import { createImageSearch } from "./image-search.ts";
 import { createWebFallback, createWebClient } from "./web-fallback.ts";
 import { truncate } from "../text.ts";
+import { FURSONA_TOOL } from "./fursona.ts";
 
 const IMAGE_TOOLS = [
   {
@@ -220,6 +221,17 @@ export function createToolService({
     console.log(`[tool] ${name}`, JSON.stringify(args));
 
     try {
+      if (name === "save_fursona") {
+        if (!context?.chatId) return "Сохранение фурсоны недоступно без текущего чата.";
+        if (args.replace !== undefined && typeof args.replace !== "boolean")
+          return "replace должен быть логическим значением.";
+        const profile = await memory.saveFursona(
+          context.chatId,
+          args.profile,
+          args.replace === true,
+        );
+        return JSON.stringify({ profile });
+      }
       if (name === "weather_forecast") {
         return JSON.stringify(
           await weatherForecast({
@@ -329,7 +341,8 @@ export function createToolService({
 
   return {
     runTool,
-    definitions: ({ scopeId, history, images }) => [
+    definitions: ({ scopeId, chatId, history, images }) => [
+      ...(chatId ? [FURSONA_TOOL] : []),
       ...(images ? IMAGE_TOOLS : []),
       ...(images && gifSearch ? GIF_TOOLS : []),
       ...(history ? [HISTORY_TOOL] : []),

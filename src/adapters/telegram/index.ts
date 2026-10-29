@@ -440,6 +440,7 @@ export function createTelegramBot({
       background: [],
       assistantName: "Геймачер",
       context: {
+        chatId: `telegram_${roomKey(message)}`,
         scopeId: message.chat.type === "private" ? undefined : `telegram_${message.chat.id}`,
         authorName: author(message.from),
         sendImage: async (image) => {

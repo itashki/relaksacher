@@ -340,9 +340,11 @@ export function createAssistant({
                 platformInstructions,
                 facts,
                 personality,
+                fursona: context.chatId ? await memory.loadFursona(context.chatId) : undefined,
                 memoryPrompt: memory.buildMemoryPrompt(memoryFacts, Boolean(context.scopeId)),
               });
               const definitions = toolService.definitions({
+                chatId: context.chatId,
                 scopeId: context.scopeId,
                 history: typeof context.readHistory === "function",
                 images: typeof context.sendImage === "function",

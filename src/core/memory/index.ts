@@ -1,6 +1,7 @@
 /** @file Persist scoped facts with serialized updates and atomic file replacement. */
 import { rename } from "node:fs/promises";
 import { resolvePath } from "../paths.ts";
+import { createFursonaStore } from "./fursona.ts";
 
 /**
  * Create isolated file-backed fact storage with atomic writes and per-scope locks.
@@ -139,5 +140,5 @@ remember: только по явной просьбе запомнить; зап
 Не сохраняй секреты, чувствительные личные данные, случайную ругань и мелочи разговора.`;
   }
 
-  return { loadMemory, addMemoryFact, removeMemoryFact, buildMemoryPrompt };
+  return { loadMemory, addMemoryFact, removeMemoryFact, buildMemoryPrompt, ...createFursonaStore(directory) };
 }

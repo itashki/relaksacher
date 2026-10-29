@@ -6,6 +6,43 @@ import { expect, test, onTestFinished } from "bun:test";
 import { Events } from "discord.js";
 import { createDiscordBot } from "../support/fixtures.ts";
 
+test("a new Discord reply thread keeps its character namespace on subsequent replies", async () => {
+  const inputs: TestSessionOptions[] = [];
+  const bot = createDiscordBot({
+    config: {},
+    assistant: {
+      createSession(options) {
+        inputs.push(options);
+        return { stop() {}, async run() {} };
+      },
+    },
+  });
+  onTestFinished(() => bot.client.destroy());
+  bot.client.user = fixture<ClientUser>({ id: "bot" });
+  const thread = { id: "thread-1", isThread: () => true };
+  const common = {
+    content: "question",
+    guild: { id: "guild" },
+    author: { id: "user", username: "Alice", bot: false },
+    mentions: { has: () => true },
+  };
+  await bot.client.listeners(Events.MessageCreate)[0]({
+    ...common,
+    id: "first",
+    channel: { id: "parent-1", isThread: () => false },
+    startThread: async () => thread,
+  });
+  await bot.client.listeners(Events.MessageCreate)[0]({
+    ...common,
+    id: "second",
+    channel: thread,
+  });
+  expect(inputs.map((input) => input.context.chatId)).toEqual([
+    "discord_thread-1",
+    "discord_thread-1",
+  ]);
+});
+
 test("Discord maps messages to plain input and renders core updates", async () => {
   let input: TestSessionOptions;
   const payloads: MessageCreateOptions[] = [];
@@ -66,7 +103,7 @@ test("Discord maps messages to plain input and renders core updates", async () =
     author: { id: "user", username: "Alice", bot: false },
     content: "question /think",
     mentions: { has: () => true },
-    channel: { isThread: () => false, messages: { fetch: async () => new Map() } },
+    channel: { id: "channel-1", isThread: () => false, messages: { fetch: async () => new Map() } },
     async reply(payload: MessageCreateOptions) {
       payloads.push(payload);
       return reply;
@@ -78,6 +115,7 @@ test("Discord maps messages to plain input and renders core updates", async () =
     { role: "user", content: "[Автор: Alice (username: Alice, id: user)]\nquestion" },
   ]);
   expect(input.think).toBe(true);
+  expect(input.context.chatId).toBe("discord_channel-1");
   expect(input.search).toBe(undefined);
   expect(input.platformInstructions).toMatch(/Discord/);
   expect(payloads[0].content).toBe("…\n\n-# терн");

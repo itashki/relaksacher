@@ -19,6 +19,8 @@ export function setup(
   const updates: (GenerationUpdate & { liveThinking?: string })[] = [];
   let aborted = 0;
   const memory: MemoryStore = {
+    loadFursona: async () => null,
+    saveFursona: async (_chatId, profile) => String(profile),
     loadMemory: async () => [{ id: 1, fact: "shared fact" }],
     buildMemoryPrompt: (facts, enabled) => (enabled ? facts.map((f) => f.fact).join("\n") : ""),
     addMemoryFact: async () => "saved",
