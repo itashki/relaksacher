@@ -1,0 +1,29 @@
+FROM hf.co/bartowski/magnum-v4-12b-GGUF:Q4_K_M
+
+# Mistral Nemo instruction format, as documented by anthracite-org/magnum-v4-12b.
+# Keep function calls in the Mistral protocol so Ollama parses them as actual calls.
+TEMPLATE """{{- $system := .System }}
+{{- $firstUser := true }}
+{{- range $i, $_ := .Messages }}
+{{- if eq .Role "system" }}{{- $system = .Content }}
+{{- else if eq .Role "user" }}
+{{- if and $.Tools (le (len (slice $.Messages $i)) 2) }}[AVAILABLE_TOOLS]{{ $.Tools }}[/AVAILABLE_TOOLS]
+{{- end }}[INST]{{ if $firstUser }}{{ $system }}
+
+{{- $firstUser = false }}{{ end }}
+{{- if and $.Tools (le (len (slice $.Messages $i)) 2) }}
+When a function is needed, return its name and arguments as a JSON array, for example [{"name":"function_name","arguments":{"argument":"value"}}]. Otherwise answer normally. Use returned function results to answer the question.
+
+{{ end }}{{ .Content }}[/INST]
+{{- else if eq .Role "assistant" }}
+{{- if .ToolCalls }}[{{ range $j, $call := .ToolCalls }}{{ if $j }},{{ end }}{"name":"{{ $call.Function.Name }}","arguments":{{ $call.Function.Arguments }}}{{ end }}]</s>
+{{- else }}{{ .Content }}{{ if not (eq (len (slice $.Messages $i)) 1) }}</s>{{ end }}
+{{- end }}
+{{- else if eq .Role "tool" }}[TOOL_RESULTS]{{ .Content }}[/TOOL_RESULTS]
+{{- end }}
+{{- end }}"""
+PARAMETER stop "</s>"
+PARAMETER stop "[INST]"
+PARAMETER stop "[/INST]"
+PARAMETER temperature 0.8
+PARAMETER num_ctx 32768
