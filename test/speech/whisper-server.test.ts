@@ -36,7 +36,7 @@ test("starts the requested command, waits for readiness and kills only once", as
   let probes = 0;
   const commands: string[][] = [];
   const server = createWhisperServer({
-    model: "/home/ktrd/ai/ggml-small.bin",
+    model: "/models/ggml-small.bin",
     fetchImpl: async () => Response.json({ status: ++probes > 1 ? "ok" : "loading" }),
     spawn: (command) => {
       commands.push(command);
@@ -52,7 +52,7 @@ test("starts the requested command, waits for readiness and kills only once", as
       "--port",
       "8080",
       "-m",
-      "/home/ktrd/ai/ggml-small.bin",
+      "/models/ggml-small.bin",
       "--convert",
       "-t",
       "2",
