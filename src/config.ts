@@ -161,6 +161,7 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
     adapters,
     OLLAMA_URL,
     OLLAMA_MODEL,
+    OLLAMA_VISION_MODEL: env.OLLAMA_VISION_MODEL?.trim() || undefined,
     OLLAMA_TIMEOUT,
     OLLAMA_API_KEY,
     OLLAMA_NUM_CTX,

@@ -61,6 +61,7 @@ export function createApplication(
     facts: config.facts,
     personality: config.personality,
     model: config.OLLAMA_MODEL,
+    visionModel: config.OLLAMA_VISION_MODEL,
     numCtx: config.OLLAMA_NUM_CTX,
     timeoutMs: config.OLLAMA_TIMEOUT,
     updateIntervalMs: 1200,

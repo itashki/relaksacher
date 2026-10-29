@@ -4,6 +4,7 @@ import { guardContext, ContextLimitError } from "./context.ts";
 import { createRequestQueue } from "../queue.ts";
 import { createRepetitionDetector } from "./repetition.ts";
 import { buildMessages } from "./prompt.ts";
+import { createModelRouter, createModelChat } from "./models.ts";
 
 const MAX_TOOL_ROUNDS = 5;
 const THINK_TOOL = {
@@ -28,6 +29,7 @@ export function createAssistant({
   memory,
   toolService,
   model,
+  visionModel,
   numCtx,
   timeoutMs,
   updateIntervalMs = 0,
@@ -40,6 +42,8 @@ export function createAssistant({
   autoMemoryCheckIntervalMs = 60000,
   spontaneous = {},
 }: import("../../types.ts").AssistantOptions): import("../../types.ts").Assistant {
+  const modelForConversation = createModelRouter(model, visionModel);
+  const chat = createModelChat(modelClient);
   let repliesPaused = false;
   const enqueue = createRequestQueue();
   let activeGeneration: { stopped: boolean; stop(): void };
@@ -216,6 +220,7 @@ export function createAssistant({
       onQueued = async () => {},
       onToolCall,
     }: import("../../types.ts").SessionOptions): import("../../types.ts").Session {
+      const model = modelForConversation(conversation);
       const toolContext = { ...context, imageState: { candidates: new Map(), sent: false } };
       const generation = {
         stream: null as import("../../types.ts").ModelStream | null,
@@ -372,7 +377,7 @@ export function createAssistant({
                 if (guard.trimmed) {
                   console.log("Context guard: removed older history to fit the input budget");
                 }
-                const stream = await modelClient.chat({
+                const stream = await chat({
                   model,
                   think: useThinking,
                   stream: true,

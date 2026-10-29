@@ -1,0 +1,46 @@
+FROM hf.co/QuantFactory/Llama-3.1-8B-Stheno-v3.4-GGUF:Q4_K_M
+
+# Template based on https://ollama.com/library/llama3.1/blobs/73b313b5552d
+# Llama 3.1 headers and tool-result roles, with optional tool use for ordinary conversation.
+TEMPLATE """{{- if or .System .Tools }}<|start_header_id|>system<|end_header_id|>
+
+{{- if .System }}
+{{ .System }}
+{{- end }}
+{{- if .Tools }}
+
+Available functions:
+{{ range .Tools }}{{ . }}
+{{ end }}
+When a function is needed, respond with a JSON call in this format:
+{"name": "function_name", "parameters": {"argument": "value"}}
+Otherwise respond normally. After receiving a function result, use it to continue the conversation.
+{{- end }}<|eot_id|>
+{{- end }}
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 }}
+{{- if eq .Role "user" }}<|start_header_id|>user<|end_header_id|>
+
+{{ .Content }}<|eot_id|>{{ if $last }}<|start_header_id|>assistant<|end_header_id|>
+
+{{ end }}
+{{- else if eq .Role "assistant" }}<|start_header_id|>assistant<|end_header_id|>
+
+{{- if .ToolCalls }}
+{{- range .ToolCalls }}{"name": "{{ .Function.Name }}", "parameters": {{ .Function.Arguments }}}{{ end }}<|eot_id|>
+{{- else }}
+{{ .Content }}{{ if not $last }}<|eot_id|>{{ end }}
+{{- end }}
+{{- else if eq .Role "tool" }}<|start_header_id|>ipython<|end_header_id|>
+
+{{ .Content }}<|eot_id|>{{ if $last }}<|start_header_id|>assistant<|end_header_id|>
+
+{{ end }}
+{{- end }}
+{{- end }}"""
+PARAMETER stop "<|start_header_id|>"
+PARAMETER stop "<|end_header_id|>"
+PARAMETER stop "<|eot_id|>"
+
+PARAMETER temperature 0.8
+PARAMETER num_ctx 32768

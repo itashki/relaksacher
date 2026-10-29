@@ -116,6 +116,8 @@ export type AssistantOptions = {
   memory: MemoryStore;
   toolService: ToolService;
   model: string;
+  /** Optional model for conversations containing images; all rounds use the same selected model. */
+  visionModel?: string;
   numCtx: number;
   timeoutMs: number;
   updateIntervalMs?: number;
@@ -147,6 +149,7 @@ export type AppConfig = {
   adapters: string[];
   OLLAMA_URL: string;
   OLLAMA_MODEL: string;
+  OLLAMA_VISION_MODEL?: string;
   OLLAMA_TIMEOUT: number;
   gifApiKey: string | null;
   OLLAMA_API_KEY: string | null;

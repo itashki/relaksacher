@@ -14,6 +14,10 @@ const env = {
 test("loads one main model and context from environment", async () => {
   const config = await loadConfig({ ...env, OLLAMA_MODEL: "fixed-model", OLLAMA_NUM_CTX: "32768" });
   expect(config.OLLAMA_MODEL).toBe("fixed-model");
+  expect(config.OLLAMA_VISION_MODEL).toBeUndefined();
+  expect(
+    (await loadConfig({ ...env, OLLAMA_VISION_MODEL: " vision-model " })).OLLAMA_VISION_MODEL,
+  ).toBe("vision-model");
   expect(config.OLLAMA_NUM_CTX).toBe(32768);
   expect((await loadConfig(env)).OLLAMA_NUM_CTX).toBe(16384);
   for (const model of [undefined, "", "   "]) {
