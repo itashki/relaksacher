@@ -55,7 +55,7 @@ stdenvNoCC.mkDerivation {
     mkdir -p $out/lib/relaksacher $out/bin
     cp -r index.ts src scripts package.json node_modules $out/lib/relaksacher/
     makeWrapper ${bun}/bin/bun $out/bin/relaksacher \
-      --add-flags "$out/lib/relaksacher/index.ts" \
+      --run 'set -- "''${RELAKSACHER_SOURCE_DIRECTORY:-'$out'/lib/relaksacher}/index.ts" "$@"' \
       --set RELAKSACHER_PACKAGED 1 \
       --set-default WHISPER_MODEL ${models.whisper} \
       --set-default SILERO_MODEL ${models.sileroRu} \

@@ -627,6 +627,34 @@ Flake экспортирует `packages.<system>.default` и `nixosModules.defa
 и `SILERO_MODEL_EN` в окружении сервиса.
 
 После `sudo nixos-rebuild switch --flake ...` сервис запускается автоматически.
+Для запуска кода прямо из рабочего каталога задайте `sourceDirectory`:
+
+```nix
+services.relaksacher = {
+  sourceDirectory = "/home/USER/Projects/relaksacher";
+  environmentFile = "/home/USER/Projects/relaksacher/.env";
+  environment = {
+    FACTS_FILE = "/run/relaksacher/source/facts.json5";
+    PERSONALITY_FILE = "/run/relaksacher/source/personality.json5";
+  };
+};
+```
+
+Установите зависимости в рабочем каталоге командой `bun install`.
+Сервис монтирует каталог только для чтения в `/run/relaksacher/source`,
+сохраняя отдельного системного пользователя и закрытые права домашнего каталога.
+Файлы проекта должны быть доступны для чтения пользователю `relaksacher`
+внутри этого монтирования. systemd читает `.env` перед запуском от root;
+содержимое локальных файлов не копируется в Nix store. Код запускается
+без записи кеша сборки в рабочую папку, как в пакетном режиме.
+После изменений кода, `.env`, фактов или личности достаточно
+`sudo systemctl restart relaksacher`; мягкий рестарт из TUI не перечитывает
+окружение systemd и в этом режиме не обновляет граф модулей.
+NixOS нужно пересобирать при изменениях настроек сервиса, его Nix-пакета
+или системных зависимостей. Пути моделей и Python в `.env` должны быть
+доступны сервису; для моделей из пакета оставьте эти переопределения пустыми
+или удалите их из environment-файла.
+
 Память и журнал запросов хранятся в `/var/lib/relaksacher`, сокет — в `/run/relaksacher`.
 Ollama настраивается отдельно, как описано выше. Пакет включает инструменты
 для музыки и речи; модели скачиваются отдельно.
