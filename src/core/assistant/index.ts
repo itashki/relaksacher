@@ -5,6 +5,7 @@ import { createRequestQueue } from "../queue.ts";
 import { createRepetitionDetector } from "./repetition.ts";
 import { buildMessages } from "./prompt.ts";
 import { createModelRouter, createModelChat } from "./models.ts";
+import { cleanAssistantText, incompleteExplanation } from "./output.ts";
 
 const MAX_TOOL_ROUNDS = 5;
 const THINK_TOOL = {
@@ -294,7 +295,7 @@ export function createAssistant({
               if (currentRequest?.id !== requestId) return;
               currentRequest = {
                 ...currentRequest,
-                text,
+                text: cleanAssistantText(text, final),
                 thinking: thinkingLog,
                 status: final
                   ? generation.stopped
@@ -315,7 +316,7 @@ export function createAssistant({
             };
             const flush = (final: boolean) => {
               updateTerminal(final);
-              return onUpdate({ text, status, final });
+              return onUpdate({ text: cleanAssistantText(text, final), status, final });
             };
             const timeoutTimer = setTimeout(() => {
               generation.timedOut = true;
@@ -479,7 +480,7 @@ export function createAssistant({
                   break;
                 }
                 if (toolCalls.length === 0) {
-                  if (!roundContent.trim() && !toolContext.imageState.sent)
+                  if (!cleanAssistantText(roundContent).trim() && !toolContext.imageState.sent)
                     incompleteReason = "empty_answer";
                   break;
                 }
@@ -490,7 +491,7 @@ export function createAssistant({
 
                 messages.push({
                   role: "assistant",
-                  content: roundContent,
+                  content: cleanAssistantText(roundContent),
                   // При tool calling Ollama рекомендует возвращать рассуждения модели обратно.
                   thinking: roundThinking || undefined,
                   tool_calls: toolCalls,
@@ -545,6 +546,7 @@ export function createAssistant({
                 });
             }
 
+            text = cleanAssistantText(text);
             if (failed) {
               text += text
                 ? "\n\n⚠️ Ошибка при генерации ответа."
@@ -558,18 +560,7 @@ export function createAssistant({
                 ? `${text}\n\n⚠️ Ответ не завершён: генерация остановлена.`
                 : "Генерация остановлена.";
             } else if (incompleteReason) {
-              const explanation =
-                incompleteReason === "repetition"
-                  ? "обнаружено зацикливание модели"
-                  : incompleteReason === "context_limit"
-                    ? "текущий запрос и обязательный контекст слишком велики; сократи запрос или начни новый диалог"
-                    : incompleteReason === "length"
-                      ? "достигнут лимит генерации"
-                      : incompleteReason === "tool_limit"
-                        ? "достигнут лимит вызовов инструментов"
-                        : incompleteReason === "empty_answer"
-                          ? "модель не вернула текст ответа"
-                          : "не подтверждено нормальное завершение генерации";
+              const explanation = incompleteExplanation(incompleteReason);
               text += `${text ? "\n\n" : ""}⚠️ Ответ не завершён: ${explanation}.`;
             }
 
