@@ -4,16 +4,22 @@ import { projectDirectory } from "../core/project.ts";
 import { resolvePath } from "../core/paths.ts";
 import type { ApplicationModule } from "./contracts.ts";
 
+declare const RELAKSACHER_COMPILED: boolean | undefined;
+
 /**
  * Compile and validate the replacement before pausing delivery. Packages stay external
  * to preserve Discord class identity and native bindings across runtime generations.
  * Artifacts live under node_modules so normal package resolution keeps working.
+ * Standalone/packaged runs reuse embedded modules and reload configuration only.
  */
 export async function loadApplication(
   root = projectDirectory,
   env: Record<string, string | undefined> = Bun.env,
 ) {
-  if (Bun.env.RELAKSACHER_PACKAGED === "1") {
+  if (
+    (typeof RELAKSACHER_COMPILED !== "undefined" && RELAKSACHER_COMPILED) ||
+    Bun.env.RELAKSACHER_PACKAGED === "1"
+  ) {
     const module = await import("./application.ts");
     return { module, config: await module.loadConfig(env) };
   }

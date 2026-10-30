@@ -14,6 +14,7 @@
     in
     {
       packages = forEachSystem (system: {
+        bun-canary = import ./nix/bun-canary.nix { pkgs = nixpkgs.legacyPackages.${system}; };
         default = nixpkgs.legacyPackages.${system}.callPackage ./nix/package.nix { };
       });
       nixosModules.default = { pkgs, ... }: {
