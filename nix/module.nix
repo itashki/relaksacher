@@ -24,6 +24,11 @@ in
       default = null;
       description = "Absolute working checkout to run read-only at service startup. Include installed node_modules; restart after local edits. The checkout and local secrets are not copied into the Nix store.";
     };
+    sourceExecutable = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = "Executable relative to sourceDirectory, for example dist/relaksacher. Rebuild locally and restart the service to update it.";
+    };
     environment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
@@ -36,6 +41,12 @@ in
     };
   };
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = cfg.sourceExecutable == null || cfg.sourceDirectory != null;
+        message = "services.relaksacher.sourceExecutable requires sourceDirectory.";
+      }
+    ];
     environment.systemPackages = [ cfg.package ];
     users.groups.relaksacher = { };
     users.users.relaksacher = {
@@ -69,6 +80,9 @@ in
         }
         // lib.optionalAttrs (cfg.sourceDirectory != null) {
           RELAKSACHER_SOURCE_DIRECTORY = "/run/relaksacher/source";
+        }
+        // lib.optionalAttrs (cfg.sourceExecutable != null) {
+          RELAKSACHER_EXECUTABLE = "/run/relaksacher/source/${cfg.sourceExecutable}";
         };
       serviceConfig = {
         ExecStart = "${cfg.package}/bin/relaksacher service";
@@ -77,7 +91,8 @@ in
         Group = "relaksacher";
         StateDirectory = "relaksacher";
         RuntimeDirectory = "relaksacher";
-        WorkingDirectory = "/var/lib/relaksacher";
+        WorkingDirectory =
+          if cfg.sourceExecutable != null then "/run/relaksacher/source" else "/var/lib/relaksacher";
         UMask = "0077";
         Restart = "on-failure";
         RestartSec = 5;

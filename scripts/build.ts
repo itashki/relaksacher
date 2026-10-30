@@ -1,4 +1,5 @@
 /** @file Build the host and its dynamically selected audio dependencies into an AOT executable. */
+import { rename } from "node:fs/promises";
 import { projectDirectory } from "../src/core/project.ts";
 
 process.chdir(projectDirectory);
@@ -14,6 +15,8 @@ for await (const filename of new Bun.Glob("node_modules/@snazzah/davey-*/*.node"
 }
 if (!assets.length) throw new Error("Missing DAVE native bindings; run bun install first");
 
+// Compile beside the final binary, then atomically replace it even while the service is running.
+const output = `dist/.relaksacher-${crypto.randomUUID()}`;
 const child = Bun.spawn(
   [
     process.execPath,
@@ -32,8 +35,16 @@ const child = Bun.spawn(
     "--external",
     "ffmpeg-static",
     "--outfile",
-    "dist/relaksacher",
+    output,
   ],
   { stdin: "inherit", stdout: "inherit", stderr: "inherit" },
 );
-process.exitCode = await child.exited;
+const status = await child.exited;
+if (status === 0) {
+  await rename(output, "dist/relaksacher");
+} else {
+  await Bun.file(output)
+    .delete()
+    .catch(() => {});
+}
+process.exitCode = status;

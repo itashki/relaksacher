@@ -15,6 +15,10 @@
 }:
 let
   models = import ./models.nix { inherit fetchurl; };
+  sileroPython = python3.withPackages (ps: [
+    ps.torch
+    ps.numpy
+  ]);
 in
 stdenvNoCC.mkDerivation {
   pname = "relaksacher";
@@ -55,24 +59,22 @@ stdenvNoCC.mkDerivation {
     mkdir -p $out/lib/relaksacher $out/bin
     cp -r index.ts src scripts package.json node_modules $out/lib/relaksacher/
     makeWrapper ${bun}/bin/bun $out/bin/relaksacher \
-      --run 'set -- "''${RELAKSACHER_SOURCE_DIRECTORY:-'$out'/lib/relaksacher}/index.ts" "$@"' \
       --set RELAKSACHER_PACKAGED 1 \
       --set-default WHISPER_MODEL ${models.whisper} \
       --set-default SILERO_MODEL ${models.sileroRu} \
       --set-default SILERO_MODEL_EN ${models.sileroEn} \
+      --set-default SILERO_PYTHON ${sileroPython}/bin/python3 \
       --set-default RELAKSACHER_SOCKET /run/relaksacher/control.sock \
       --prefix PATH : ${
         lib.makeBinPath [
           ffmpeg
           yt-dlp
           deno
-          (python3.withPackages (ps: [
-            ps.torch
-            ps.numpy
-          ]))
+          sileroPython
           whisper-cpp
         ]
-      }
+      } \
+      --run 'if [ -n "''${RELAKSACHER_EXECUTABLE:-}" ]; then exec "$RELAKSACHER_EXECUTABLE" "$@"; fi; set -- "''${RELAKSACHER_SOURCE_DIRECTORY:-'$out'/lib/relaksacher}/index.ts" "$@"'
   '';
   meta = {
     description = "Discord and Telegram assistant with an attachable terminal";
