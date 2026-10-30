@@ -45,15 +45,15 @@ Bun запускает TypeScript напрямую, отдельная сбор�
 системный Bun при этом не меняется:
 
 ```sh
-nix develop path:. --command bun run build
+npm run build
 ./dist/relaksacher
 # Отдельный сервис и подключение терминала:
 ./dist/relaksacher service
 ./dist/relaksacher tui
 ```
 
-Только компилятор без остальных инструментов окружения:
-`nix shell path:.#bun-canary --command bun run build`.
+Скрипт `./build.sh` подключает только закреплённый компилятор через Nix.
+Команды `npm run build`, `bun run build` и `./build.sh` запускают одну сборку.
 Сборка использует экспериментальный `--aot`, а не только упаковку JavaScript.
 Запускайте бинарник из каталога с `.env`, `facts.json5` и `personality.json5`;
 относительные пути данных отсчитываются от рабочего каталога. Bun и TypeScript-исходники
@@ -715,7 +715,7 @@ NixOS нужно пересобирать при изменениях настр
 Один раз обновите input проекта и примените NixOS-конфигурацию. Затем достаточно:
 
 ```sh
-nix shell path:.#bun-canary --command bun run build
+npm run build
 sudo systemctl restart relaksacher
 ```
 

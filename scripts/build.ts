@@ -5,7 +5,7 @@ import { projectDirectory } from "../src/core/project.ts";
 process.chdir(projectDirectory);
 const help = Bun.spawnSync([process.execPath, "build", "--help"]);
 if (!help.stdout.toString().includes("--aot")) {
-  throw new Error("AOT requires Bun canary: nix shell path:.#bun-canary --command bun run build");
+  throw new Error("AOT requires Bun canary; run npm run build or ./build.sh");
 }
 
 // NAPI loaders need the original package paths, including package.json, at runtime.

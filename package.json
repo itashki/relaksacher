@@ -16,7 +16,7 @@
     "lint": "bun run check:size && oxlint --max-warnings 0 --report-unused-disable-directives index.ts src test scripts",
     "lint:fix": "bun run check:size && oxlint --fix --max-warnings 0 --report-unused-disable-directives index.ts src test scripts",
     "check:size": "bun scripts/check-file-size.ts",
-    "build": "bun scripts/build.ts"
+    "build": "./build.sh"
   },
   "dependencies": {
     "@discordjs/voice": "^0.19.2",
