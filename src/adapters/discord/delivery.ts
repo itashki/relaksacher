@@ -1,6 +1,7 @@
 /** @file Synchronize streamed model snapshots with Discord replies and their stop controls. */
 import type { Message, ThreadChannel, ActionRowBuilder, ButtonBuilder } from "discord.js";
 import { splitMessage, describeToolCall } from "./message.ts";
+import { cleanAssistantText } from "../../core/assistant/output.ts";
 
 /** Create per-response delivery state; media-only answers remove temporary text messages. */
 export function createDiscordDelivery(
@@ -21,7 +22,8 @@ export function createDiscordDelivery(
    */
   async function flush(state: import("../../types.ts").GenerationUpdate) {
     snapshot = state;
-    const { text, final } = state;
+    const { final } = state;
+    const text = cleanAssistantText(state.text, final);
     if (final && !text.trim() && mediaDelivered) {
       for (const reply of replies) await reply.delete();
       replies.length = 0;

@@ -5,6 +5,60 @@ import { setup } from "../support/assistant-fixture.ts";
 
 const header = "[Автор: Бот (username: bot, id: 123456)]";
 
+test.each(["think", "analysis", "THINK"])("%s blocks never appear at any stream split", (tag) => {
+  const raw = `До.<${tag}>private secret</${tag}>После.`;
+  for (let index = 1; index <= raw.length; index++) {
+    const text = cleanAssistantText(raw.slice(0, index), false);
+    expect(text).not.toMatch(/private|secret|[<>]/u);
+  }
+  expect(cleanAssistantText(raw)).toBe("До.После.");
+});
+
+test("unclosed, nested and repeated reasoning blocks fail closed", () => {
+  expect(cleanAssistantText("<think>secret")).toBe("");
+  expect(cleanAssistantText("Ответ<think>secret</think><analysis>hidden</analysis>!")).toBe(
+    "Ответ!",
+  );
+  expect(cleanAssistantText("<think>one<analysis>two</analysis>three</think>Ответ")).toBe("Ответ");
+  expect(cleanAssistantText("<think  ")).toBe("");
+  expect(cleanAssistantText("Обычный <b>текст</b> и 2 < 3.")).toBe("Обычный <b>текст</b> и 2 < 3.");
+});
+
+test.each([true, false])(
+  "reasoning in content stays private through the session (closed=%s)",
+  async (closed) => {
+    const raw = `<think>private secret${closed ? "</think>Ответ." : ""}`;
+    const env = setup([[...raw].map((content) => ({ message: { content } }))]);
+    const result = await env.assistant.createSession(env.options).run();
+    for (const text of [...env.updates.map((update) => update.text), result.text])
+      expect(text).not.toMatch(/private|secret|[<>]/u);
+    if (closed) expect(result.text).toBe("Ответ.");
+    else expect(result.incompleteReason).toBe("empty_answer");
+  },
+);
+
+test("recipe regression hides reasoning before and after a tool round", async () => {
+  const call = { function: { name: "save_fursona", arguments: { profile: "fox" } } };
+  const env = setup([
+    [
+      ...[..."<think>We need answer user's request in Russian. Call save_fursona.</think>"].map(
+        (content) => ({ message: { content } }),
+      ),
+      { message: { content: "", tool_calls: [call] } },
+    ],
+    [
+      ..."<think>Need final answer. Ensure no tool mention.</think>Пирог: выпекай при 180 °C 35–45 минут.",
+    ].map((content) => ({ message: { content } })),
+  ]);
+  const result = await env.assistant.createSession(env.options).run();
+  expect(result.text.trim()).toBe("Пирог: выпекай при 180 °C 35–45 минут.");
+  for (const update of env.updates)
+    expect(update.text).not.toMatch(/We need|Call save|Need final|[<>]/u);
+  expect(env.requests[1].messages.find((message) => message.role === "assistant")?.content).toBe(
+    "",
+  );
+});
+
 test("author metadata is removed while conversational prose and roleplay actions remain", () => {
   const answer = "Привет! Всё хорошо.\n\n*Подмигиваю и шевелю ушами.*";
   expect(cleanAssistantText(`${header}\n\n${answer}`)).toBe(answer);

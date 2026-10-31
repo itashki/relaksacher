@@ -1,4 +1,5 @@
 /** @file Keep generated author metadata out of streamed replies and explain incomplete answers. */
+import { hideReasoning } from "./reasoning.ts";
 
 /**
  * Remove reserved author headers at line starts, outside fenced code and quoted text.
@@ -6,6 +7,7 @@
  * Preserve ordinary prose, Markdown, roleplay actions and literal examples inside code.
  */
 export function cleanAssistantText(text: string, final = true) {
+  text = hideReasoning(text);
   const output: string[] = [];
   let fence: { marker: string; length: number } | undefined;
   let removed = false;

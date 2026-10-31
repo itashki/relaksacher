@@ -1,5 +1,6 @@
 /** @file Check local Whisper startup, readiness, ownership and cancellation. */
 import { expect, test } from "bun:test";
+import { tmpdir } from "node:os";
 import { createWhisperServer } from "../../src/core/speech/whisper-server.ts";
 
 /** Build a controllable child without starting a real model or binding a port. */
@@ -38,7 +39,9 @@ test("starts the requested command, waits for readiness and kills only once", as
   const server = createWhisperServer({
     model: "/models/ggml-small.bin",
     fetchImpl: async () => Response.json({ status: ++probes > 1 ? "ok" : "loading" }),
-    spawn: (command) => {
+    spawn: (command, options) => {
+      expect(options.cwd).toBe(tmpdir());
+      expect(options.cwd).not.toBe(process.cwd());
       commands.push(command);
       return child;
     },

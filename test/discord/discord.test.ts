@@ -71,7 +71,7 @@ test("Discord maps messages to plain input and renders core updates", async () =
               modelAlias: "терн",
             });
             await options.onUpdate({
-              text: "hello",
+              text: "<think>private secret</think>hello",
               status: { function: { name: "web_search", arguments: { query: "question" } } },
               thinkingLog: "reasoning",
               liveThinking: "",
@@ -79,7 +79,7 @@ test("Discord maps messages to plain input and renders core updates", async () =
               modelAlias: "терн",
             });
             await options.onUpdate({
-              text: "hello",
+              text: "<think>private secret</think>hello",
               status: "",
               thinkingLog: "reasoning",
               liveThinking: "",
@@ -126,7 +126,8 @@ test("Discord maps messages to plain input and renders core updates", async () =
   expect(payloads.at(-1).components).toStrictEqual([]);
   expect(
     payloads.every(
-      (payload: MessageCreateOptions) => !payload.files && !payload.content.includes("reasoning"),
+      (payload: MessageCreateOptions) =>
+        !payload.files && !/reasoning|private|secret|<think>/u.test(payload.content),
     ),
   ).toBeTruthy();
   expect(payloads.at(-1).content).toBe("hello\n\n-# терн");

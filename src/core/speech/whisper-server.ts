@@ -1,4 +1,5 @@
 /** @file Own the local Whisper subprocess, wait for readiness and stop only the server we started. */
+import { tmpdir } from "node:os";
 
 type ServerProcess = {
   kill(signal?: number): void;
@@ -16,14 +17,15 @@ export function createWhisperServer({
   enabled = true,
   startupTimeoutMs = 60000,
   fetchImpl = fetch,
-  spawn = (command) => Bun.spawn(command, { stdin: "ignore", stdout: "pipe", stderr: "pipe" }),
+  spawn = (command, options) =>
+    Bun.spawn(command, { ...options, stdin: "ignore", stdout: "pipe", stderr: "pipe" }),
 }: {
   url?: string;
   model?: string;
   enabled?: boolean;
   startupTimeoutMs?: number;
   fetchImpl?: import("../../types.ts").HttpFetch;
-  spawn?: (command: string[]) => ServerProcess;
+  spawn?: (command: string[], options: { cwd: string }) => ServerProcess;
 } = {}) {
   let child: ServerProcess | undefined;
   let stopped = false;
@@ -94,19 +96,24 @@ export function createWhisperServer({
         if (!enabled || address.origin !== "http://127.0.0.1:8080") return;
         if (await healthy()) return;
         if (stopped) throw new Error("Whisper startup cancelled");
-        child = spawn([
-          "whisper-server",
-          "--host",
-          "127.0.0.1",
-          "--port",
-          "8080",
-          "-m",
-          model,
-          "--convert",
-          "-t",
-          "2",
-          "-ng",
-        ]);
+        // whisper.cpp --convert writes uploads beside its cwd, which may be a read-only checkout.
+        // systemd PrivateTmp keeps these temporary voice files inside the service namespace.
+        child = spawn(
+          [
+            "whisper-server",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8080",
+            "-m",
+            model,
+            "--convert",
+            "-t",
+            "2",
+            "-ng",
+          ],
+          { cwd: tmpdir() },
+        );
         void forwardLogs(child.stdout, false);
         void forwardLogs(child.stderr, true);
         const deadline = Date.now() + startupTimeoutMs;
