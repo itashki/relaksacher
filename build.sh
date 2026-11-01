@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the AOT executable using this project's pinned Nix Bun, from any directory.
+# Build the executable using this project's pinned Nix Bun, from any directory.
 set -eu
 
 cd -- "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"

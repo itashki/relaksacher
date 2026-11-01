@@ -1,4 +1,4 @@
-name: Build AOT executable
+name: Build executable
 
 on:
   push:

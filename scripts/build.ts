@@ -1,11 +1,18 @@
-/** @file Build the host and its dynamically selected audio dependencies into an AOT executable. */
+/** @file Build a standalone host with embedded audio dependencies and optional experimental AOT. */
 import { rename } from "node:fs/promises";
 import { projectDirectory } from "../src/core/project.ts";
 
 process.chdir(projectDirectory);
-const help = Bun.spawnSync([process.execPath, "build", "--help"]);
-if (!help.stdout.toString().includes("--aot")) {
-  throw new Error("AOT requires Bun canary; run npm run build or ./build.sh");
+const options = Bun.argv.slice(2);
+if (options.some((option) => option !== "--aot")) {
+  throw new Error("Usage: ./build.sh [--aot]");
+}
+const aot = options.includes("--aot");
+if (aot) {
+  const help = Bun.spawnSync([process.execPath, "build", "--help"]);
+  if (!help.stdout.toString().includes("--aot")) {
+    throw new Error("AOT requires the pinned compiler; run ./build.sh --aot");
+  }
 }
 
 // NAPI loaders need the original package paths, including package.json, at runtime.
@@ -22,7 +29,9 @@ const child = Bun.spawn(
     process.execPath,
     "build",
     "--compile",
-    "--aot",
+    // The default JIT handles dependency runtime regexes and optional module loaders.
+    // AOT remains opt-in: its diagnostics describe real compatibility/performance limits.
+    ...(aot ? ["--aot"] : []),
     "--define",
     "RELAKSACHER_COMPILED=true",
     // prism-media selects the Opus implementation with a dynamic require().
