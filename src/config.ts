@@ -64,7 +64,7 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   }
   const spontaneous = {
     enabled: env.SPONTANEOUS_REPLIES !== "false",
-    chance: Number(env.SPONTANEOUS_CHANCE ?? 0.05),
+    chance: Number(env.SPONTANEOUS_CHANCE ?? 0.2),
     cooldownMs: Number(env.SPONTANEOUS_COOLDOWN_MS ?? 300000),
   };
   if (

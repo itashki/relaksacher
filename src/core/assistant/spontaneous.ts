@@ -8,7 +8,7 @@ export function createSpontaneousPolicy({
   decide,
   enqueue,
   enabled = true,
-  chance = 0.05,
+  chance = 0.2,
   cooldownMs = 300000,
   random = Math.random,
   now = Date.now,
