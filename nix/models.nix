@@ -2,6 +2,16 @@
 # Fixed hashes verify upstream bytes; Nix owns storage and garbage collection.
 { fetchurl }:
 {
+  gigaam = fetchurl {
+    name = "v3_e2e_rnnt.ckpt";
+    url = "https://cdn.chatwm.opensmodel.sberdevices.ru/GigaAM/v3_e2e_rnnt.ckpt";
+    hash = "sha256-9gxi/kWQLZZwAHcKEvJg3nxaxNS45ehS8d+MVI45WLU=";
+  };
+  gigaamTokenizer = fetchurl {
+    name = "v3_e2e_rnnt_tokenizer.model";
+    url = "https://cdn.chatwm.opensmodel.sberdevices.ru/GigaAM/v3_e2e_rnnt_tokenizer.model";
+    hash = "sha256-gowSyZEBnu+VKpYGYfJaktatJ5WR4upGa0rt3x0goYo=";
+  };
   whisper = fetchurl {
     name = "ggml-large-v3.bin";
     url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin";

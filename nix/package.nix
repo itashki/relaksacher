@@ -1,7 +1,7 @@
 # Source distribution with offline, integrity-checked npm dependencies.
 {
   lib,
-  stdenv,
+  pkgs,
   stdenvNoCC,
   bun,
   nodejs,
@@ -16,9 +16,11 @@
 }:
 let
   models = import ./models.nix { inherit fetchurl; };
-  # Enable NVIDIA inference on x86_64 Linux; other platforms keep CPU support.
+  gigaamPython = import ./gigaam.nix { inherit pkgs; };
+  gigaamModels = import ./gigaam-models.nix { inherit pkgs; };
+  # Whisper stays available as a CPU fallback; GigaAM owns CUDA inference.
   whisper = whisper-cpp.override {
-    cudaSupport = stdenv.hostPlatform.isx86_64 && stdenv.hostPlatform.isLinux;
+    cudaSupport = false;
     rocmSupport = false;
     withSDL = false;
   };
@@ -67,6 +69,9 @@ stdenvNoCC.mkDerivation {
     cp -r index.ts src scripts package.json node_modules $out/lib/relaksacher/
     makeWrapper ${bun}/bin/bun $out/bin/relaksacher \
       --set RELAKSACHER_PACKAGED 1 \
+      --set-default TRANSCRIPTION_BACKEND gigaam \
+      --set-default GIGAAM_PYTHON ${gigaamPython}/bin/python3 \
+      --set-default GIGAAM_MODEL_DIR ${gigaamModels} \
       --set-default WHISPER_MODEL ${models.whisper} \
       --set-default SILERO_MODEL ${models.sileroRu} \
       --set-default SILERO_MODEL_EN ${models.sileroEn} \

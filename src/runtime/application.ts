@@ -28,7 +28,7 @@ export function createApplication(
 ) {
   const voice = createVoiceSynthesizer({ silero: config.silero });
   const transcribe = createTranscriber({
-    url: config.whisperUrl,
+    url: config.transcriptionBackend === "gigaam" ? config.gigaam?.url : config.whisperUrl,
     timeoutMs: config.whisperTimeoutMs,
   });
   const memoryDirectory = resolvePath(Bun.env.MEMORY_DIR || "memory", projectDirectory);

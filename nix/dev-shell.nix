@@ -7,13 +7,16 @@ in
 pkgs.mkShell {
   name = "relaksacher";
   WHISPER_MODEL = toString models.whisper;
+  TRANSCRIPTION_BACKEND = "gigaam";
+  GIGAAM_PYTHON = "${import ./gigaam.nix { inherit pkgs; }}/bin/python3";
+  GIGAAM_MODEL_DIR = toString (import ./gigaam-models.nix { inherit pkgs; });
   SILERO_MODEL = toString models.sileroRu;
   SILERO_MODEL_EN = toString models.sileroEn;
   packages = with pkgs; [
     bunCanary
     ollama-cuda
     (whisper-cpp.override {
-      cudaSupport = pkgs.stdenv.hostPlatform.isx86_64 && pkgs.stdenv.hostPlatform.isLinux;
+      cudaSupport = false;
       rocmSupport = false;
       withSDL = false;
     })

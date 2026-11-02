@@ -117,6 +117,14 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   if (isNaN(OLLAMA_TIMEOUT)) {
     throw new Error("OLLAMA_TIMEOUT is not a valid number.");
   }
+  const transcriptionBackend = env.TRANSCRIPTION_BACKEND?.trim() || "gigaam";
+  if (transcriptionBackend !== "gigaam" && transcriptionBackend !== "whisper")
+    throw new Error("Invalid TRANSCRIPTION_BACKEND");
+  const gigaamDevice = env.GIGAAM_DEVICE?.trim() || "auto";
+  if (!["auto", "cuda", "cpu"].includes(gigaamDevice)) throw new Error("Invalid GIGAAM_DEVICE");
+  const gigaamUrl = env.GIGAAM_URL?.trim() || "http://127.0.0.1:8082/inference";
+  if (!["http:", "https:"].includes(new URL(gigaamUrl).protocol))
+    throw new Error("Invalid GIGAAM_URL");
   const whisperUrl = env.WHISPER_URL?.trim() || "http://127.0.0.1:8080/inference";
   const whisperAddress = new URL(whisperUrl);
   if (!["http:", "https:"].includes(whisperAddress.protocol))
@@ -141,6 +149,14 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   return {
     messageBatchWindowMs,
     silero,
+    transcriptionBackend: transcriptionBackend as "gigaam" | "whisper",
+    gigaam: {
+      python: env.GIGAAM_PYTHON?.trim() || "python3",
+      modelDirectory: env.GIGAAM_MODEL_DIR?.trim() || "models/gigaam",
+      device: gigaamDevice as "auto" | "cuda" | "cpu",
+      url: gigaamUrl,
+      enabled: env.GIGAAM_AUTO_START !== "false",
+    },
     whisperModel: env.WHISPER_MODEL?.trim() || "models/ggml-small.bin",
     whisperAutoStart: env.WHISPER_AUTO_START !== "false",
     whisperUrl,

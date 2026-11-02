@@ -15,10 +15,13 @@
     {
       packages = forEachSystem (system: {
         bun-canary = import ./nix/bun-canary.nix { pkgs = nixpkgs.legacyPackages.${system}; };
-        default = (import nixpkgs {
-          inherit system;
-          config.allowUnfree = true; # Whisper CUDA runtime dependencies.
-        }).callPackage ./nix/package.nix { };
+        default =
+          (import nixpkgs {
+            inherit system;
+            config.allowUnfree = true; # GigaAM CUDA runtime dependencies.
+          }).callPackage
+            ./nix/package.nix
+            { };
       });
       nixosModules.default = { pkgs, ... }: {
         imports = [ ./nix/module.nix ];

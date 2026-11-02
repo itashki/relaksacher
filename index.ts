@@ -1,5 +1,6 @@
 /** @file Persistent operator/transport host with drainable, replaceable application code. */
 import { createWhisperServer } from "./src/core/speech/whisper-server.ts";
+import { createGigaamServer } from "./src/core/speech/gigaam-server.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
 import { createRequestLog } from "./src/core/request-log.ts";
 import { resolvePath } from "./src/core/paths.ts";
@@ -141,11 +142,14 @@ const control =
         restart: () => restart.restart(),
       })
     : null;
-const whisper = createWhisperServer({
-  url: config.whisperUrl,
-  model: config.whisperModel,
-  enabled: config.whisperAutoStart,
-});
+const speech =
+  config.transcriptionBackend === "gigaam"
+    ? createGigaamServer(config.gigaam)
+    : createWhisperServer({
+        url: config.whisperUrl,
+        model: config.whisperModel,
+        enabled: config.whisperAutoStart,
+      });
 const shutdown = createShutdown({
   steps: [
     () => control?.close(),
@@ -158,11 +162,11 @@ const shutdown = createShutdown({
       await requestLog.close();
     },
     () => transports.stop(),
-    () => whisper.stop(),
+    () => speech.stop(),
   ],
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => void shutdown.run());
-whisper
+speech
   .start()
   .then(() => {
     if (!shutdown.started) return transports.start();

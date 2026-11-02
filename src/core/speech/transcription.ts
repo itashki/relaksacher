@@ -1,4 +1,4 @@
-/** @file Serialize voice downloads and whisper.cpp inference across all adapters. */
+/** @file Serialize voice downloads and compatible speech-server requests across all adapters. */
 import PQueue from "p-queue";
 
 /** Create a bounded single-worker transcription queue. Audio is loaded only when its job starts.
@@ -25,10 +25,10 @@ export function createTranscriber({
         signal: AbortSignal.timeout(timeoutMs),
         redirect: "error",
       });
-      if (!response.ok) throw new Error("Whisper request failed");
+      if (!response.ok) throw new Error("Transcription request failed");
       const result = (await response.json()) as { text?: unknown };
       if (typeof result.text !== "string" || !result.text.trim())
-        throw new Error("Whisper returned no speech");
+        throw new Error("Transcription returned no speech");
       return result.text.trim();
     });
   };

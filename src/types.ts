@@ -139,6 +139,14 @@ export type AppConfig = {
   messageBatchWindowMs?: number;
   silero?: import("./adapters/speech/silero.ts").SileroOptions;
   whisperModel?: string;
+  transcriptionBackend?: "gigaam" | "whisper";
+  gigaam?: {
+    python: string;
+    modelDirectory: string;
+    device: "auto" | "cuda" | "cpu";
+    url: string;
+    enabled: boolean;
+  };
   whisperAutoStart?: boolean;
   whisperUrl?: string;
   whisperTimeoutMs?: number;
