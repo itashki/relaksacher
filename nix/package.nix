@@ -1,6 +1,7 @@
 # Source distribution with offline, integrity-checked npm dependencies.
 {
   lib,
+  stdenv,
   stdenvNoCC,
   bun,
   nodejs,
@@ -15,6 +16,12 @@
 }:
 let
   models = import ./models.nix { inherit fetchurl; };
+  # Enable NVIDIA inference on x86_64 Linux; other platforms keep CPU support.
+  whisper = whisper-cpp.override {
+    cudaSupport = stdenv.hostPlatform.isx86_64 && stdenv.hostPlatform.isLinux;
+    rocmSupport = false;
+    withSDL = false;
+  };
   sileroPython = python3.withPackages (ps: [
     ps.torch
     ps.numpy
@@ -71,7 +78,7 @@ stdenvNoCC.mkDerivation {
           yt-dlp
           deno
           sileroPython
-          whisper-cpp
+          whisper
         ]
       } \
       --run 'if [ -n "''${RELAKSACHER_EXECUTABLE:-}" ]; then exec "$RELAKSACHER_EXECUTABLE" "$@"; fi; set -- "''${RELAKSACHER_SOURCE_DIRECTORY:-'$out'/lib/relaksacher}/index.ts" "$@"'

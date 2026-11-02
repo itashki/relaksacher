@@ -13,7 +13,7 @@ pkgs.mkShell {
     bunCanary
     ollama-cuda
     (whisper-cpp.override {
-      cudaSupport = false;
+      cudaSupport = pkgs.stdenv.hostPlatform.isx86_64 && pkgs.stdenv.hostPlatform.isLinux;
       rocmSupport = false;
       withSDL = false;
     })

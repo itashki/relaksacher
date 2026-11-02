@@ -3,9 +3,9 @@
 { fetchurl }:
 {
   whisper = fetchurl {
-    name = "ggml-large-v3-turbo.bin";
-    url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin";
-    hash = "sha256-H8cPd0046xaZk6w5Huo1fvR8iHV+9y7llDh5t+jivGk=";
+    name = "ggml-large-v3.bin";
+    url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin";
+    hash = "sha256-ZNGCtEC5jVIDxPm9VBVE2ExgUZbE97hF36EfsjWU0eI=";
   };
   sileroRu = fetchurl {
     name = "silero-v5_6_ru.pt";

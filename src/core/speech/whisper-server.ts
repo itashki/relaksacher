@@ -10,6 +10,7 @@ type ServerProcess = {
 };
 
 /** Manage the default loopback Whisper endpoint. Existing healthy servers are reused.
+ * GPU selection is left to whisper.cpp and its compiled backends.
  * Custom endpoints remain externally managed. stop() also cancels startup polling. */
 export function createWhisperServer({
   url = "http://127.0.0.1:8080/inference",
@@ -110,7 +111,6 @@ export function createWhisperServer({
             "--convert",
             "-t",
             "2",
-            "-ng",
           ],
           { cwd: tmpdir() },
         );

@@ -59,7 +59,6 @@ test("starts the requested command, waits for readiness and kills only once", as
       "--convert",
       "-t",
       "2",
-      "-ng",
     ],
   ]);
   await Promise.all([server.stop(), server.stop()]);

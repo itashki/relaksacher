@@ -92,7 +92,7 @@ nix develop path:. --command bun start
 Для Nix без flakes доступен `nix-shell`: он использует ту же ревизию nixpkgs
 из `flake.lock`. Для `nix develop` должны быть включены `nix-command` и `flakes`.
 
-Окружение содержит Bun, Ollama CUDA, whisper.cpp (CPU), FFmpeg/ffprobe,
+Окружение содержит Bun, Ollama CUDA, whisper.cpp (CUDA на x86_64 Linux), FFmpeg/ffprobe,
 yt-dlp, Deno для извлечения YouTube, Python с PyTorch и NumPy (CPU), Node.js, Git, curl, CA-сертификаты
 и инструменты сборки нативных зависимостей. Отдельная установка этих программ
 в системный конфиг не требуется.
@@ -549,8 +549,8 @@ Telegram отправляет анимацию через `sendAnimation`, Disco
 
 Распознавание выполняет отдельный локальный сервер
 [whisper.cpp](https://github.com/ggml-org/whisper.cpp/tree/master/examples/server).
-В Nix программа и многоязычная модель `large-v3-turbo` уже настроены
-(файл модели около 1,5 ГиБ). Для ручной установки без Nix
+В Nix программа и многоязычная модель `large-v3` уже настроены
+(файл модели около 2,9 ГиБ). Для ручной установки без Nix
 установите Git, CMake, компилятор C/C++ и FFmpeg средствами своей системы.
 Программа `whisper-server` должна быть доступна боту в PATH; модель можно
 хранить по любому пути, указанному в `WHISPER_MODEL`.
@@ -559,7 +559,7 @@ Telegram отправляет анимацию через `sendAnimation`, Disco
 ```sh
 git clone https://github.com/ggml-org/whisper.cpp.git
 cd whisper.cpp
-cmake -B build -DGGML_CUDA=OFF
+cmake -B build -DGGML_CUDA=ON
 cmake --build build --config Release -j 2
 sh models/download-ggml-model.sh small
 mkdir -p /path/to/relaksacher/models
@@ -568,8 +568,8 @@ cp models/ggml-small.bin /path/to/relaksacher/models/ggml-small.bin
 ```
 
 Пример ручной установки использует многоязычную `small`, без суффикса `.en`.
-Для более точного распознавания можно скачать `large-v3-turbo` той же командой
-и указать путь к `ggml-large-v3-turbo.bin` в `WHISPER_MODEL`.
+Для сравнения качества распознавания можно скачать `large-v3` той же командой
+и указать путь к `ggml-large-v3.bin` в `WHISPER_MODEL`.
 FFmpeg должен быть доступен
 серверу в PATH: `--convert` преобразует OGG/Opus перед распознаванием. Язык
 определяется автоматически, перевод на английский выключен.
@@ -584,7 +584,10 @@ WHISPER_MODEL=models/ggml-small.bin
 ```
 
 Укажите путь `WHISPER_MODEL` в `.env` (резервный путь — `models/ggml-small.bin`). При запуске бот проверяет `/health` и при необходимости
-запускает `whisper-server --host 127.0.0.1 --port 8080 -m <WHISPER_MODEL> --convert -t 2 -ng`.
+запускает `whisper-server --host 127.0.0.1 --port 8080 -m <WHISPER_MODEL> --convert -t 2`.
+GPU выбирает сам whisper.cpp: автозапуск не отключает ускорение. Для NVIDIA нужна
+сборка whisper.cpp с CUDA и рабочий драйвер; без GPU используется CPU.
+Для ручной сборки без CUDA укажите `-DGGML_CUDA=OFF`.
 До подключения к платформам он ждёт готовности до 60 секунд. Ошибка запуска
 завершает приложение. При выходе бот останавливает только собственный процесс;
 уже работающий сервер использует без остановки. Логи запущенного ботом Whisper
