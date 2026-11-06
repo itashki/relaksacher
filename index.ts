@@ -20,6 +20,12 @@ import type { RuntimeEvent } from "./src/runtime/contracts.ts";
 import { controlSocket, createControlServer } from "./src/runtime/control.ts";
 
 const mode = Bun.argv[2];
+if (mode === "check-audio") {
+  const { checkDiscordAudio } = await import("./src/adapters/discord/audio-check.ts");
+  await checkDiscordAudio();
+  console.log("DAVE and Opus encoding OK");
+  process.exit(0);
+}
 if (mode === "tui") {
   const { attachTerminal } = await import("./src/adapters/terminal/attach.ts");
   try {
@@ -30,7 +36,7 @@ if (mode === "tui") {
   }
   process.exit(0);
 }
-if (mode && mode !== "service") throw new Error("Usage: relaksacher [service|tui]");
+if (mode && mode !== "service") throw new Error("Usage: relaksacher [service|tui|check-audio]");
 const initial = await loadApplication();
 const config = initial.config;
 const terminalSession = initial.module.createTerminalSession();

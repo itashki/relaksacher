@@ -227,12 +227,14 @@ export function createMusicRuntime(
     // No shell interpolation. yt-dlp resolves expiring media URLs at playback time.
     let playback: ReturnType<typeof createMusicPipeline> | null = null;
     let failed = false;
-    const fail = () => {
+    const fail = (timedOut = false) => {
       if (failed || (playback && s.playback !== playback)) return;
       failed = true;
       s.advanceReason = "failed";
-      s.error =
-        "Не удалось проиграть трек: источник недоступен или произошла ошибка yt-dlp/FFmpeg. Пропускаю трек.";
+      s.error = timedOut
+        ? "Не удалось начать воспроизведение за 45 секунд. Пропускаю трек."
+        : "Не удалось проиграть трек: ошибка источника или аудиопайплайна. Подробности в журнале бота. Пропускаю трек.";
+      console.error(`[music] ${s.current}: ${s.error}`);
       publish();
       notify(s.error);
       cleanup(s);
@@ -273,9 +275,10 @@ export function createMusicRuntime(
         fail,
       );
       s.playback = playback;
-      s.timer = setTimeout(fail, 45_000);
+      s.timer = setTimeout(() => fail(true), 45_000);
       s.player.play(createAudioResource(playback.stream, { inputType: StreamType.Raw }));
-    } catch {
+    } catch (error) {
+      console.error("[music] Не удалось запустить аудиопайплайн:", error);
       fail();
     }
   }

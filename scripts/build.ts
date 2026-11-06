@@ -1,6 +1,7 @@
 /** @file Build a standalone host with embedded audio dependencies and optional experimental AOT. */
 import { rename } from "node:fs/promises";
 import { projectDirectory } from "../src/core/project.ts";
+import { standaloneAudioPlugin } from "./audio-build.ts";
 
 process.chdir(projectDirectory);
 const options = Bun.argv.slice(2);
@@ -24,6 +25,17 @@ if (!assets.length) throw new Error("Missing DAVE native bindings; run bun insta
 
 // Compile beside the final binary, then atomically replace it even while the service is running.
 const output = `dist/.relaksacher-${crypto.randomUUID()}`;
+const bundled = `${output}.js`;
+const bundle = await Bun.build({
+  entrypoints: ["./index.ts"],
+  target: "bun",
+  define: { RELAKSACHER_COMPILED: "true" },
+  // Native modules must be bundled by the final compiler so their embedded paths remain valid.
+  external: ["ffmpeg-static", "@snazzah/davey"],
+  plugins: [standaloneAudioPlugin()],
+});
+if (!bundle.success) throw new AggregateError(bundle.logs, "Failed to bundle application");
+await Bun.write(bundled, bundle.outputs[0]);
 const child = Bun.spawn(
   [
     process.execPath,
@@ -34,11 +46,7 @@ const child = Bun.spawn(
     ...(aot ? ["--aot"] : []),
     "--define",
     "RELAKSACHER_COMPILED=true",
-    // prism-media selects the Opus implementation with a dynamic require().
-    "./index.ts",
-    "./node_modules/opusscript/index.js",
-    "--asset",
-    "./node_modules/opusscript/build/opusscript_native_wasm.wasm",
+    bundled,
     ...assets,
     // prism-media falls back to the system ffmpeg when this optional package is absent.
     "--external",
@@ -48,7 +56,17 @@ const child = Bun.spawn(
   ],
   { stdin: "inherit", stdout: "inherit", stderr: "inherit" },
 );
-const status = await child.exited;
+let status = await child.exited;
+await Bun.file(bundled).delete();
+if (status === 0) {
+  // Exercise the actual binary before replacing a working installation.
+  const audioCheck = Bun.spawn([`./${output}`, "check-audio"], {
+    stdin: "ignore",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  status = await audioCheck.exited;
+}
 if (status === 0) {
   await rename(output, "dist/relaksacher");
 } else {

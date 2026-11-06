@@ -44,17 +44,17 @@ export async function runMusicCommand(
   }
 }
 
-/** Native Web Stream pipe, adapted to a Node stream only at the Discord boundary. */
+/** Stream audio to Discord; forward child diagnostics to the host's stderr/service journal. */
 export function createMusicPipeline(
   sourceCmd: string[],
   encoderCmd: string[],
   onFailure: () => void,
 ) {
-  const source = Bun.spawn(sourceCmd, { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  const source = Bun.spawn(sourceCmd, { stdin: "ignore", stdout: "pipe", stderr: "inherit" });
   let encoder: ReturnType<typeof spawnEncoder>;
   /** Start the encoder with the source Web Stream as stdin; preserve native stream backpressure. */
   function spawnEncoder() {
-    return Bun.spawn(encoderCmd, { stdin: source.stdout, stdout: "pipe", stderr: "ignore" });
+    return Bun.spawn(encoderCmd, { stdin: source.stdout, stdout: "pipe", stderr: "inherit" });
   }
   try {
     encoder = spawnEncoder();
