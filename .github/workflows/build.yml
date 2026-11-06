@@ -30,7 +30,7 @@ jobs:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies
-        run: nix shell path:.#bun-canary --command bun install --frozen-lockfile
+        run: nix shell path:.#bun-compiler --command bun install --frozen-lockfile
 
       - name: Build executable
         run: npm run build

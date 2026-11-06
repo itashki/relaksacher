@@ -3,4 +3,4 @@
 set -eu
 
 cd -- "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-exec nix shell path:.#bun-canary --command bun scripts/build.ts "$@"
+exec nix shell path:.#bun-compiler --command bun scripts/build.ts "$@"

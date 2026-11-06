@@ -1,7 +1,7 @@
 # Shared shell contract: runtime tools in PATH and speech models in the Nix store.
 { pkgs }:
 let
-  bunCanary = import ./bun-canary.nix { inherit pkgs; };
+  bunCompiler = import ./bun-compiler.nix { inherit pkgs; };
   models = import ./models.nix { inherit (pkgs) fetchurl; };
 in
 pkgs.mkShell {
@@ -13,7 +13,7 @@ pkgs.mkShell {
   SILERO_MODEL = toString models.sileroRu;
   SILERO_MODEL_EN = toString models.sileroEn;
   packages = with pkgs; [
-    bunCanary
+    bunCompiler
     ollama-cuda
     (whisper-cpp.override {
       cudaSupport = false;

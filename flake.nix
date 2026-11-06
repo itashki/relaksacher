@@ -14,7 +14,9 @@
     in
     {
       packages = forEachSystem (system: {
-        bun-canary = import ./nix/bun-canary.nix { pkgs = nixpkgs.legacyPackages.${system}; };
+        bun-compiler = import ./nix/bun-compiler.nix { pkgs = nixpkgs.legacyPackages.${system}; };
+        # Preserve existing operator commands while using the stable compiler.
+        bun-canary = self.packages.${system}.bun-compiler;
         default =
           (import nixpkgs {
             inherit system;
