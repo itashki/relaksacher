@@ -4,7 +4,7 @@ import { guardContext, ContextLimitError } from "./context.ts";
 import { createRequestQueue } from "../queue.ts";
 import { createRepetitionDetector } from "./repetition.ts";
 import { buildMessages } from "./prompt.ts";
-import { createModelRouter, createModelChat } from "./models.ts";
+import { createModelRouter, createModelChat, requiresNonThinking } from "./models.ts";
 import { cleanAssistantText, incompleteExplanation } from "./output.ts";
 
 const MAX_TOOL_ROUNDS = 5;
@@ -222,6 +222,7 @@ export function createAssistant({
       onToolCall,
     }: import("../../types.ts").SessionOptions): import("../../types.ts").Session {
       const model = modelForConversation(conversation);
+      const forceNonThinking = requiresNonThinking(model);
       const toolContext = { ...context, imageState: { candidates: new Map(), sent: false } };
       const generation = {
         stream: null as import("../../types.ts").ModelStream | null,
@@ -282,7 +283,7 @@ export function createAssistant({
             pendingRequests.delete(requestId);
             currentRequest = { ...request, startedAt: Date.now(), status: "Подготовка" };
             publishTerminal();
-            let useThinking = think;
+            let useThinking = !forceNonThinking && think;
             let text = "";
             let status: import("../../types.ts").GenerationUpdate["status"] = "";
             let thinkingLog = "";
@@ -326,7 +327,7 @@ export function createAssistant({
             let incompleteReason: string | null = null;
             try {
               await flush(false);
-              if (supervisor && !think && !generation.stopped) {
+              if (!forceNonThinking && supervisor && !think && !generation.stopped) {
                 try {
                   useThinking = await supervisor.decideThinking(
                     conversation,
@@ -362,7 +363,7 @@ export function createAssistant({
               const toolsForRound = () => {
                 const available = [
                   ...definitions,
-                  ...(!supervisor && !useThinking ? [THINK_TOOL] : []),
+                  ...(!forceNonThinking && !supervisor && !useThinking ? [THINK_TOOL] : []),
                 ];
                 return available.length ? available : undefined;
               };
@@ -511,8 +512,10 @@ export function createAssistant({
                   }
                   let result;
                   if (call.function.name === "enable_thinking") {
-                    useThinking = true;
-                    result = "Режим размышлений включён. Продолжи выполнение текущего запроса.";
+                    useThinking = !forceNonThinking;
+                    result = forceNonThinking
+                      ? "Режим размышлений отключён для этой модели. Продолжи выполнение запроса."
+                      : "Режим размышлений включён. Продолжи выполнение текущего запроса.";
                   } else {
                     result = await toolService.runTool(call, toolContext);
                   }

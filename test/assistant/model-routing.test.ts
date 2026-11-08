@@ -107,3 +107,70 @@ test("tool incompatibility and server errors propagate without retry or dropping
     expect(calls).toBe(1);
   }
 });
+
+test("Gemma stays non-thinking across tool rounds even when explicitly requested", async () => {
+  const model = "igorls/gemma-4-12B-it-heretic-GGUF:latest";
+  const env = setup(
+    [
+      [{ message: { tool_calls: [{ function: { name: "enable_thinking", arguments: {} } }] } }],
+      [{ message: { content: "done" } }],
+    ],
+    { model },
+  );
+  const result = await env.assistant.createSession({ ...env.options, think: true }).run();
+  expect(result.failed).toBe(false);
+  expect(env.requests).toHaveLength(2);
+  for (const request of env.requests) {
+    expect(request.think).toBe(false);
+    expect(request.tools?.some((tool) => tool.function.name === "enable_thinking")).toBe(false);
+  }
+});
+
+test("Gemma bypasses thinking supervision while the vision fallback keeps its own policy", async () => {
+  let decisions = 0;
+  const env = setup([[{ message: { content: "text" } }], [{ message: { content: "image" } }]], {
+    model: "igorls/gemma-4-12B-it-heretic-GGUF",
+    visionModel: "vision",
+    supervisor: {
+      decideThinking: async () => {
+        decisions++;
+        return true;
+      },
+      extractFacts: async () => [],
+    },
+  });
+  await env.assistant.createSession(env.options).run();
+  expect(decisions).toBe(0);
+  expect(env.requests[0].think).toBe(false);
+  await env.assistant
+    .createSession({
+      ...env.options,
+      conversation: [{ role: "user", content: "describe", images: ["image"] }],
+    })
+    .run();
+  expect(decisions).toBe(1);
+  expect(env.requests[1].think).toBe(true);
+});
+
+test("model boundary forces tagged Gemma requests to false and preserves tools", async () => {
+  const requests: ChatRequest[] = [];
+  const stream: ModelStream = { abort() {}, async *[Symbol.asyncIterator]() {} };
+  const chat = createModelChat(
+    fixture<AssistantOptions["modelClient"]>({
+      async chat(request) {
+        requests.push(request);
+        return stream;
+      },
+    }),
+  );
+  const tools = [{ type: "function", function: { name: "read_history" } }];
+  await chat({
+    model: "igorls/gemma-4-12B-it-heretic-GGUF:Q8_0",
+    think: true,
+    stream: true,
+    messages: [],
+    tools,
+  });
+  expect(requests[0].think).toBe(false);
+  expect(requests[0].tools).toBe(tools);
+});

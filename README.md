@@ -177,9 +177,9 @@ nix-shell --run 'bun start'
 Основная модель задаётся в `.env`:
 
 ```dotenv
-OLLAMA_MODEL=qwen3:8b
+OLLAMA_MODEL=igorls/gemma-4-12B-it-heretic-GGUF
 # Optional separate model for image attachments and image reply chains.
-OLLAMA_VISION_MODEL=qwen3.5:9b
+OLLAMA_VISION_MODEL=eriktonon/qwen3.8-uncensored:27b
 OLLAMA_NUM_CTX=16384
 OLLAMA_SUPERVISOR_MODEL=qwen3:0.6b
 ```
@@ -193,6 +193,13 @@ OLLAMA_SUPERVISOR_MODEL=qwen3:0.6b
 выбирает режим обдумывания и принимает фоновые решения. Все настройки моделей
 находятся в `.env`; изменения требуют перезапуска. Подпись с названием модели
 к ответам не добавляется.
+
+`igorls/gemma-4-12B-it-heretic-GGUF` всегда запускается с `think: false`,
+включая все раунды инструментов и явные просьбы подумать. Для этой модели
+автоматический выбор размышлений и инструмент `enable_thinking` отключены.
+Этот пакет Gemma не принимает изображения; для них задайте
+`OLLAMA_VISION_MODEL=eriktonon/qwen3.8-uncensored:27b`.
+Отдельная модель изображений сохраняет собственный режим размышлений.
 
 Для Stheno v3.4 8B с поддержкой формата вызовов инструментов:
 
