@@ -25,9 +25,12 @@ by responsibility. `bun run check:size` enforces the limit and runs as part of
 
 # Delivery checks
 
-After successful changes, complete the required local checks, rebuild the bot
-when runtime code changes, restart it, and verify that the service is running
-and the configured messenger adapters have logged in successfully.
+After successful changes, complete the required local checks. Rebuild the bot
+when runtime code changes. Restart it only when the running bot needs to load
+changed code, configuration, or runtime assets; documentation-only changes,
+including AGENTS.md edits, do not require a rebuild or restart. After a necessary
+restart, verify that the service is running and the configured messenger adapters
+have logged in successfully.
 Commit and push the changes, then check GitHub Actions for the exact pushed
 commit. Wait for the executable build to finish successfully; a successful local
 build or a queued/running workflow is not sufficient. If CI fails, inspect its
