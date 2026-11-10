@@ -1,6 +1,7 @@
 /** @file Persistent Discord gateway and Telegram poller spanning planned application restarts. */
 import { Client, Events, GatewayIntentBits, MessageFlags } from "discord.js";
 import { run } from "@grammyjs/runner";
+import { TELEGRAM_UPDATES } from "../adapters/telegram/snake-leaderboard.ts";
 import { createTelegramApi } from "../adapters/telegram/api.ts";
 import type { AppConfig } from "../types.ts";
 import type { RuntimeEvent, RuntimeTransports } from "./contracts.ts";
@@ -75,7 +76,7 @@ export function createTransports(
         },
         {
           runner: {
-            fetch: { timeout: 30, allowed_updates: ["message", "callback_query"] },
+            fetch: { timeout: 30, allowed_updates: TELEGRAM_UPDATES },
             silent: true,
           },
         },

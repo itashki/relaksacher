@@ -4,7 +4,7 @@ import type { TelegramApi } from "../../types.ts";
 
 import snakeHtml from "./snake.html" with { type: "text" };
 
-/** Snake runs locally in the widget sandbox; no server queries or saved scores. */
+/** Self-contained Snake UI; shared leaderboard data comes from Telegram. */
 // Bun types HTML imports as bundles even when the text loader is explicit.
 export const SNAKE_HTML = snakeHtml as unknown as string;
 
@@ -13,6 +13,8 @@ export async function handleTelegramSnake(
   message: Message,
   username: string,
   api: (...args: Parameters<TelegramApi>) => ReturnType<TelegramApi>,
+  sendWidget = (payload: Record<string, unknown>) =>
+    api("sendWidget", { ...payload, html: SNAKE_HTML }),
 ): Promise<boolean> {
   const command = message.text?.trim().match(/^!snake(?:@(\w+))?$/iu);
   if (!command || (command[1] && command[1].toLowerCase() !== username.toLowerCase())) return false;
@@ -28,7 +30,7 @@ export async function handleTelegramSnake(
     });
   } else {
     try {
-      await api("sendWidget", { ...base, html: SNAKE_HTML });
+      await sendWidget(base);
     } catch (error) {
       console.warn("Telegram snake widget failed:", String(error));
       await api("sendMessage", {

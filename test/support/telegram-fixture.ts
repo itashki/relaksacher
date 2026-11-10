@@ -27,14 +27,17 @@ export function setup(
     instance: ReturnType<typeof createTelegramBot>,
   ) => Promise<unknown>,
   config: Partial<AppConfig> = { telegramUpdateIntervalMs: 0 },
+  memoryDirectory?: string,
 ) {
   const calls: { method: string; payload?: TelegramPayload }[] = [];
   const inputs: TestSessionOptions[] = [];
   const bot = createTelegramBot({
     config,
+    memoryDirectory,
     api: async (method, payload: TelegramPayload = {}) => {
       calls.push({ method, payload });
       if (method === "getMe") return { id: 99, username: "testbot", is_bot: true };
+      if (method === "sendWidget") return { message_id: calls.length, widget: { id: "snake-id" } };
       if (method === "getChatMember") return { status: "member" };
       return { message_id: calls.length, text: payload.text };
     },

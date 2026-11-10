@@ -1,13 +1,16 @@
 /** @file Snake routing and sandbox gameplay regressions without Telegram network access. */
 import type { Message } from "@grammyjs/types";
-import { expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { expect, test, onTestFinished } from "bun:test";
 import { createContext, runInContext } from "node:vm";
 import { SNAKE_HTML, handleTelegramSnake } from "../../src/adapters/telegram/snake.ts";
 import { createTelegramApi } from "../../src/adapters/telegram/api.ts";
 import { setup, message } from "../support/telegram-fixture.ts";
 
 test("snake sends a widget in a private topic without invoking the assistant", async () => {
-  const { bot, calls, inputs } = setup();
+  const directory = await mkdtemp("/tmp/telegram-snake-");
+  onTestFinished(() => rm(directory, { recursive: true, force: true }));
+  const { bot, calls, inputs } = setup(undefined, undefined, directory);
   await bot.handleUpdate({
     message: { ...message(1, " !Snake@TestBot "), message_thread_id: 7 },
   });
@@ -17,6 +20,9 @@ test("snake sends a widget in a private topic without invoking the assistant", a
     message_thread_id: 7,
     reply_parameters: { message_id: 1, allow_sending_without_reply: true },
     html: SNAKE_HTML,
+    is_shared: true,
+    allow_queries: true,
+    public_data: "[]",
   });
   expect(new TextEncoder().encode(SNAKE_HTML).length).toBeLessThanOrEqual(32768);
   expect(Bun.deflateSync(SNAKE_HTML, { level: 9 }).length).toBeLessThanOrEqual(4096);
@@ -49,7 +55,7 @@ test("widget delivery failures get a text reply", async () => {
   expect(calls).toEqual(["sendWidget", "sendMessage"]);
 });
 
-test("widget supports growth, safe turns, collisions, restart and visibility pause", () => {
+test("widget supports gameplay and leaderboard requests", async () => {
   const handlers = new Map<string, () => void>();
   const nodes = new Map<string, { textContent: string; [key: string]: unknown }>();
   const document = {
@@ -58,6 +64,7 @@ test("widget supports growth, safe turns, collisions, restart and visibility pau
       if (!nodes.has(id))
         nodes.set(id, {
           textContent: id === "#restart" ? "Старт" : "",
+          style: { display: id === "#ranking" ? "none" : "block" },
           getContext: () => ({ fillRect() {}, fillStyle: "" }),
           addEventListener: (event: string, callback: () => void) =>
             handlers.set(id + event, callback),
@@ -66,7 +73,18 @@ test("widget supports growth, safe turns, collisions, restart and visibility pau
     },
     addEventListener: (event: string, callback: () => void) => handlers.set(event, callback),
   };
-  const sandbox = createContext({ document, window: {}, setInterval() {} });
+  const requests: string[] = [];
+  const widget = {
+    publicData: JSON.stringify([["<b>Игрок</b>", 8]]),
+    ready() {},
+    onEvent() {},
+    watchPublicData() {},
+    request(data: string): Promise<{ result: string }> {
+      requests.push(data);
+      return Promise.resolve({ result: JSON.stringify({ top: [["Лучший", 10]] }) });
+    },
+  };
+  const sandbox = createContext({ document, window: { TelegramWidget: widget }, setInterval() {} });
   runInContext(SNAKE_HTML.match(/<script>([\s\S]*?)<\/script>/u)[1], sandbox);
   const run = (code: string) => runInContext(code, sandbox);
   const click = (id: string) => handlers.get("#" + id + "click")();
@@ -99,6 +117,27 @@ test("widget supports growth, safe turns, collisions, restart and visibility pau
   click("restart");
   run("snake = [30, 31, 45, 44]; direction = next = 14; food = 0; tick()");
   expect(run("running && snake[0] === 44")).toBe(true);
+  expect(nodes.get("#leaders").textContent).toContain("<b>Игрок</b>");
+  click("refresh");
+  expect(run("running")).toBe(false);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(requests).toEqual(["snake:top"]);
+  expect(nodes.get("#leaders").textContent).toContain("Лучший");
+  click("submit");
+  expect(requests).toHaveLength(1);
+  run("over = true");
+  click("submit");
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(requests.at(-1)).toBe("snake:score:1");
+  expect(nodes.get("#notice").textContent).toBe("Результат сохранён");
+  widget.request = () => Promise.reject(new Error("timeout"));
+  click("submit");
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(nodes.get("#notice").textContent).toContain("Нажмите ещё раз");
 });
 
 test("grammY transport passes sendWidget and its HTML to Bot API", async () => {

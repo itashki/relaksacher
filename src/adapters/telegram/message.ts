@@ -71,3 +71,10 @@ export function rememberTelegramImages(
 /** Return the chat/topic key used to isolate Telegram batches and reply history. */
 export const roomKey = (message: import("@grammyjs/types").Message) =>
   `${message.chat.id}:${message.message_thread_id ?? 0}`;
+
+/** Strip this bot's username suffix from commands supported by the shared text parser. */
+export function cleanTelegramCommands(text: string, username: string): string {
+  return text.replace(/\/(think)@(\w+)/giu, (match, command, target) =>
+    target.toLowerCase() === username.toLowerCase() ? `/${command}` : match,
+  );
+}

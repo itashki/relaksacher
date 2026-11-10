@@ -3,6 +3,7 @@ import * as requests from "../shared/request-statistics.ts";
 import { handleTelegramRoll } from "../shared/dice.ts";
 import {
   roomKey,
+  cleanTelegramCommands,
   splitText,
   imageFiles,
   author,
@@ -15,7 +16,7 @@ import { attachImages } from "../shared/images.ts";
 import { formatTelegramChunks } from "./format.ts";
 import { run } from "@grammyjs/runner";
 import { createTelegramApi } from "./api.ts";
-import { handleTelegramSnake } from "./snake.ts";
+import { createTelegramSnake, TELEGRAM_UPDATES, type SnakeQuery } from "./snake-leaderboard.ts";
 import { parseCommands } from "../../core/text.ts";
 
 export { createTelegramApi } from "./api.ts";
@@ -30,10 +31,12 @@ export function createTelegramBot({
   transcribe,
   generateVoice,
   onRequest,
+  memoryDirectory = "memory",
   api = createTelegramApi(config.telegramToken, fetch, {
     timeoutMs: config.telegramTimeoutMs ?? 60000,
   }),
 }: {
+  memoryDirectory?: string;
   onRequest?: import("../../core/statistics.ts").RecordRequest;
   config: import("../../types.ts").AppConfig;
   assistant: import("../../types.ts").Assistant;
@@ -44,6 +47,7 @@ export function createTelegramBot({
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   api?: import("../../types.ts").TelegramApi;
 }) {
+  const snake = createTelegramSnake(memoryDirectory, api);
   let stopped = false;
   let runner: ReturnType<typeof run>;
   const histories = new Map<string, import("@grammyjs/types").Message[]>();
@@ -294,16 +298,7 @@ export function createTelegramBot({
         past.find((entry) => entry.message_id === parent.message_id)?.reply_to_message ??
         parent.reply_to_message;
     }
-    /**
-     * Strip this bot's username suffix from supported commands.
-     * @param text Raw command-bearing text.
-     * @returns Text suitable for shared command parsing.
-     */
-    const cleanCommands = (text: string) =>
-      text.replace(/\/(think)@(\w+)/giu, (match, command, username) =>
-        username.toLowerCase() === me.username.toLowerCase() ? `/${command}` : match,
-      );
-    const { flags } = parseCommands(cleanCommands(message.text));
+    const { flags } = parseCommands(cleanTelegramCommands(message.text, me.username));
     const conversation = conversationMessages.map((entry) => {
       if (entry.from.id === me.id) return { role: "assistant", content: entry.text };
       let text = entry.text;
@@ -334,7 +329,7 @@ export function createTelegramBot({
         : "";
       return {
         role: "user",
-        content: `[Автор: ${author(entry.from)}]\n${quote}${parseCommands(cleanCommands(text)).content}`,
+        content: `[Автор: ${author(entry.from)}]\n${quote}${parseCommands(cleanTelegramCommands(text, me.username)).content}`,
       };
     });
     await attachImages(conversation, conversationMessages.map(imageFiles), (fileId) =>
@@ -526,13 +521,19 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
   async function handleUpdate(update: import("@grammyjs/types").Update) {
     if (stopped) return;
     me ??= await api("getMe");
-    if (update.callback_query) await handleCallback(update.callback_query);
+    const query = update as typeof update & {
+      widget_query?: SnakeQuery;
+      shared_widget_query?: SnakeQuery;
+    };
+    if (query.widget_query || query.shared_widget_query)
+      await snake.handleQuery(query.widget_query ?? query.shared_widget_query);
+    else if (update.callback_query) await handleCallback(update.callback_query);
     else if (update.message) {
       if (!update.message.from || update.message.from.is_bot) {
         batches.flush(roomKey(update.message));
         return;
       }
-      if (await handleTelegramSnake(update.message, me.username, api)) return;
+      if (await snake.handleMessage(update.message, me.username)) return;
       if (
         await handleTelegramRoll(
           update.message,
@@ -575,7 +576,10 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
         },
         {
           runner: {
-            fetch: { timeout: 30, allowed_updates: ["message", "callback_query"] },
+            fetch: {
+              timeout: 30,
+              allowed_updates: TELEGRAM_UPDATES,
+            },
             silent: true,
           },
         },

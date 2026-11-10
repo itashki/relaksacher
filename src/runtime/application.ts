@@ -86,6 +86,7 @@ export function createApplication(
         transcribe,
         generateVoice: voice.generate,
         api: transports.telegram,
+        memoryDirectory,
       })
     : null;
   return {

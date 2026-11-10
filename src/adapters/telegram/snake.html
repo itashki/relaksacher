@@ -9,7 +9,7 @@
   }
   canvas {
     width: 100%;
-    max-width: 280px;
+    max-width: 220px;
     background: #101820;
     border-radius: 8px;
   }
@@ -28,15 +28,91 @@
   }
 </style>
 <p><strong>🐍 Змейка</strong> · <span id="score">Счёт: 0</span></p>
-<canvas id="board" width="280" height="280" aria-label="Игровое поле змейки"></canvas>
-<p id="status" role="status">Нажмите «Старт»</p>
-<div><button id="up" aria-label="Вверх">↑</button></div>
-<div>
-  <button id="left" aria-label="Влево">←</button><button id="down" aria-label="Вниз">↓</button
-  ><button id="right" aria-label="Вправо">→</button>
+<div id="game">
+  <canvas id="board" width="280" height="280" aria-label="Игровое поле змейки"></canvas>
+  <p id="status" role="status">Нажмите «Старт»</p>
+  <div><button id="up" aria-label="Вверх">↑</button></div>
+  <div>
+    <button id="left" aria-label="Влево">←</button><button id="down" aria-label="Вниз">↓</button
+    ><button id="right" aria-label="Вправо">→</button>
+  </div>
+  <div><button id="restart">Старт</button><button id="pause">Пауза</button></div>
 </div>
-<div><button id="restart">Старт</button><button id="pause">Пауза</button></div>
+<div><button id="submit" disabled>Сохранить счёт</button><button id="refresh">Топ-10</button></div>
+<p id="notice" role="status"></p>
+<div id="ranking" style="display: none">
+  <p><strong>🏆 Топ-10</strong></p>
+  <p id="leaders" style="white-space: pre-wrap">Пока нет результатов</p>
+</div>
 <script>
+  const TW = window.TelegramWidget;
+  const submit = document.querySelector("#submit");
+  const refresh = document.querySelector("#refresh");
+  const notice = document.querySelector("#notice");
+  function showTop(top) {
+    document.querySelector("#leaders").textContent = top.length
+      ? top.map((entry, i) => i + 1 + ". " + entry[0] + " — " + entry[1]).join("\n")
+      : "Пока нет результатов";
+  }
+  function sharedTop() {
+    try {
+      showTop(JSON.parse(TW.publicData || "[]"));
+    } catch {
+      notice.textContent = "Не удалось прочитать рейтинг";
+    }
+  }
+  function request(data) {
+    if (!TW) {
+      notice.textContent = "Рейтинг доступен в Telegram";
+      return;
+    }
+    const submitting = data.startsWith("snake:score:");
+    submit.disabled = refresh.disabled = true;
+    notice.textContent = "Загрузка…";
+    try {
+      TW.request(data)
+        .then((answer) => {
+          const result = JSON.parse(answer.result);
+          if (result.top) showTop(result.top);
+          notice.textContent =
+            result.error || (submitting ? "Результат сохранён" : "Рейтинг обновлён");
+          submit.disabled = !over;
+          refresh.disabled = false;
+        })
+        .catch(() => {
+          notice.textContent = "Не удалось обновить рейтинг. Нажмите ещё раз.";
+          submit.disabled = !over;
+          refresh.disabled = false;
+        });
+    } catch {
+      notice.textContent = "Запрос недоступен. Попробуйте ещё раз.";
+      submit.disabled = !over;
+      refresh.disabled = false;
+    }
+  }
+  submit.addEventListener("click", () => {
+    if (over) request("snake:score:" + (snake.length - 3));
+  });
+  refresh.addEventListener("click", () => {
+    const ranking = document.querySelector("#ranking");
+    const opening = ranking.style.display === "none";
+    ranking.style.display = opening ? "block" : "none";
+    document.querySelector("#game").style.display = opening ? "none" : "block";
+    refresh.textContent = opening ? "К игре" : "Топ-10";
+    if (opening) {
+      if (running) {
+        running = false;
+        pause.textContent = "Продолжить";
+        status.textContent = "Пауза";
+      }
+      request("snake:top");
+    }
+  });
+  if (TW) {
+    sharedTop();
+    TW.onEvent("publicDataChanged", sharedTop);
+    TW.watchPublicData();
+  }
   const board = document.querySelector("#board");
   const ctx = board.getContext("2d");
   const score = document.querySelector("#score");
@@ -71,6 +147,7 @@
     direction = next = 1;
     turned = false;
     over = false;
+    submit.disabled = true;
     placeFood();
     draw();
   }
@@ -94,6 +171,7 @@
     if (wall || snake.slice(0, eating ? snake.length : -1).includes(cell)) {
       running = false;
       over = true;
+      submit.disabled = false;
       status.textContent = "Игра окончена. Нажмите «Заново»";
       return;
     }
@@ -103,6 +181,7 @@
     if (snake.length === 196) {
       running = false;
       over = true;
+      submit.disabled = false;
       status.textContent = "Победа!";
     }
     draw();
