@@ -16,6 +16,7 @@ export type ControlSnapshot = {
   music: MusicStatus[];
   statistics: RequestStatistics;
   paused: boolean;
+  activeRequests: number;
   logs: string[];
 };
 
@@ -25,6 +26,7 @@ export async function createControlServer(options: {
   assistant: Assistant;
   music: MusicStatusSource;
   statistics: StatisticsSource;
+  activeRequests: () => number;
   restart: () => Promise<void>;
 }) {
   let state: TerminalState = { current: null, queue: [] };
@@ -42,6 +44,7 @@ export async function createControlServer(options: {
         if (request.method === "GET" && path === "/snapshot")
           return Response.json({
             state,
+            activeRequests: options.activeRequests(),
             music,
             statistics: options.statistics.snapshot(),
             paused: options.assistant.repliesPaused(),
@@ -54,12 +57,13 @@ export async function createControlServer(options: {
           return Response.json(true);
         }
         if (path === "/restart") {
-          try {
-            await options.restart();
-            return Response.json(true);
-          } catch (error) {
-            return new Response(String(error), { status: 500 });
-          }
+          // Acknowledge before shutdown closes this socket; callers detach their TUI.
+          setTimeout(() => {
+            void options
+              .restart()
+              .catch((error) => console.error("Service restart failed:", error));
+          }, 50);
+          return Response.json(true);
         }
         return new Response("Not found", { status: 404 });
       },
@@ -112,7 +116,7 @@ export async function controlRequest(socket: string, path: string, method = "GET
     response = await fetch(`http://localhost${path}`, {
       unix: socket,
       method,
-      signal: AbortSignal.timeout(path === "/restart" ? 3600000 : 5000),
+      signal: AbortSignal.timeout(5000),
     });
   } catch (cause) {
     throw new Error(

@@ -407,14 +407,13 @@ export function createTui({
   const requestRestart = () => {
     if (!onRestart || restarting || closed) return;
     restarting = true;
-    notice =
-      "Рестарт: ожидаю завершения запросов. Новые сообщения будут обработаны после рестарта.";
+    notice = "Полный рестарт: ожидаю завершения запросов. TUI отключится при перезапуске.";
     dirty = true;
     void Promise.resolve()
       .then(onRestart)
       .then(
         () => {
-          if (!closed) notice = "Рестарт завершён.";
+          if (!closed) notice = "Перезапуск сервиса запрошен.";
         },
         (error) => {
           if (!closed) notice = `Ошибка рестарта: ${String(error)}`;

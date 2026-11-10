@@ -1,6 +1,5 @@
-/** @file Replaceable application composition; messenger transports belong to the persistent host. */
+/** @file Compose model clients, stores and adapters around process-owned messenger connections. */
 import { Ollama } from "ollama";
-import { loadConfig } from "../config.ts";
 import { createVoiceSynthesizer } from "../adapters/speech/silero.ts";
 import { createTranscriber } from "../core/speech/transcription.ts";
 import { createMemoryStore } from "../core/memory/index.ts";
@@ -14,10 +13,6 @@ import { resolvePath } from "../core/paths.ts";
 import { projectDirectory } from "../core/project.ts";
 import type { AppConfig } from "../types.ts";
 import type { RuntimeEvent, RuntimeTransports } from "./contracts.ts";
-
-export { loadConfig };
-export { createCliControls } from "../adapters/terminal/cli.ts";
-export { createTerminalSession } from "../adapters/terminal/session.ts";
 
 /** Construct fresh handlers without logging in, polling, or consuming incoming events. */
 export function createApplication(
@@ -98,7 +93,7 @@ export function createApplication(
         await discord?.handleInteraction(event.interaction);
       else await telegram?.handleUpdate(event.update);
     },
-    /** Dispose only after the host drains accepted events during a restart; shutdown may cancel. */
+    /** Stop model work and release adapters and voice synthesis during process shutdown. */
     async dispose() {
       assistant.stopObserving();
       assistant.stopCurrentGeneration();

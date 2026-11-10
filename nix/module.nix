@@ -37,7 +37,7 @@ in
     operators = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
-      description = "Users allowed to attach via sudo -u relaksacher.";
+      description = "Users allowed to attach or request a graceful restart via sudo -u relaksacher.";
     };
   };
   config = lib.mkIf cfg.enable {
@@ -61,6 +61,10 @@ in
         commands = [
           {
             command = "${cfg.package}/bin/relaksacher tui";
+            options = [ "NOPASSWD" ];
+          }
+          {
+            command = "${cfg.package}/bin/relaksacher restart";
             options = [ "NOPASSWD" ];
           }
         ];

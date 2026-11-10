@@ -68,7 +68,7 @@ test("closing CLI cancels input and ignores unfinished commands", async () => {
   expect(calls).toBe(0);
 });
 
-test("CLI restart leaves input responsive, coalesces repeats, and reports build failures", async () => {
+test("CLI restart leaves input responsive, coalesces repeats, and reports request failures", async () => {
   const input = new TransformStream<Uint8Array, Uint8Array>();
   const writer = input.writable.getWriter();
   let text = "",
@@ -93,9 +93,9 @@ test("CLI restart leaves input responsive, coalesces repeats, and reports build 
     await Bun.sleep(0);
     expect(calls).toBe(1);
     expect(text.match(/CLI:/g)).toHaveLength(2);
-    pending.reject(new Error("broken build"));
+    pending.reject(new Error("service unavailable"));
     await Bun.sleep(0);
-    expect(text).toContain("broken build");
+    expect(text).toContain("service unavailable");
     await writer.close();
     if ("done" in controls) await controls.done;
   } finally {

@@ -57,6 +57,7 @@ export async function attachTerminal(socket: string) {
     },
     onRestart: async () => {
       await command("/restart");
+      finish();
     },
     onInterrupt: finish,
   });

@@ -27,6 +27,8 @@ test("private socket replays telemetry and controls the live assistant", async (
   let paused = false;
   let stops = 0;
   let restarts = 0;
+  let activeRequests = 2;
+  const restarted = Promise.withResolvers<void>();
   let subscribed = true;
   const server = await createControlServer({
     socket,
@@ -48,8 +50,10 @@ test("private socket replays telemetry and controls the live assistant", async (
     }),
     music: createMusicMonitor(),
     statistics: createStatistics(() => 123),
+    activeRequests: () => activeRequests,
     restart: async () => {
       restarts++;
+      restarted.resolve();
     },
   });
   try {
@@ -60,7 +64,17 @@ test("private socket replays telemetry and controls the live assistant", async (
     await controlRequest(socket, "/resume", "POST");
     expect(paused).toBe(false);
     expect(await controlRequest(socket, "/stop", "POST")).toBe(true);
-    await controlRequest(socket, "/restart", "POST");
+    expect((await controlRequest(socket, "/snapshot")).activeRequests).toBe(2);
+    activeRequests = 0;
+    expect((await controlRequest(socket, "/snapshot")).activeRequests).toBe(0);
+    const client = Bun.spawn([process.execPath, "index.ts", "restart"], {
+      env: { ...Bun.env, RELAKSACHER_SOCKET: socket, FACTS_FILE: "missing-restart-facts.json5" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(await client.exited).toBe(0);
+    expect(await new Response(client.stdout).text()).toContain("Перезапуск сервиса запрошен");
+    await restarted.promise;
     expect(stops).toBe(1);
     expect(restarts).toBe(1);
     await expect(controlRequest(socket, "/stop")).rejects.toThrow("Not found");
@@ -71,6 +85,7 @@ test("private socket replays telemetry and controls the live assistant", async (
         music: createMusicMonitor(),
         statistics: createStatistics(),
         restart: async () => {},
+        activeRequests: () => 0,
       }),
     ).rejects.toThrow();
     expect((await controlRequest(socket, "/snapshot")).paused).toBe(false);

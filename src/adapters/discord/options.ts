@@ -12,7 +12,7 @@ export type DiscordBotOptions = {
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   memoryDirectory: string;
   onMusicStatus?: (statuses: import("../../core/music/status.ts").MusicStatus[]) => void;
-  /** Keep the host gateway connected across a managed runtime restart. */
+  /** Use the gateway owned by the process host. */
   externalClient?: Client;
   loadImage?: (arg0: string) => Promise<string>;
   onRequest?: import("../../core/statistics.ts").RecordRequest;

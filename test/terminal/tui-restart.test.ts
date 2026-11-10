@@ -76,7 +76,7 @@ test("R and header click restart once, search input stays text, and errors allow
     expect(calls).toBe(1);
     expect(stops).toBe(0);
     pending.resolve();
-    await waitFor(() => screen.includes("Рестарт завершён."));
+    await waitFor(() => screen.includes("Перезапуск сервиса запрошен."));
     pending = Promise.withResolvers<void>();
     input.write("\x1b[<0;95;1M");
     await waitFor(() => calls === 2);

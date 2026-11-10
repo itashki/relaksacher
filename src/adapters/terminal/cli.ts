@@ -11,7 +11,7 @@ export function createCliControls({
   session,
   onRestart,
 }: {
-  /** Reload bot code after accepted requests finish, preserving live messenger connections. */
+  /** Request a full service restart after accepted requests finish. */
   onRestart?: () => Promise<void>;
   session?: import("./session.ts").TerminalSession;
   statistics?: import("../../core/statistics.ts").StatisticsSource;
@@ -26,7 +26,7 @@ export function createCliControls({
   const sink = output ? null : Bun.stdout.writer();
   const writer = output ?? sink;
   const help =
-    "CLI: stop — остановить текущую генерацию; restart — мягкий рестарт; help — показать команды.\n";
+    "CLI: stop — остановить текущую генерацию; restart — перезапуск сервиса; help — показать команды.\n";
   let restarting = false;
   let closed = false;
   const write = (text: string) => {
@@ -50,7 +50,7 @@ export function createCliControls({
           .then(onRestart)
           .then(
             () => {
-              if (!closed) write("Рестарт завершён.\n");
+              if (!closed) write("Перезапуск сервиса запрошен.\n");
             },
             (error) => {
               if (!closed) write(`Не удалось перезапустить бота: ${String(error)}\n`);

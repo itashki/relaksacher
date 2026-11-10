@@ -759,8 +759,8 @@ services.relaksacher = {
 содержимое локальных файлов не копируется в Nix store. Код запускается
 без записи кеша сборки в рабочую папку, как в пакетном режиме.
 После изменений кода, `.env`, фактов или личности достаточно
-`sudo systemctl restart relaksacher`; мягкий рестарт из TUI не перечитывает
-окружение systemd и в этом режиме не обновляет граф модулей.
+`sudo -u relaksacher relaksacher restart`: бот дождётся завершения запросов,
+затем systemd запустит новый процесс с актуальным окружением и кодом.
 NixOS нужно пересобирать при изменениях настроек сервиса, его Nix-пакета
 или системных зависимостей. Пути моделей и Python в `.env` должны быть
 доступны сервису; для моделей из пакета оставьте эти переопределения пустыми
@@ -772,7 +772,7 @@ NixOS нужно пересобирать при изменениях настр
 
 ```sh
 npm run build
-sudo systemctl restart relaksacher
+sudo -u relaksacher relaksacher restart
 ```
 
 Сервис каждый раз запускает текущий бинарник через монтирование checkout;
@@ -793,7 +793,7 @@ sudo -u relaksacher relaksacher tui
 ```
 
 `q` или Ctrl+C закрывает TUI, сохраняя работающий бот. Указанные в `operators`
-пользователи могут запускать именно эту команду через sudo без пароля.
+пользователи могут запускать команды `tui` и `restart` через sudo без пароля после применения актуального NixOS-модуля.
 Сборка пакета отдельно: `nix build path:.`; установка: `nix profile add path:.`.
 Для обычного Linux systemd используйте `ExecStart=/absolute/path/to/bun /absolute/path/to/index.ts service`,
 `WorkingDirectory` репозитория, отдельного пользователя, `EnvironmentFile`,
