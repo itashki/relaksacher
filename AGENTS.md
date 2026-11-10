@@ -22,3 +22,14 @@ Keep every TypeScript source, test and tooling file at or below 600 physical
 lines, including comments and blank lines. Prefer modules of 200–400 lines split
 by responsibility. `bun run check:size` enforces the limit and runs as part of
 `bun run lint`; do not compress formatting or remove useful documentation to pass.
+
+# Delivery checks
+
+After successful changes, complete the required local checks, rebuild the bot
+when runtime code changes, restart it, and verify that the service is running
+and the configured messenger adapters have logged in successfully.
+Commit and push the changes, then check GitHub Actions for the exact pushed
+commit. Wait for the executable build to finish successfully; a successful local
+build or a queued/running workflow is not sufficient. If CI fails, inspect its
+logs, fix the cause, push the fix, and verify the new build. Report any blocked
+restart, push, or CI verification explicitly rather than claiming completion.
