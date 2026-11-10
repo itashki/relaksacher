@@ -1,0 +1,137 @@
+/** @file Self-contained Snake widget and Telegram command delivery. */
+import type { Message } from "@grammyjs/types";
+import type { TelegramApi } from "../../types.ts";
+
+/** Snake runs locally in the widget sandbox; no server queries or saved scores. */
+export const SNAKE_HTML = String.raw`
+<style>
+body { margin: 0; padding: 12px 12px 28px; color: var(--tg-theme-text-color, #fff); background: var(--tg-theme-bg-color, #17212b); font-family: sans-serif; text-align: center; }
+canvas { width: 100%; max-width: 280px; background: #101820; border-radius: 8px; }
+button { min-width: 56px; min-height: 44px; margin: 3px; border: 0; border-radius: 8px; background: var(--tg-theme-button-color, #3390ec); color: var(--tg-theme-button-text-color, #fff); font-size: 18px; }
+p { margin: 8px 0; }
+</style>
+<p><strong>🐍 Змейка</strong> · <span id="score">Счёт: 0</span></p>
+<canvas id="board" width="280" height="280" aria-label="Игровое поле змейки"></canvas>
+<p id="status" role="status">Нажмите «Старт»</p>
+<div><button id="up" aria-label="Вверх">↑</button></div>
+<div><button id="left" aria-label="Влево">←</button><button id="down" aria-label="Вниз">↓</button><button id="right" aria-label="Вправо">→</button></div>
+<div><button id="restart">Старт</button><button id="pause">Пауза</button></div>
+<script>
+const board = document.querySelector('#board');
+const ctx = board.getContext('2d');
+const score = document.querySelector('#score');
+const status = document.querySelector('#status');
+const pause = document.querySelector('#pause');
+let snake, food, direction, next, turned, running = false, over = false;
+function placeFood() {
+  const empty = [];
+  for (let i = 0; i < 196; i++) if (!snake.includes(i)) empty.push(i);
+  food = empty[Math.floor(Math.random() * empty.length)];
+}
+function draw() {
+  ctx.fillStyle = '#101820';
+  ctx.fillRect(0, 0, 280, 280);
+  ctx.fillStyle = '#ff647c';
+  if (food !== undefined) ctx.fillRect((food % 14) * 20 + 2, Math.floor(food / 14) * 20 + 2, 16, 16);
+  snake.forEach((cell, i) => {
+    ctx.fillStyle = i === 0 ? '#c3ff88' : '#70cf60';
+    ctx.fillRect((cell % 14) * 20 + 1, Math.floor(cell / 14) * 20 + 1, 18, 18);
+  });
+  score.textContent = 'Счёт: ' + (snake.length - 3);
+}
+function reset() {
+  snake = [104, 103, 102];
+  direction = next = 1;
+  turned = false;
+  over = false;
+  placeFood();
+  draw();
+}
+function turn(value) {
+  if (!running || turned || value === -direction) return;
+  next = value;
+  turned = true;
+}
+function tick() {
+  if (!running || document.hidden) return;
+  direction = next;
+  turned = false;
+  const head = snake[0];
+  const cell = head + direction;
+  const eating = cell === food;
+  const wall = cell < 0 || cell >= 196 || (direction === 1 && head % 14 === 13) || (direction === -1 && head % 14 === 0);
+  if (wall || snake.slice(0, eating ? snake.length : -1).includes(cell)) {
+    running = false;
+    over = true;
+    status.textContent = 'Игра окончена. Нажмите «Заново»';
+    return;
+  }
+  snake.unshift(cell);
+  if (eating) placeFood();
+  else snake.pop();
+  if (snake.length === 196) {
+    running = false;
+    over = true;
+    status.textContent = 'Победа!';
+  }
+  draw();
+}
+for (const [id, value] of [['up', -14], ['down', 14], ['left', -1], ['right', 1]]) {
+  document.querySelector('#' + id).addEventListener('click', () => turn(value));
+}
+document.querySelector('#restart').addEventListener('click', () => {
+  reset();
+  running = true;
+  status.textContent = 'Собирайте еду, избегайте стен и хвоста';
+  document.querySelector('#restart').textContent = 'Заново';
+  pause.textContent = 'Пауза';
+});
+pause.addEventListener('click', () => {
+  if (over || document.querySelector('#restart').textContent === 'Старт') return;
+  running = !running;
+  pause.textContent = running ? 'Пауза' : 'Продолжить';
+  status.textContent = running ? 'Собирайте еду, избегайте стен и хвоста' : 'Пауза';
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && running) {
+    running = false;
+    pause.textContent = 'Продолжить';
+    status.textContent = 'Пауза';
+  }
+});
+reset();
+setInterval(tick, 180);
+if (window.TelegramWidget) window.TelegramWidget.ready();
+</script>`;
+
+/** Consume an addressed !snake command, sending a private-chat widget or explanation. */
+export async function handleTelegramSnake(
+  message: Message,
+  username: string,
+  api: (...args: Parameters<TelegramApi>) => ReturnType<TelegramApi>,
+): Promise<boolean> {
+  const command = message.text?.trim().match(/^!snake(?:@(\w+))?$/iu);
+  if (!command || (command[1] && command[1].toLowerCase() !== username.toLowerCase())) return false;
+  const base = {
+    chat_id: message.chat.id,
+    ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
+    reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
+  };
+  if (message.chat.type !== "private") {
+    await api("sendMessage", {
+      ...base,
+      text: `Виджеты Telegram пока доступны только в личных чатах. Откройте @${username} и отправьте !snake.`,
+    });
+  } else {
+    try {
+      await api("sendWidget", { ...base, html: SNAKE_HTML });
+    } catch (error) {
+      console.warn("Telegram snake widget failed:", String(error));
+      await api("sendMessage", {
+        ...base,
+        text: "Не удалось отправить змейку. Попробуйте !snake ещё раз; для игры нужен Telegram с поддержкой виджетов.",
+      });
+    }
+  }
+  return true;
+}

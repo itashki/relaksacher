@@ -2,6 +2,7 @@
 import * as requests from "../shared/request-statistics.ts";
 import { handleTelegramRoll } from "../shared/dice.ts";
 import {
+  roomKey,
   splitText,
   imageFiles,
   author,
@@ -14,6 +15,7 @@ import { attachImages } from "../shared/images.ts";
 import { formatTelegramChunks } from "./format.ts";
 import { run } from "@grammyjs/runner";
 import { createTelegramApi } from "./api.ts";
+import { handleTelegramSnake } from "./snake.ts";
 import { parseCommands } from "../../core/text.ts";
 
 export { createTelegramApi } from "./api.ts";
@@ -48,13 +50,6 @@ export function createTelegramBot({
   const active = new Map();
   let me: import("@grammyjs/types").User;
   let running = false;
-  /**
-   * Isolate the reply cache by chat and topic.
-   * @param message Source message.
-   * @returns Cache key.
-   */
-  const roomKey = (message: import("@grammyjs/types").Message) =>
-    `${message.chat.id}:${message.message_thread_id ?? 0}`;
   const batches = createMessageBatches<import("@grammyjs/types").Message>({
     windowMs: config.messageBatchWindowMs ?? 1200,
     describe: (message) => ({
@@ -537,6 +532,7 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
         batches.flush(roomKey(update.message));
         return;
       }
+      if (await handleTelegramSnake(update.message, me.username, api)) return;
       if (
         await handleTelegramRoll(
           update.message,

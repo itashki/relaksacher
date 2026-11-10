@@ -67,3 +67,7 @@ export function rememberTelegramImages(
 ) {
   groupedImages.set(message, images);
 }
+
+/** Return the chat/topic key used to isolate Telegram batches and reply history. */
+export const roomKey = (message: import("@grammyjs/types").Message) =>
+  `${message.chat.id}:${message.message_thread_id ?? 0}`;
