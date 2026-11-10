@@ -111,3 +111,17 @@ test("grammY transport passes sendWidget and its HTML to Bot API", async () => {
   await api("sendWidget", { chat_id: 1, html: SNAKE_HTML });
   expect(body).toEqual({ chat_id: 1, html: SNAKE_HTML });
 });
+
+test("bundled widget preserves Unicode labels instead of displaying escape sequences", async () => {
+  const result = await Bun.build({
+    entrypoints: ["./src/adapters/telegram/snake.ts"],
+    target: "bun",
+  });
+  expect(result.success).toBe(true);
+  const bundled = await import(
+    `data:text/javascript;base64,${Buffer.from(await result.outputs[0].text()).toString("base64")}`
+  );
+  expect(bundled.SNAKE_HTML).toContain('aria-label="Вправо">→</button>');
+  expect(bundled.SNAKE_HTML).toContain("🐍 Змейка");
+  expect(bundled.SNAKE_HTML).not.toMatch(/\\u[\da-f]{4}/iu);
+});
