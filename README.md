@@ -177,9 +177,9 @@ nix-shell --run 'bun start'
 Основная модель задаётся в `.env`:
 
 ```dotenv
-OLLAMA_MODEL=igorls/gemma-4-12B-it-heretic-GGUF
+OLLAMA_MODEL=jikepjikep_16HEX/ornith-1.5-9b-nightshift-heretic-q4
 # Optional separate model for image attachments and image reply chains.
-OLLAMA_VISION_MODEL=eriktonon/qwen3.8-uncensored:27b
+# OLLAMA_VISION_MODEL=eriktonon/qwen3.8-uncensored:27b
 OLLAMA_NUM_CTX=16384
 OLLAMA_SUPERVISOR_MODEL=qwen3:0.6b
 ```
@@ -193,6 +193,14 @@ OLLAMA_SUPERVISOR_MODEL=qwen3:0.6b
 выбирает режим обдумывания и принимает фоновые решения. Все настройки моделей
 находятся в `.env`; изменения требуют перезапуска. Подпись с названием модели
 к ответам не добавляется.
+
+Для Ornith Nightshift установите модель командой
+`ollama pull jikepjikep_16HEX/ornith-1.5-9b-nightshift-heretic-q4`.
+Она обрабатывает текст, изображения и вызовы инструментов; оставьте
+`OLLAMA_VISION_MODEL` незаданным, чтобы все эти запросы шли в Ornith.
+Локальная проверка 15 ноября 2026 года подтвердила ответ на русском,
+распознавание двух изображений с переставленными цветами, структурированный
+вызов инструмента с аргументами и использование его результата в ответе.
 
 `igorls/gemma-4-12B-it-heretic-GGUF` всегда запускается с `think: false`,
 включая все раунды инструментов и явные просьбы подумать. Для этой модели
