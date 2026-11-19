@@ -13,7 +13,7 @@ import {
 import { createMessageBatches } from "../../core/message-batches.ts";
 import { handleTelegramVoiceCommands } from "./voice-commands.ts";
 import { attachImages } from "../shared/images.ts";
-import { formatTelegramChunks } from "./format.ts";
+import { createTelegramReplyDelivery } from "./delivery.ts";
 import { run } from "@grammyjs/runner";
 import { createTelegramApi } from "./api.ts";
 import { createTelegramSnake, TELEGRAM_UPDATES, type SnakeQuery } from "./snake-leaderboard.ts";
@@ -256,93 +256,13 @@ export function createTelegramBot({
       api.downloadImage(fileId),
     );
     const id = `${message.chat.id}:${message.message_id}`;
-    const replies: import("@grammyjs/types").Message.TextMessage[] = [];
-    const sent: string[] = [];
+    const delivery = createTelegramReplyDelivery({ api, message, config, stopId: id });
+    const { render, replies } = delivery;
     const base = {
       chat_id: message.chat.id,
       ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
     };
-    let lastRenderedAt = -Infinity;
     let queued = false;
-    let finalized = false;
-    let mediaDelivered = false;
-    /**
-     * Render the latest snapshot, throttling intermediate edits only.
-     * @param state Accumulated answer.
-     * @param immediate Bypass the ordinary render interval.
-     * @returns Delivery completion.
-     */
-    async function render(
-      state: import("../../types.ts").GenerationUpdate,
-      immediate: boolean = false,
-    ) {
-      if (state.final && !state.text.trim() && mediaDelivered) {
-        for (const reply of replies) {
-          await api("deleteMessage", { chat_id: message.chat.id, message_id: reply.message_id });
-        }
-        replies.length = 0;
-        sent.length = 0;
-        finalized = true;
-        return;
-      }
-      if (
-        !state.final &&
-        !immediate &&
-        replies.length &&
-        Date.now() - lastRenderedAt < (config.telegramUpdateIntervalMs ?? 5000)
-      )
-        return;
-      lastRenderedAt = Date.now();
-      const footer = state.modelAlias ? `\n\n· ${state.modelAlias}` : "";
-      let text = state.text || "…";
-      if (state.status) {
-        const name = state.status.function.name;
-        text += `\n\n${{ search_images: "🖼 Ищу картинку", send_image: "🖼 Отправляю картинку", read_history: "📜 Читаю историю чата", web_search: "🔍 Ищу в интернете", web_fetch: "🌐 Читаю страницу", enable_thinking: "💭 Обдумываю запрос", remember: "🧠 Запоминаю", forget: "🧠 Удаляю запись" }[name] ?? "⚙️ Использую инструмент"}`;
-      }
-      const chunks = formatTelegramChunks(text, state.modelAlias);
-      // Keep the number of messages stable if temporary thinking/status disappears.
-      while (chunks.length < replies.length) chunks.push(`·${footer}`);
-      for (let i = 0; i < chunks.length; i++) {
-        const markup = {
-          inline_keyboard:
-            !state.final && i === chunks.length - 1
-              ? [[{ text: "⏹ Остановить", callback_data: `stop:${id}` }]]
-              : [],
-        };
-        const payload = {
-          text: chunks[i],
-          parse_mode: "HTML",
-          reply_markup: markup,
-          link_preview_options: { is_disabled: true },
-        };
-        const fingerprint = JSON.stringify(payload);
-        if (!replies[i]) {
-          replies[i] = await api("sendMessage", {
-            ...base,
-            ...payload,
-            reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
-          });
-        } else if (sent[i] !== fingerprint) {
-          try {
-            await api("editMessageText", {
-              chat_id: message.chat.id,
-              message_id: replies[i].message_id,
-              ...payload,
-            });
-          } catch (error) {
-            if (!error.message.includes("message is not modified")) {
-              if (!state.final && error.transient) {
-                console.warn("Telegram edit postponed:", String(error));
-                return; // Leave sent unchanged; the next snapshot retries the latest text.
-              }
-              throw error;
-            }
-          }
-        }
-        sent[i] = fingerprint;
-      }
-      if (state.final) finalized = true;
-    }
     recordRequest("model");
     const session = assistant.createSession({
       onToolCall: requests.toolRecorder(recordRequest),
@@ -359,7 +279,7 @@ export function createTelegramBot({
             ...(image.kind === "gif" ? { animation: image.url } : { photo: image.url }),
             reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
           });
-          mediaDelivered = true;
+          delivery.markMediaDelivered();
         },
         readHistory: async (limit) => ({
           source: "telegram_cache",
@@ -399,37 +319,22 @@ ${spontaneousReply ? `Ты сам вступаешь в беседу без пи
     try {
       const result = await session.run();
       const answerChunks = splitText(result.text);
-      batches.remember(
-        replies.map((reply, index): import("@grammyjs/types").Message => ({
-          ...reply,
-          chat: message.chat,
-          message_thread_id: message.message_thread_id,
-          from: me,
-          text: answerChunks[index] ?? "",
-          reply_to_message: { ...message, reply_to_message: undefined },
-        })),
-      );
-      replies.forEach((reply, index) =>
-        remember({
-          ...reply,
-          chat: message.chat,
-          message_thread_id: message.message_thread_id,
-          from: me,
-          text: answerChunks[index] ?? "",
-          reply_to_message: { ...message, reply_to_message: undefined },
-        }),
-      );
+      const remembered = replies.map((reply, index): import("@grammyjs/types").Message => ({
+        ...reply,
+        chat: message.chat,
+        message_thread_id: message.message_thread_id,
+        from: me,
+        text: answerChunks[index] ?? "",
+        reply_to_message: { ...message, reply_to_message: undefined },
+      }));
+      batches.remember(remembered);
+      remembered.forEach(remember);
     } catch (error) {
       console.error("Telegram generation failed:", String(error));
     } finally {
       active.delete(id);
       // Remove stop buttons even when delivery or model generation failed.
-      for (const reply of finalized ? [] : replies)
-        await api("editMessageReplyMarkup", {
-          chat_id: message.chat.id,
-          message_id: reply.message_id,
-          reply_markup: { inline_keyboard: [] },
-        }).catch(() => {});
+      await delivery.clearStopButtons();
     }
   }
 

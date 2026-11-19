@@ -31,7 +31,7 @@ Status: done
 Files: src/adapters/telegram/delivery.ts (new), src/adapters/telegram/index.ts, docs/ARCHITECTURE.md
 Do: Move the nested `render()` function, its state (`replies`, `sent`, `lastRenderedAt`, `finalized`, `mediaDelivered`) and the tool-status label map (index.ts ~339-425) into `delivery.ts`. Export a documented `createTelegramReplyDelivery({ api, message, config, stopId })`, which returns `{ render(state, immediate?), markMediaDelivered(), replies, finalized(), clearStopButtons() }`. `clearStopButtons` holds the `finally` loop that removes the reply markup and swallows errors. Move the tool-status labels out of the template literal into a named `const TOOL_STATUS` map. Keep these behaviors unchanged: the throttle interval (`config.telegramUpdateIntervalMs ?? 5000`), the stable chunk count padding, fingerprint-based edit skipping, ignoring "message is not modified", postponing transient non-final edit errors, and deleting placeholder replies when the final text is empty after media delivery. In `index.ts`, also fold the duplicated reply-object construction used by both `batches.remember(...)` and `remember(...)` (lines ~482-501) into a single mapped array that is passed to both. Update the `adapters/telegram/index.ts` ARCHITECTURE row and add one for `adapters/telegram/delivery.ts` ("Потоковая отправка и редактирование ответов, кнопка остановки").
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test && test $(wc -l < src/adapters/telegram/index.ts) -lt 470`
-Status: todo
+Status: done
 
 ## Step 4: Extract Telegram reply-chain and conversation building
 
