@@ -1,4 +1,8 @@
-"""Resident SmolVLM2 video describer with a bounded loopback HTTP API.
+"""On-demand SmolVLM2 video describer with a bounded loopback HTTP API.
+
+The process stays up but the weights do not: the model is loaded for each
+/describe job and unloaded afterwards (references dropped, gc, CUDA cache
+emptied), so VRAM is free between jobs. /health never loads the model.
 
 Frames are sampled with ffmpeg and passed to the model as ordered images with
 timestamps. Weights load from a local directory only (no network at runtime).
@@ -7,11 +11,13 @@ plain python3. API: GET /health; POST /describe (multipart `file`, optional
 `prompt`) -> {"description", "frames", "duration"}.
 """
 import argparse
+import gc
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 from email.parser import BytesParser
 from email.policy import default
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -110,6 +116,18 @@ def load_model(model_dir, device):
     return {"processor": processor, "model": model, "device": device, "dtype": dtype}
 
 
+def release_model(bundle):
+    """Free a bundle from load_model: drop references, collect, empty the CUDA cache.
+
+    torch is touched only when it was already imported, so fakes need no torch.
+    """
+    bundle.clear()
+    gc.collect()
+    torch = sys.modules.get("torch")
+    if torch is not None and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def describe_frames(bundle, frames, prompt):
     """Describe ordered (timestamp, png_path) frames; return stripped text.
 
@@ -138,16 +156,26 @@ def describe_frames(bundle, frames, prompt):
     return processor.batch_decode(generated, skip_special_tokens=True)[0].strip()
 
 
-def make_describe(bundle, max_frames):
-    """Return describe(video_path, prompt) -> dict bound to a loaded model.
+def make_describe(load, max_frames, release=release_model):
+    """Return describe(video_path, prompt) -> dict that loads the model per job.
 
+    Frames are decoded first, so an undecodable video never loads the model.
+    `load()` returns a bundle, `release(bundle)` frees it; release always runs
+    after the job, on success or error. A lock keeps load/unload from overlapping.
     Raises ValueError for undecodable video or an empty description.
     """
+    lock = threading.Lock()
+
     def describe(video_path, prompt):
         duration = probe_duration(video_path)
         with tempfile.TemporaryDirectory(prefix="relaksacher-smolvlm-frames-") as frames_dir:
             frames = sample_frames(video_path, max_frames, frames_dir)
-            text = describe_frames(bundle, frames, prompt)
+            with lock:
+                bundle = load()
+                try:
+                    text = describe_frames(bundle, frames, prompt)
+                finally:
+                    release(bundle)
         if not text:
             raise ValueError("Empty description")
         return {"description": text, "frames": len(frames), "duration": duration}
@@ -224,7 +252,7 @@ def handler_for(describe, device):
 
 
 def main():
-    """Parse flags, load local weights once, then serve or run the smoke mode."""
+    """Parse flags, then serve or run the smoke mode; weights load per /describe job."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8083)
@@ -235,13 +263,12 @@ def main():
     args = parser.parse_args()
     if not Path(args.model).is_dir():
         raise FileNotFoundError(f"Missing local SmolVLM2 model directory: {args.model}")
-    bundle = load_model(args.model, args.device)
-    describe = make_describe(bundle, args.max_frames)
+    describe = make_describe(lambda: load_model(args.model, args.device), args.max_frames)
     if args.describe_file:
         print(describe(args.describe_file, None)["description"])
         return 0
-    print(f"SmolVLM2 ready on {bundle['device']}; port {args.port}", flush=True)
-    HTTPServer((args.host, args.port), handler_for(describe, bundle["device"])).serve_forever()
+    print(f"SmolVLM2 ready (model loads on demand, device {args.device}); port {args.port}", flush=True)
+    HTTPServer((args.host, args.port), handler_for(describe, args.device)).serve_forever()
     return 0
 
 

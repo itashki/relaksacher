@@ -8,6 +8,7 @@ import { createToolService } from "../core/tools/index.ts";
 import { createSupervisor } from "../core/assistant/supervisor.ts";
 import { createImageDescriber } from "../core/media/image-description.ts";
 import { createMediaDescriber } from "../core/media/index.ts";
+import { createTranslator } from "../core/media/translate.ts";
 import { createAssistant } from "../core/assistant/index.ts";
 import { createTelegramBot } from "../adapters/telegram/index.ts";
 import { createDiscordBot } from "../adapters/discord/index.ts";
@@ -76,6 +77,12 @@ export function createApplication(
       runExclusive: assistant.runExclusive,
     }),
     video: videoDescriber,
+    translator: createTranslator({
+      modelClient,
+      model: config.OLLAMA_MODEL,
+      timeoutMs: config.OLLAMA_TIMEOUT,
+      runExclusive: assistant.runExclusive,
+    }),
   });
   const discord = transports.discord
     ? createDiscordBot({

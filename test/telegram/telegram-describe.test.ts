@@ -118,11 +118,12 @@ const store = () => temporaryDirectory("tg-vd-").then(createVideoDescriptionStor
 test("a video note in silent mode is stored, silent and labeled in later read_history", async () => {
   const videoDescriptions = await store();
   const { describer: d } = describer();
-  const { bot, calls, inputs } = setup(undefined, undefined, undefined, {
-    describer: d,
-    videoDescriptions,
-    downloadVideo: async () => new Blob(["v"]),
-  });
+  const { bot, calls, inputs } = setup(
+    undefined,
+    { telegramUpdateIntervalMs: 0, videoNoteDescription: "silent" },
+    undefined,
+    { describer: d, videoDescriptions, downloadVideo: async () => new Blob(["v"]) },
+  );
   await bot.handleUpdate(circleUpdate(1));
   expect(sent(calls)).toHaveLength(0);
   expect(inputs).toHaveLength(0);
@@ -143,6 +144,17 @@ test("a video note in silent mode is stored, silent and labeled in later read_hi
   expect(history.messages.map((entry: { content: string }) => entry.content)).toContain(
     "[Видеосообщение, описание: A cat.]",
   );
+});
+
+test("a video note replies with the description by default", async () => {
+  const { describer: d } = describer();
+  const { bot, calls } = setup(undefined, undefined, undefined, {
+    describer: d,
+    videoDescriptions: await store(),
+    downloadVideo: async () => new Blob(["v"]),
+  });
+  await bot.handleUpdate(circleUpdate(1));
+  expect(sent(calls).map((call) => call.payload.text)).toStrictEqual(["🎬 A cat."]);
 });
 
 test("a video note in reply mode replies with the description", async () => {

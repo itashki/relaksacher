@@ -1,4 +1,4 @@
-/** @file Configure the resident SmolVLM2 video-description backend and its shared lifecycle. */
+/** @file Configure the SmolVLM2 video-description backend (weights load per job) and its shared lifecycle. */
 import { resolvePath } from "../paths.ts";
 import { projectDirectory } from "../project.ts";
 import { createLocalSpeechServer } from "../speech/local-server.ts";
@@ -7,7 +7,7 @@ import { createLocalSpeechServer } from "../speech/local-server.ts";
 export const smolvlmOrigin = "http://127.0.0.1:8083";
 
 /** Start the SmolVLM2 Python server on its own port. Reuses a healthy server, never manages a
- * custom URL, allows up to five minutes for model loading, and `stop()` ends only our child. */
+ * custom URL, allows up to five minutes for startup (the model itself loads per `/describe` job, not at startup), and `stop()` ends only our child. */
 export function createSmolvlmServer({
   python = "python3",
   modelDirectory = "models/smolvlm2",

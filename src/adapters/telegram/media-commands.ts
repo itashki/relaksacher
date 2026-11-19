@@ -77,6 +77,7 @@ export const videoLabel = (description: string) => `[Видеосообщени�
  * @param reuse Whether a stored entry of the same `file_unique_id` may be returned.
  * @param question Optional prompt for the video model.
  * @param context Message whose chat and thread own the cached copy.
+ * @param translate Whether to translate to Russian through the shared queue; false inside a session.
  * @returns Description text.
  * @throws {Error} When the download or description fails.
  */
@@ -87,13 +88,16 @@ async function describeVideoTarget(
   reuse: boolean,
   question: string | undefined,
   context: Message,
+  translate = true,
 ) {
   const { api, describer, store, chatId, remember } = deps;
   const chat = chatId(context);
   const cached = reuse ? await store?.findByFile(chat, video.fileUniqueId) : null;
   if (cached) return cached.description;
   if (!api.downloadVideo) throw new Error("Скачивание видео недоступно.");
-  const result = await describer.describeVideo(() => api.downloadVideo(video.fileId), question);
+  const result = await describer.describeVideo(() => api.downloadVideo(video.fileId), question, {
+    translate,
+  });
   if (reuse)
     await store?.save(chat, {
       messageId: String(target.message_id),
@@ -120,7 +124,8 @@ export const ON_DEMAND_TIMEOUT_MS = 120_000;
 /**
  * Describe a cached video message for the `read_video_descriptions` tool and return its stored entry.
  * Runs inside a model session that holds the shared Ollama queue, so it calls only `describeVideo`
- * (the SmolVLM process), never `describeImage`, which would deadlock on that queue.
+ * (the SmolVLM process) and never translates, since both `describeImage` and the translator
+ * would deadlock on that queue; the stored text is therefore English in this path.
  * @param target Cached message that may carry a video.
  * @param deps Command collaborators; `describer` and `store` are required for a result.
  * @param context Message whose chat and thread own the stored entry.
@@ -138,7 +143,7 @@ export async function describeVideoOnDemand(
   if (!video || !deps.store || !deps.describer?.videoAvailable()) return null;
   const chat = deps.chatId(context);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const work = describeVideoTarget(target, video, deps, true, undefined, context).then(
+  const work = describeVideoTarget(target, video, deps, true, undefined, context, false).then(
     async () =>
       (await deps.store.get(chat, String(target.message_id))) ??
       (await deps.store.findByFile(chat, video.fileUniqueId)),
@@ -166,7 +171,7 @@ export async function describeVideoOnDemand(
  * @returns True when the message was a video note that was handled; false to continue normally.
  */
 async function describeVideoNote(message: Message, deps: TelegramMediaDeps): Promise<boolean> {
-  const { describer, videoNoteMode = "silent", remember } = deps;
+  const { describer, videoNoteMode = "reply", remember } = deps;
   const video = message.video_note ? videoTarget(message) : undefined;
   if (!video || !message.from || message.from.is_bot) return false;
   if (videoNoteMode === "off" || !describer?.videoAvailable()) return false;

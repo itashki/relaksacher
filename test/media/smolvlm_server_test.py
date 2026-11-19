@@ -71,6 +71,54 @@ class FrameTests(unittest.TestCase):
             self.assertEqual(len(frames), 4)
 
 
+class LazyModelTests(unittest.TestCase):
+    """The model loads per job and is always released; no torch needed."""
+
+    def setUp(self):
+        self.events = []
+        self.dir = tempfile.TemporaryDirectory()
+        self.video = str(Path(self.dir.name) / "v.mp4")
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                        "testsrc=duration=1:size=64x64:rate=5", "-y", self.video], check=True)
+        self.original = server.describe_frames
+
+    def tearDown(self):
+        server.describe_frames = self.original
+        self.dir.cleanup()
+
+    def make(self, fail=False):
+        def fake_frames(bundle, frames, prompt):
+            self.events.append("run")
+            if fail:
+                raise RuntimeError("boom")
+            return "text"
+        server.describe_frames = fake_frames
+        return server.make_describe(
+            lambda: (self.events.append("load"), {"m": 1})[1], 2,
+            release=lambda bundle: self.events.append("release"))
+
+    def test_nothing_loads_until_a_job_and_each_job_reloads(self):
+        describe = self.make()
+        self.assertEqual(self.events, [])
+        self.assertEqual(describe(self.video, None)["description"], "text")
+        describe(self.video, None)
+        self.assertEqual(self.events, ["load", "run", "release"] * 2)
+
+    def test_release_runs_after_an_error(self):
+        describe = self.make(fail=True)
+        with self.assertRaises(RuntimeError):
+            describe(self.video, None)
+        self.assertEqual(self.events, ["load", "run", "release"])
+
+    def test_undecodable_video_never_loads(self):
+        describe = self.make()
+        bad = Path(self.dir.name) / "bad.mp4"
+        bad.write_bytes(b"nope")
+        with self.assertRaises(ValueError):
+            describe(str(bad), None)
+        self.assertEqual(self.events, [])
+
+
 class HttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

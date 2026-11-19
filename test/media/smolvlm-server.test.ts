@@ -28,11 +28,11 @@ test("configuration has defaults and validates SmolVLM and video-note settings",
     timeoutMs: 300000,
     maxFrames: 8,
   });
-  expect(config.videoNoteDescription).toBe("silent");
+  expect(config.videoNoteDescription).toBe("reply");
   expect((await loadConfig({ ...env, SMOLVLM_AUTO_START: "false" })).smolvlm.enabled).toBe(false);
-  expect((await loadConfig({ ...env, VIDEO_NOTE_DESCRIPTION: "reply" })).videoNoteDescription).toBe(
-    "reply",
-  );
+  expect(
+    (await loadConfig({ ...env, VIDEO_NOTE_DESCRIPTION: "silent" })).videoNoteDescription,
+  ).toBe("silent");
   for (const [name, value] of [
     ["SMOLVLM_DEVICE", "unknown"],
     ["VIDEO_NOTE_DESCRIPTION", "loud"],

@@ -6,7 +6,8 @@ export type VideoDescriptionResult = {
   description: string;
   frames: number;
   duration: number;
-  model: "SmolVLM2";
+  /** `SmolVLM2`, or `SmolVLM2+<text model>` once translated to Russian. */
+  model: string;
 };
 
 /** Queued client for the SmolVLM2 server; see `createVideoDescriber`. */

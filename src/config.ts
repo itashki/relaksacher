@@ -141,7 +141,7 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   const smolvlmMaxFrames = Number(env.SMOLVLM_MAX_FRAMES ?? 8);
   if (!Number.isSafeInteger(smolvlmMaxFrames) || smolvlmMaxFrames < 1 || smolvlmMaxFrames > 32)
     throw new Error("Invalid SMOLVLM_MAX_FRAMES: expected an integer from 1 to 32");
-  const videoNoteDescription = env.VIDEO_NOTE_DESCRIPTION?.trim() || "silent";
+  const videoNoteDescription = env.VIDEO_NOTE_DESCRIPTION?.trim() || "reply";
   if (!["off", "silent", "reply"].includes(videoNoteDescription))
     throw new Error("Invalid VIDEO_NOTE_DESCRIPTION: expected off, silent or reply");
   const whisperUrl = env.WHISPER_URL?.trim() || "http://127.0.0.1:8080/inference";
