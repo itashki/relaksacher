@@ -34,6 +34,8 @@ export type BackgroundMessage = {
   channelId?: string;
   channelName?: string;
 };
+/** Stored video description entry; defined with the store that persists it. */
+export type { VideoDescription } from "./core/memory/video-descriptions.ts";
 /** Persistent scoped fact with a stable identifier and optional author/timestamp attribution. */
 export type MemoryFact = {
   id: number;

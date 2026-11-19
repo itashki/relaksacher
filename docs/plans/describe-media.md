@@ -178,7 +178,7 @@ Do:
 - Add an `docs/ARCHITECTURE.md` row for `core/memory/video-descriptions.ts`.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test test/core/video-descriptions.test.ts && bun test`
-Status: todo
+Status: done
 
 ## Step 6: Telegram `!describe` command and video download
 

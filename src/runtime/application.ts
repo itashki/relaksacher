@@ -11,6 +11,7 @@ import { createMediaDescriber } from "../core/media/index.ts";
 import { createAssistant } from "../core/assistant/index.ts";
 import { createTelegramBot } from "../adapters/telegram/index.ts";
 import { createDiscordBot } from "../adapters/discord/index.ts";
+import { createVideoDescriptionStore } from "../core/memory/video-descriptions.ts";
 import { resolvePath } from "../core/paths.ts";
 import { projectDirectory } from "../core/project.ts";
 import type { AppConfig } from "../types.ts";
@@ -31,6 +32,9 @@ export function createApplication(
   });
   const memoryDirectory = resolvePath(Bun.env.MEMORY_DIR || "memory", projectDirectory);
   const memory = createMemoryStore(memoryDirectory);
+  const videoDescriptions = createVideoDescriptionStore(
+    resolvePath("video-descriptions", memoryDirectory),
+  );
   const searchClient = config.OLLAMA_API_KEY
     ? new Ollama({
         host: "https://ollama.com",
@@ -100,6 +104,8 @@ export function createApplication(
     assistant,
     /** Image and video description facade; not yet passed to adapters. */
     describer,
+    /** Persistent per-chat video descriptions; adapters do not use it yet. */
+    videoDescriptions,
     /** Stored for later steps; adapters do not use the video describer yet. */
     videoDescriber,
     /** Resolve only after complete processing and final delivery of the accepted event. */
