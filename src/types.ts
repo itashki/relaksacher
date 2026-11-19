@@ -84,6 +84,9 @@ export type Assistant = {
   /** Pause future and queued AI replies; active generation may finish. */
   setRepliesPaused: (paused: boolean) => void;
   repliesPaused: () => boolean;
+  /** Run a task in the shared FIFO model queue (concurrency 1) at normal priority and return its
+   * result. Never call it from inside a running session or tool: that would deadlock the queue. */
+  runExclusive: <T>(task: () => Promise<T>) => Promise<T>;
   createSession: (arg0: SessionOptions) => Session;
   observeMessage: (arg0: {
     scopeId?: string;

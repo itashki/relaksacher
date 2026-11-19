@@ -152,7 +152,7 @@ Do:
 - Add `docs/ARCHITECTURE.md` rows for `core/media/image-description.ts` and `core/media/index.ts`. State that `describeImage` uses the shared queue and must never be called from inside a running session or tool, because the queue has concurrency 1 and it would deadlock.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test test/media test/core/runtime-application.test.ts && bun test`
-Status: todo
+Status: done
 
 ## Step 5: Persistent per-chat video-description store
 

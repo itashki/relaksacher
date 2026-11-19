@@ -22,6 +22,8 @@ test("real application bundle validates config and constructs offline without op
   expect(config.personality).toBe("fixture personality");
   const application = createApplication(config, {}, () => {});
   expect(application.assistant.stopCurrentGeneration()).toBe(false);
+  expect(application.describer.videoAvailable()).toBe(false);
+  expect(typeof application.describer.describeImage).toBe("function");
   await application.dispose();
   const client = new Client({ intents: [] });
   const destroy = spyOn(client, "destroy");

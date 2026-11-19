@@ -86,6 +86,7 @@ export function createAssistant({
       : undefined,
   });
   return {
+    runExclusive: (task) => enqueue(task),
     repliesPaused: () => repliesPaused,
     setRepliesPaused(paused) {
       repliesPaused = paused;

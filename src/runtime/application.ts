@@ -6,6 +6,8 @@ import { createMemoryStore } from "../core/memory/index.ts";
 import { createGifSearch } from "../core/tools/gif-search.ts";
 import { createToolService } from "../core/tools/index.ts";
 import { createSupervisor } from "../core/assistant/supervisor.ts";
+import { createImageDescriber } from "../core/media/image-description.ts";
+import { createMediaDescriber } from "../core/media/index.ts";
 import { createAssistant } from "../core/assistant/index.ts";
 import { createTelegramBot } from "../adapters/telegram/index.ts";
 import { createDiscordBot } from "../adapters/discord/index.ts";
@@ -62,6 +64,15 @@ export function createApplication(
     timeoutMs: config.OLLAMA_TIMEOUT,
     updateIntervalMs: 1200,
   });
+  const describer = createMediaDescriber({
+    image: createImageDescriber({
+      modelClient,
+      model: config.OLLAMA_VISION_MODEL ?? config.OLLAMA_MODEL,
+      timeoutMs: config.OLLAMA_TIMEOUT,
+      runExclusive: assistant.runExclusive,
+    }),
+    video: videoDescriber,
+  });
   const discord = transports.discord
     ? createDiscordBot({
         config,
@@ -87,6 +98,8 @@ export function createApplication(
     : null;
   return {
     assistant,
+    /** Image and video description facade; not yet passed to adapters. */
+    describer,
     /** Stored for later steps; adapters do not use the video describer yet. */
     videoDescriber,
     /** Resolve only after complete processing and final delivery of the accepted event. */
