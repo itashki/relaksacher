@@ -312,7 +312,7 @@ Do:
 - Docs: in `docs/COMMANDS.md`, change "Telegram-only for now" to Telegram and Discord, and note that Discord has no automatic description. Add an `docs/ARCHITECTURE.md` row for `adapters/discord/describe-command.ts`.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test test/discord && bun test && test $(wc -l < src/adapters/discord/index.ts) -le 600`
-Status: todo
+Status: done
 
 ## Step 10: Operator and developer documentation
 

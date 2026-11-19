@@ -26,6 +26,7 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 import { splitMessage, imageFiles, threadName, describeAuthor, batchRoom } from "./message.ts";
+import { handleDiscordDescribeCommand } from "./describe-command.ts";
 import { parseCommands } from "../../core/text.ts";
 
 /**
@@ -36,6 +37,8 @@ export function createDiscordBot({
   config,
   assistant,
   transcribe,
+  describer,
+  videoDescriptions,
   generateVoice,
   memoryDirectory,
   onMusicStatus,
@@ -325,6 +328,16 @@ export function createDiscordBot({
       }
       return;
     }
+    // !describe: Discord has no video-note type, so no auto-description or tool capability here.
+    if (
+      await handleDiscordDescribeCommand(message, {
+        describer,
+        store: videoDescriptions,
+        fetchReference: async () => (message.reference ? message.fetchReference() : null),
+        loadImage,
+      })
+    )
+      return;
     const transcriptionCommand = /^!(?:transcribe|расшифруй)$/iu.test(
       message.content?.trim() ?? "",
     );

@@ -72,6 +72,23 @@ export function imageFiles(message: import("discord.js").Message<boolean>) {
     .map((file) => file.url);
 }
 
+/** Video attachment selected for description. */
+export type DiscordVideoFile = { id: string; url: string };
+
+/**
+ * Collect video attachments (`video/*`, at most 20 MiB) suitable for description.
+ * @param message Source message.
+ * @returns Attachment ids and URLs in message order.
+ */
+export function videoFiles(message: import("discord.js").Message<boolean>): DiscordVideoFile[] {
+  return [...(message.attachments?.values() ?? [])]
+    .filter(
+      (file) =>
+        (file.contentType ?? "").startsWith("video/") && (file.size ?? 0) <= 20 * 1024 * 1024,
+    )
+    .map((file) => ({ id: file.id, url: file.url }));
+}
+
 // Название треда: начало вопроса без упоминаний и команд (лимит Discord — 100).
 /**
  * Build a short topic from the request, excluding commands and mentions.

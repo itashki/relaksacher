@@ -83,6 +83,8 @@ export function createApplication(
         assistant,
         onRequest,
         transcribe,
+        describer,
+        videoDescriptions,
         generateVoice: voice.generate,
         memoryDirectory,
         onMusicStatus,

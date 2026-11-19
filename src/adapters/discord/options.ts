@@ -10,6 +10,11 @@ export type DiscordBotOptions = {
     speaker?: string,
   ) => Promise<import("../../types.ts").VoiceRecording>;
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
+  /** Optional `!describe` backends; the command replies "недоступно" without a describer. */
+  describer?: import("../../core/media/index.ts").MediaDescriber;
+  videoDescriptions?: ReturnType<
+    typeof import("../../core/memory/video-descriptions.ts").createVideoDescriptionStore
+  >;
   memoryDirectory: string;
   onMusicStatus?: (statuses: import("../../core/music/status.ts").MusicStatus[]) => void;
   /** Use the gateway owned by the process host. */
