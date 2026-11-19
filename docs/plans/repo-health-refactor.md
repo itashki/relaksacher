@@ -45,7 +45,7 @@ Status: done
 Files: src/core/assistant/observer.ts (new), src/core/assistant/index.ts, docs/ARCHITECTURE.md
 Do: Move automatic fact extraction out of `createAssistant` into `createMemoryObserver({ supervisor, memory, enqueue, logger, autoMemory, autoMemoryCooldownMs, autoMemoryCheckIntervalMs })` in `observer.ts`, with an `@file` header and documented contracts. The code to move is `observations`, `memoryTiming`, `canObserve`, `scheduleObservation`, `flushObservations` (index.ts ~71-138) and the bodies of `observeMessage`/`stopObserving` (~171-207). The factory returns `{ observe(message), flush(), stop(), signal, closed() }`. Important: `observationController.signal` is also passed to the spontaneous policy's `decideReply`, and `considerMessage` checks `observerClosed`. So `index.ts` must pass `observer.signal` to `createSpontaneousPolicy` and use `observer.closed()` in `considerMessage`. That way `stopObserving()` still cancels pending spontaneous decisions. Keep the limits unchanged: 5 s debounce with `unref`, 50 rooms, 8 messages of up to 900 characters, at most 1 saved fact per batch, 500 timing entries, and priority -1 in the shared queue. Separately, for readability only (there is no bug today, because `flush` first runs after the declarations), move `let failed` and `let incompleteReason` in `run()` above the `updateTerminal` closure that reads them. Add a "Диалоги и инструменты" row for `core/assistant/observer.ts` ("Фоновое извлечение фактов из групповых сообщений с ограничением частоты").
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test && test $(wc -l < src/core/assistant/index.ts) -lt 530`
-Status: todo
+Status: done
 
 ## Step 6: Remove leftover hot-reload wording from development docs
 

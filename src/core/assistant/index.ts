@@ -1,4 +1,5 @@
 /** @file Coordinate cancellable model sessions, shared inference scheduling and background observation. */
+import { createMemoryObserver } from "./observer.ts";
 import { createSpontaneousPolicy } from "./spontaneous.ts";
 import { guardContext, ContextLimitError } from "./context.ts";
 import { createRequestQueue } from "../queue.ts";
@@ -68,79 +69,20 @@ export function createAssistant({
       }
     }
   }
-  const observations = new Map<
-    string,
-    { scopeId: string; messages: { id: string; text: string; authorName: string }[] }
-  >();
-  const memoryTiming = new Map();
-  /** @param scopeId Group namespace. @returns Whether background memory is eligible now. */
-  function canObserve(scopeId: string) {
-    const state = memoryTiming.get(scopeId);
-    return (
-      !state ||
-      (Date.now() - state.checked >= autoMemoryCheckIntervalMs &&
-        Date.now() - state.saved >= autoMemoryCooldownMs)
-    );
-  }
-  const observationController = new AbortController();
-  let observationTimer: ReturnType<typeof setTimeout>;
-  let observationJob: Promise<void>;
-  let observerClosed = false;
-  /** Schedule one bounded batch; background inference shares the generation queue. */
-  function scheduleObservation() {
-    if (!observationTimer && !observerClosed) {
-      observationTimer = setTimeout(() => {
-        observationTimer = undefined;
-        void flushObservations();
-      }, 5000);
-      observationTimer.unref?.();
-    }
-  }
-  /** @returns Process one room batch without overlapping user generation. */
-  function flushObservations() {
-    clearTimeout(observationTimer);
-    observationTimer = undefined;
-    if (observationJob) return observationJob;
-    if (!observations.size || observerClosed) return Promise.resolve();
-    const [key, entry] = observations.entries().next().value;
-    observations.delete(key);
-    observationJob = enqueue(
-      async () => {
-        if (observerClosed || !canObserve(entry.scopeId)) return;
-        const timing = memoryTiming.get(entry.scopeId) ?? { checked: -Infinity, saved: -Infinity };
-        timing.checked = Date.now();
-        memoryTiming.delete(entry.scopeId);
-        memoryTiming.set(entry.scopeId, timing);
-        if (memoryTiming.size > 500) memoryTiming.delete(memoryTiming.keys().next().value);
-        try {
-          const extracted = await supervisor.extractFacts(
-            entry.messages.slice(-8),
-            observationController.signal,
-          );
-          for (const fact of extracted.slice(0, 1)) {
-            if (observerClosed) break;
-            await memory.addMemoryFact(entry.scopeId, fact.text, fact.authorName);
-            timing.saved = Date.now();
-          }
-          if (extracted.length)
-            logger.info("[auto-memory]", { scopeId: entry.scopeId, count: extracted.length });
-        } catch (error) {
-          if (!observerClosed) console.warn("Automatic memory extraction failed:", error.message);
-        }
-      },
-      undefined,
-      { priority: -1 },
-    ).finally(() => {
-      observationJob = undefined;
-      if (observations.size) scheduleObservation();
-    });
-    return observationJob;
-  }
+  const observer = createMemoryObserver({
+    supervisor,
+    memory,
+    enqueue,
+    logger,
+    autoMemory,
+    autoMemoryCooldownMs,
+    autoMemoryCheckIntervalMs,
+  });
   const consider = createSpontaneousPolicy({
     ...spontaneous,
     enqueue,
     decide: supervisor?.decideReply
-      ? (message) => supervisor.decideReply(message, observationController.signal)
+      ? (message) => supervisor.decideReply(message, observer.signal)
       : undefined,
   });
   return {
@@ -162,7 +104,7 @@ export function createAssistant({
     },
     /** @param message Scoped group message. @returns Optional contribution angle. */
     considerMessage(message: any) {
-      return observerClosed || repliesPaused ? Promise.resolve(null) : consider(message);
+      return observer.closed() || repliesPaused ? Promise.resolve(null) : consider(message);
     },
     /**
      * Buffer an ordinary group statement for conservative, silent fact extraction.
@@ -175,35 +117,12 @@ export function createAssistant({
       text: string;
       authorName: string;
     }) {
-      if (
-        !supervisor ||
-        !autoMemory ||
-        observerClosed ||
-        !message.scopeId ||
-        !message.text?.trim() ||
-        !canObserve(message.scopeId)
-      )
-        return;
-      const key = `${message.scopeId}:${message.roomId}`;
-      if (!observations.has(key) && observations.size >= 50) return;
-      const entry = observations.get(key) ?? { scopeId: message.scopeId, messages: [] };
-      if (!entry.messages.some((item) => item.id === message.id))
-        entry.messages.push({
-          id: message.id,
-          text: message.text.slice(0, 900),
-          authorName: message.authorName,
-        });
-      entry.messages = entry.messages.slice(-8);
-      observations.set(key, entry);
-      scheduleObservation();
+      observer.observe(message);
     },
-    flushObservations,
+    flushObservations: () => observer.flush(),
     /** Stop background extraction and discard unprocessed messages. @returns */
     stopObserving() {
-      observerClosed = true;
-      clearTimeout(observationTimer);
-      observations.clear();
-      observationController.abort();
+      observer.stop();
     },
     /**
      * Capture one request; execution with the configured model starts only with run().
@@ -287,6 +206,8 @@ export function createAssistant({
             let text = "";
             let status: import("../../types.ts").GenerationUpdate["status"] = "";
             let thinkingLog = "";
+            let failed = false;
+            let incompleteReason: string | null = null;
             /**
              * Deliver a plain answer snapshot without reasoning text.
              * @param final Whether generation is complete.
@@ -323,8 +244,6 @@ export function createAssistant({
               generation.timedOut = true;
               generation.stop();
             }, timeoutMs);
-            let failed = false;
-            let incompleteReason: string | null = null;
             try {
               await flush(false);
               if (!forceNonThinking && supervisor && !think && !generation.stopped) {
