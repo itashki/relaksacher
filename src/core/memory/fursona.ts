@@ -1,5 +1,5 @@
 /** @file Persist the assistant's character separately from participant facts, isolated per chat. */
-import { rename } from "node:fs/promises";
+import { replaceFileAtomically } from "../atomic-file.ts";
 import { resolvePath } from "../paths.ts";
 
 export const MAX_FURSONA_LENGTH = 2000;
@@ -42,9 +42,7 @@ export function createFursonaStore(directory: string) {
     const next = previous.catch(() => {}).then(async () => {
       const existing = await loadFursona(chatId);
       if (existing !== null && !replace) return existing;
-      const temporary = `${file}.tmp`;
-      await Bun.write(temporary, JSON.stringify({ profile: normalized }, null, 2));
-      await rename(temporary, file);
+      await replaceFileAtomically(file, JSON.stringify({ profile: normalized }, null, 2));
       return normalized;
     });
     locks.set(chatId, next);

@@ -1,5 +1,5 @@
 /** @file Atomic Snake top-ten storage and shared-widget delivery/query handling. */
-import { rename } from "node:fs/promises";
+import { replaceFileAtomically } from "../../core/atomic-file.ts";
 import type { User } from "@grammyjs/types";
 import type { TelegramApi } from "../../types.ts";
 import { resolvePath } from "../../core/paths.ts";
@@ -60,8 +60,7 @@ export function createTelegramSnake(directory: string, api: TelegramApi) {
     }
   }
   async function save(state: State) {
-    await Bun.write(`${file}.tmp`, JSON.stringify(state));
-    await rename(`${file}.tmp`, file);
+    await replaceFileAtomically(file, JSON.stringify(state));
   }
   const publicData = (state: State) =>
     JSON.stringify(state.scores.map(({ name, score }) => [name, score]));

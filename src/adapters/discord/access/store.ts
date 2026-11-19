@@ -1,5 +1,5 @@
 /** @file Validate and atomically persist per-guild feature access policies for roles and users. */
-import { rename } from "node:fs/promises";
+import { replaceFileAtomically } from "../../../core/atomic-file.ts";
 import { resolvePath } from "../../../core/paths.ts";
 
 /** Independently controlled Discord capabilities. */
@@ -103,12 +103,11 @@ export function createDiscordAccessStore(directory?: string) {
           const validated = parseSettings({ version: 1, rules });
           if (directory) {
             const file = guildFile(guildId);
-            await Bun.write(
-              `${file}.tmp`,
+            await replaceFileAtomically(
+              file,
               JSON.stringify({ version: 1, rules: validated }, null, 2),
               { createPath: true },
             );
-            await rename(`${file}.tmp`, file);
           }
           cache.set(guildId, validated);
         });

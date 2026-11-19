@@ -1,5 +1,5 @@
 /** @file Persist scoped facts with serialized updates and atomic file replacement. */
-import { rename } from "node:fs/promises";
+import { replaceFileAtomically } from "../atomic-file.ts";
 import { resolvePath } from "../paths.ts";
 import { createFursonaStore } from "./fursona.ts";
 
@@ -51,9 +51,8 @@ export function createMemoryStore(directory: string) {
    */
   async function saveMemory(scopeId: string, facts: import("../../types.ts").MemoryFact[]) {
     const file = memoryPath(scopeId);
-    const tmp = `${file}.tmp`;
-    await Bun.write(tmp, JSON.stringify(facts, null, 2));
-    await rename(tmp, file); // атомарная запись, чтобы файл не побился при сбое
+    // атомарная запись, чтобы файл не побился при сбое
+    await replaceFileAtomically(file, JSON.stringify(facts, null, 2));
   }
 
   // Очередь на каждый сервер, чтобы параллельные запросы не затирали друг друга.

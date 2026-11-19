@@ -1,5 +1,5 @@
 /** @file Validate and atomically persist named guild playlists, migrating legacy URL arrays. */
-import { rename } from "node:fs/promises";
+import { replaceFileAtomically } from "../../core/atomic-file.ts";
 
 /** A stable identity survives renaming; track order is independent of the live playback queue. */
 export type SavedPlaylist = { id: string; name: string; tracks: string[] };
@@ -24,8 +24,7 @@ export function createMusicLibrary(tracks: string[] = []): MusicLibrary {
 
 /** Persist a complete library; callers update in-memory state only after this succeeds. */
 export async function writeMusicLibrary(file: string, library: MusicLibrary): Promise<void> {
-  await Bun.write(`${file}.tmp`, JSON.stringify(library, null, 2), { createPath: true });
-  await rename(`${file}.tmp`, file);
+  await replaceFileAtomically(file, JSON.stringify(library, null, 2), { createPath: true });
 }
 
 /** Read a library, migrating a legacy array in place on first access. Missing files stay unwritten.
