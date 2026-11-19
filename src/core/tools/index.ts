@@ -4,6 +4,7 @@ import { createImageSearch } from "./image-search.ts";
 import { createWebFallback, createWebClient } from "./web-fallback.ts";
 import { truncate } from "../text.ts";
 import { FURSONA_TOOL } from "./fursona.ts";
+import { VIDEO_DESCRIPTIONS_TOOL, runVideoDescriptionTool } from "./video-descriptions.ts";
 
 const IMAGE_TOOLS = [
   {
@@ -283,6 +284,7 @@ export function createToolService({
           })),
         });
       }
+      if (name === "read_video_descriptions") return await runVideoDescriptionTool(args, context);
       if (name === "remember" || name === "forget") {
         // Память работает только на серверах и только в рамках текущего сервера.
         if (!context?.scopeId) return "Память доступна только на сервере.";
@@ -341,11 +343,12 @@ export function createToolService({
 
   return {
     runTool,
-    definitions: ({ scopeId, chatId, history, images }) => [
+    definitions: ({ scopeId, chatId, history, images, videoDescriptions }) => [
       ...(chatId ? [FURSONA_TOOL] : []),
       ...(images ? IMAGE_TOOLS : []),
       ...(images && gifSearch ? GIF_TOOLS : []),
       ...(history ? [HISTORY_TOOL] : []),
+      ...(videoDescriptions ? [VIDEO_DESCRIPTIONS_TOOL] : []),
       ...(scopeId ? MEMORY_TOOLS : []),
       ...(searchClient ? TOOLS : []),
       WEATHER_TOOL,

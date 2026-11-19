@@ -23,6 +23,17 @@ export type RequestContext = {
     limited?: boolean;
     note?: string;
   }>;
+  /**
+   * Stored video descriptions of the current chat; offered by adapters that cache them.
+   * `list` returns newest first; `get` finds one entry by message id; optional `describe`
+   * creates a description on demand for a cached video message (null when impossible or not
+   * ready in time). It must never use the shared model queue, which the running session holds.
+   */
+  videoDescriptions?: {
+    list(limit: number): Promise<VideoDescription[]>;
+    get(messageId: string): Promise<VideoDescription | null>;
+    describe?(messageId: string): Promise<VideoDescription | null>;
+  };
 };
 /** Attributed historical message treated as contextual data rather than a new request. */
 export type BackgroundMessage = {
@@ -35,7 +46,7 @@ export type BackgroundMessage = {
   channelName?: string;
 };
 /** Stored video description entry; defined with the store that persists it. */
-export type { VideoDescription } from "./core/memory/video-descriptions.ts";
+export type VideoDescription = import("./core/memory/video-descriptions.ts").VideoDescription;
 /** Persistent scoped fact with a stable identifier and optional author/timestamp attribution. */
 export type MemoryFact = {
   id: number;
@@ -113,6 +124,8 @@ export type ToolService = {
     scopeId?: string;
     history?: boolean;
     images?: boolean;
+    /** Offer `read_video_descriptions`; true when the adapter supplies `videoDescriptions`. */
+    videoDescriptions?: boolean;
   }) => ToolDefinition[];
 };
 /** Injected model, storage, tools and scheduling settings used to construct the core. */

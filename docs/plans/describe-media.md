@@ -285,7 +285,7 @@ Do:
   - add an `docs/ARCHITECTURE.md` row for `core/tools/video-descriptions.ts`, and a sentence in "Диалоги и инструменты" about the adapter-supplied `videoDescriptions` capability
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test test/tools test/telegram test/assistant && bun test && grep -q 'read_video_descriptions' docs/COMMANDS.md`
-Status: todo
+Status: done
 
 ## Step 9: Discord `!describe`
 

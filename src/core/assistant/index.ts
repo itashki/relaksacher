@@ -274,6 +274,7 @@ export function createAssistant({
                 chatId: context.chatId,
                 scopeId: context.scopeId,
                 history: typeof context.readHistory === "function",
+                videoDescriptions: Boolean(context.videoDescriptions),
                 images: typeof context.sendImage === "function",
               });
               /**

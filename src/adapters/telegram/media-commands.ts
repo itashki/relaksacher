@@ -3,7 +3,7 @@ import type { Message, User } from "@grammyjs/types";
 import { author, imageFiles, splitText } from "./message.ts";
 import type { MediaDescriber } from "../../core/media/index.ts";
 import type { createVideoDescriptionStore } from "../../core/memory/video-descriptions.ts";
-import type { TelegramApi } from "../../types.ts";
+import type { TelegramApi, VideoDescription } from "../../types.ts";
 
 /** Collaborators for the describe command; `me` is passed per call because it is resolved lazily. */
 export interface TelegramMediaDeps {
@@ -112,6 +112,49 @@ async function describeVideoTarget(
     text: videoLabel(result.description),
   });
   return result.description;
+}
+
+/** Cap for an on-demand description made inside a model session, separate from `SMOLVLM_TIMEOUT_MS`. */
+export const ON_DEMAND_TIMEOUT_MS = 120_000;
+
+/**
+ * Describe a cached video message for the `read_video_descriptions` tool and return its stored entry.
+ * Runs inside a model session that holds the shared Ollama queue, so it calls only `describeVideo`
+ * (the SmolVLM process), never `describeImage`, which would deadlock on that queue.
+ * @param target Cached message that may carry a video.
+ * @param deps Command collaborators; `describer` and `store` are required for a result.
+ * @param context Message whose chat and thread own the stored entry.
+ * @param timeoutMs Cap on the wait; the description may still finish and be stored afterwards.
+ * @returns The stored entry, or null when the message has no video, the describer is unavailable,
+ *   the description failed, or it was not ready within the cap.
+ */
+export async function describeVideoOnDemand(
+  target: Message,
+  deps: TelegramMediaDeps,
+  context: Message,
+  timeoutMs = ON_DEMAND_TIMEOUT_MS,
+): Promise<VideoDescription | null> {
+  const video = videoTarget(target);
+  if (!video || !deps.store || !deps.describer?.videoAvailable()) return null;
+  const chat = deps.chatId(context);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const work = describeVideoTarget(target, video, deps, true, undefined, context).then(
+    async () =>
+      (await deps.store.get(chat, String(target.message_id))) ??
+      (await deps.store.findByFile(chat, video.fileUniqueId)),
+    (error): null => {
+      console.warn("Telegram on-demand video description failed:", error?.message ?? error);
+      return null;
+    },
+  );
+  const limit = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), timeoutMs);
+  });
+  try {
+    return await Promise.race([work, limit]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

@@ -12,7 +12,7 @@ import {
 } from "./message.ts";
 import { createMessageBatches } from "../../core/message-batches.ts";
 import { handleTelegramVoiceCommands } from "./voice-commands.ts";
-import { handleTelegramMediaCommands } from "./media-commands.ts";
+import { describeVideoOnDemand, handleTelegramMediaCommands } from "./media-commands.ts";
 import { attachImages } from "../shared/images.ts";
 import { createTelegramReplyDelivery } from "./delivery.ts";
 import { run } from "@grammyjs/runner";
@@ -158,18 +158,16 @@ export function createTelegramBot({
       await handleTelegramVoiceCommands(message, { api, me, transcribe, generateVoice, remember })
     )
       return;
-    if (
-      await handleTelegramMediaCommands(message, {
-        api,
-        me,
-        describer,
-        store: videoDescriptions,
-        chatId: (entry) => `telegram_${roomKey(entry)}`,
-        remember,
-        videoNoteMode: config.videoNoteDescription,
-      })
-    )
-      return;
+    const mediaDeps = {
+      api,
+      me,
+      describer,
+      store: videoDescriptions,
+      chatId: (entry: import("@grammyjs/types").Message) => `telegram_${roomKey(entry)}`,
+      remember,
+      videoNoteMode: config.videoNoteDescription,
+    };
+    if (await handleTelegramMediaCommands(message, mediaDeps)) return;
     if (
       (!message.text && !message.caption && !imageFiles(message).length) ||
       !message.from ||
@@ -243,6 +241,18 @@ export function createTelegramBot({
             reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
           });
           delivery.markMediaDelivered();
+        },
+        videoDescriptions: videoDescriptions && {
+          list: (limit) => videoDescriptions.list(`telegram_${roomKey(message)}`, limit),
+          get: (id) => videoDescriptions.get(`telegram_${roomKey(message)}`, id),
+          describe: (id) => {
+            const known = [
+              ...(histories.get(roomKey(message)) ?? []),
+              ...conversationMessages,
+              message.reply_to_message,
+            ].find((entry) => entry && String(entry.message_id) === id);
+            return known ? describeVideoOnDemand(known, mediaDeps, message) : Promise.resolve(null);
+          },
         },
         readHistory: async (limit) => ({
           source: "telegram_cache",

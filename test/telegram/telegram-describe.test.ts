@@ -192,3 +192,81 @@ test("a regular video message is not auto-described", async () => {
   expect(described.video).toHaveLength(0);
   expect(sent(calls)).toHaveLength(0);
 });
+
+const mention = (id: number) => ({
+  update_id: id,
+  message: {
+    ...base,
+    message_id: id,
+    text: "@testbot что было?",
+    entities: [{ type: "mention" as const, offset: 0, length: 8 }],
+  },
+});
+
+test("a session exposes videoDescriptions only when the store exists; get returns a stored circle", async () => {
+  const videoDescriptions = await store();
+  const { describer: d } = describer();
+  const a = setup(undefined, undefined, undefined, {
+    describer: d,
+    videoDescriptions,
+    downloadVideo: async () => new Blob(["v"]),
+  });
+  await a.bot.handleUpdate(circleUpdate(1));
+  await a.bot.handleUpdate(mention(2));
+  const capability = a.inputs[0].context.videoDescriptions;
+  expect((await capability.get("1"))?.description).toBe("A cat.");
+  expect(await capability.list(5)).toHaveLength(1);
+  const b = setup();
+  await b.bot.handleUpdate(mention(2));
+  expect(b.inputs[0].context.videoDescriptions).toBeUndefined();
+});
+
+test("on-demand describe covers a cached circle, never uses describeImage, and ignores non-video ids", async () => {
+  const videoDescriptions = await store();
+  const { describer: d, calls: described } = describer();
+  const { bot, inputs } = setup(undefined, undefined, undefined, {
+    describer: d,
+    videoDescriptions,
+    downloadVideo: async () => new Blob(["v"]),
+  });
+  // The circle is in the reply chain but was never stored, so it is described on demand.
+  await bot.handleUpdate({
+    update_id: 5,
+    message: {
+      ...base,
+      message_id: 5,
+      text: "@testbot что там?",
+      entities: [{ type: "mention", offset: 0, length: 8 }],
+      reply_to_message: { ...base, message_id: 3, video: { ...circle, file_unique_id: "u9" } },
+    },
+  });
+  const capability = inputs[0].context.videoDescriptions;
+  expect((await capability.describe("3"))?.description).toBe("A cat.");
+  expect(await capability.describe("999")).toBeNull();
+  expect(described.video).toHaveLength(1);
+  expect(described.image).toHaveLength(0);
+});
+
+test("on-demand describe stops at the injected cap", async () => {
+  const { describeVideoOnDemand } = await import("../../src/adapters/telegram/media-commands.ts");
+  const slow = describer({
+    describeVideo: () => new Promise(() => {}),
+  });
+  const message = { ...base, message_id: 3, video_note: circle } as never;
+  const started = Date.now();
+  const entry = await describeVideoOnDemand(
+    message,
+    {
+      api: (async () => ({})) as never,
+      me: { id: 99, is_bot: true, first_name: "b" },
+      describer: slow.describer,
+      store: await store(),
+      chatId: () => "c",
+      remember: () => {},
+    },
+    message,
+    30,
+  );
+  expect(entry).toBeNull();
+  expect(Date.now() - started).toBeLessThan(2000);
+});
