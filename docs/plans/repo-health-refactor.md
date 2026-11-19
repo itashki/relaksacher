@@ -59,4 +59,4 @@ Status: done
 Files: (none; verification only)
 Do: Run the whole suite and the standalone build so the dispatcher can restart the service on fresh code. Confirm `check:size` reports no file above 600 lines, and that the Telegram and assistant `index.ts` files are now well below the limit. Fix any regression in the step that caused it, not here.
 Done when: `bun run format:check && bun run lint && bun run typecheck && bun test && bun run build && ./dist/relaksacher check-audio`
-Status: todo
+Status: done
