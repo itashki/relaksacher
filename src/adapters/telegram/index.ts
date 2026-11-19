@@ -74,6 +74,7 @@ export function createTelegramBot({
       boundary:
         /^\s*[!/][\p{L}\p{N}_]/u.test(message.text ?? "") ||
         Boolean(message.quote || message.external_reply),
+      // Video notes carry no text, so they are already immediate; auto-description needs no change here.
       immediate:
         Boolean(message.voice) ||
         (!message.text && !message.caption && !imageFiles(message).length),
@@ -165,6 +166,7 @@ export function createTelegramBot({
         store: videoDescriptions,
         chatId: (entry) => `telegram_${roomKey(entry)}`,
         remember,
+        videoNoteMode: config.videoNoteDescription,
       })
     )
       return;

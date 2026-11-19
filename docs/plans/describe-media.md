@@ -247,7 +247,7 @@ Do:
 - In the `docs/COMMANDS.md` section, document automatic description of video notes only, the `off`/`silent`/`reply` modes of `VIDEO_NOTE_DESCRIPTION`, and that regular videos need the command.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test test/telegram && bun test && grep -q 'VIDEO_NOTE_DESCRIPTION' docs/COMMANDS.md`
-Status: todo
+Status: done
 
 ## Step 8: `read_video_descriptions` tool and its Telegram capability
 

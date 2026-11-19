@@ -14,6 +14,8 @@ export interface TelegramMediaDeps {
   /** Chat id under which video descriptions are stored. */
   chatId: (message: Message) => string;
   remember: (message: Message) => void;
+  /** Auto-description mode for video notes; an absent value behaves as `silent`. */
+  videoNoteMode?: "off" | "silent" | "reply";
 }
 
 /** Video-like attachment of a message. */
@@ -113,7 +115,42 @@ async function describeVideoTarget(
 }
 
 /**
- * Handle `!describe` / `!опиши` for images and videos.
+ * Describe a video note (circle) sent without a command, store it and label it in history.
+ * Regular videos, animations and documents are never auto-described. Failures are logged;
+ * only `reply` mode answers them, with a short error.
+ * @param message Incoming message.
+ * @param deps Command collaborators.
+ * @returns True when the message was a video note that was handled; false to continue normally.
+ */
+async function describeVideoNote(message: Message, deps: TelegramMediaDeps): Promise<boolean> {
+  const { describer, videoNoteMode = "silent", remember } = deps;
+  const video = message.video_note ? videoTarget(message) : undefined;
+  if (!video || !message.from || message.from.is_bot) return false;
+  if (videoNoteMode === "off" || !describer?.videoAvailable()) return false;
+  let text: string;
+  try {
+    text = await describeVideoTarget(message, video, deps, true, undefined, message);
+    // A reused description skips the save/remember path above, so label this message too.
+    remember({ ...message, text: videoLabel(text) });
+    if (videoNoteMode !== "reply") return true;
+    text = `🎬 ${text}`;
+  } catch (error) {
+    console.warn(
+      "Telegram video note description failed:",
+      error instanceof Error ? error.message : error,
+    );
+    if (videoNoteMode !== "reply") return true;
+    text = "Не удалось описать видеосообщение.";
+  }
+  for (const chunk of splitText(text))
+    await deps.api("sendMessage", { ...replyBase(message), text: chunk }).catch(() => {});
+  return true;
+}
+
+/**
+ * Handle `!describe` / `!опиши` for images and videos, and auto-describe video notes.
+ * Without a command, only a `video_note` from a non-bot sender is described (per
+ * `videoNoteMode`); regular videos fall through unchanged.
  * A question given with the command disables the stored-description cache for videos,
  * because the answer then depends on the question.
  * @param message Incoming message with its reply ancestor already resolved.
@@ -129,7 +166,8 @@ export async function handleTelegramMediaCommands(
   const command = (message.text ?? message.caption ?? "")
     .trim()
     .match(/^!(?:describe|опиши)(?:@(\w+))?(?:\s+([\s\S]*))?$/iu);
-  if (!command || !message.from || message.from.is_bot) return false;
+  if (!command) return describeVideoNote(message, deps);
+  if (!message.from || message.from.is_bot) return false;
   if (command[1] && command[1].toLowerCase() !== me.username?.toLowerCase()) return true;
   const question = command[2]?.trim() || undefined;
   const target =

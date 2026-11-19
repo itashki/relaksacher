@@ -108,3 +108,87 @@ test("!describe without media gives usage and unavailable video gives the unavai
     "Описание видео недоступно.",
   ]);
 });
+
+const circleUpdate = (id: number, extra = {}) => ({
+  update_id: id,
+  message: { ...base, message_id: id, video_note: circle, ...extra },
+});
+const store = () => temporaryDirectory("tg-vd-").then(createVideoDescriptionStore);
+
+test("a video note in silent mode is stored, silent and labeled in later read_history", async () => {
+  const videoDescriptions = await store();
+  const { describer: d } = describer();
+  const { bot, calls, inputs } = setup(undefined, undefined, undefined, {
+    describer: d,
+    videoDescriptions,
+    downloadVideo: async () => new Blob(["v"]),
+  });
+  await bot.handleUpdate(circleUpdate(1));
+  expect(sent(calls)).toHaveLength(0);
+  expect(inputs).toHaveLength(0);
+  expect(await videoDescriptions.get("telegram_5:7", "1")).toMatchObject({
+    kind: "video_note",
+    durationSec: 5,
+  });
+  await bot.handleUpdate({
+    update_id: 2,
+    message: {
+      ...base,
+      message_id: 2,
+      text: "@testbot что было?",
+      entities: [{ type: "mention", offset: 0, length: 8 }],
+    },
+  });
+  const history = await inputs[0].context.readHistory(10);
+  expect(history.messages.map((entry: { content: string }) => entry.content)).toContain(
+    "[Видеосообщение, описание: A cat.]",
+  );
+});
+
+test("a video note in reply mode replies with the description", async () => {
+  const { describer: d } = describer();
+  const { bot, calls } = setup(
+    undefined,
+    { telegramUpdateIntervalMs: 0, videoNoteDescription: "reply" },
+    undefined,
+    { describer: d, videoDescriptions: await store(), downloadVideo: async () => new Blob(["v"]) },
+  );
+  await bot.handleUpdate(circleUpdate(1));
+  expect(sent(calls).map((call) => call.payload.text)).toStrictEqual(["🎬 A cat."]);
+});
+
+test("video note descriptions are off, unavailable, or from bots: nothing happens", async () => {
+  const off = describer();
+  const a = setup(
+    undefined,
+    { telegramUpdateIntervalMs: 0, videoNoteDescription: "off" },
+    undefined,
+    {
+      describer: off.describer,
+      downloadVideo: async () => new Blob(["v"]),
+    },
+  );
+  await a.bot.handleUpdate(circleUpdate(1));
+  const unavailable = describer({ videoAvailable: () => false });
+  const b = setup(undefined, undefined, undefined, { describer: unavailable.describer });
+  await b.bot.handleUpdate(circleUpdate(1));
+  const bots = describer();
+  const c = setup(undefined, undefined, undefined, {
+    describer: bots.describer,
+    downloadVideo: async () => new Blob(["v"]),
+  });
+  await c.bot.handleUpdate(circleUpdate(1, { from: { id: 11, first_name: "Bot", is_bot: true } }));
+  for (const x of [off, unavailable, bots]) expect(x.calls.video).toHaveLength(0);
+  for (const x of [a, b, c]) expect(sent(x.calls)).toHaveLength(0);
+});
+
+test("a regular video message is not auto-described", async () => {
+  const { describer: d, calls: described } = describer();
+  const { bot, calls } = setup(undefined, undefined, undefined, {
+    describer: d,
+    downloadVideo: async () => new Blob(["v"]),
+  });
+  await bot.handleUpdate(circleUpdate(1, { video_note: undefined, video: { ...circle } }));
+  expect(described.video).toHaveLength(0);
+  expect(sent(calls)).toHaveLength(0);
+});
