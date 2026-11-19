@@ -653,6 +653,49 @@ GPU выбирает сам whisper.cpp: автозапуск не отключ�
 BotFather или назначьте бота администратором. Discord требует доступ к каналу,
 чтению сообщений и отправке ответов, включая Message Content Intent.
 
+## Описание изображений и видео
+
+Команда `!describe` / `!опиши` (Telegram и Discord) описывает изображение или видео,
+а кружки Telegram описываются автоматически; подробности — в
+[командах](docs/COMMANDS.md). Изображения описывает `OLLAMA_VISION_MODEL`
+(иначе `OLLAMA_MODEL`). Видео описывает локальная **SmolVLM2** по кадрам, без звука;
+текст получается на английском. Модель работает в резидентном Python-сервере
+`scripts/smolvlm-server.py` на `127.0.0.1:8083`, как GigaAM.
+
+```dotenv
+SMOLVLM_AUTO_START=true
+SMOLVLM_URL=http://127.0.0.1:8083/describe
+SMOLVLM_DEVICE=auto          # auto | cuda | cpu
+SMOLVLM_TIMEOUT_MS=300000
+SMOLVLM_MAX_FRAMES=8         # 1-32
+VIDEO_NOTE_DESCRIPTION=silent   # off | silent | reply
+# Без Nix: Python с transformers, torch, pillow, num2words, accelerate
+# и локальный снимок модели.
+# SMOLVLM_PYTHON=python3
+# SMOLVLM_MODEL_DIR=models/smolvlm2
+```
+
+В Nix `SMOLVLM_PYTHON` и `SMOLVLM_MODEL_DIR` уже заданы по умолчанию. По умолчанию
+используется `HuggingFaceTB/SmolVLM2-500M-Video-Instruct`: около 1 ГБ весов в хранилище
+Nix, которые скачиваются один раз при первой сборке. Без Nix `SMOLVLM_MODEL_DIR` должен
+указывать на локальный снимок модели; во время работы загрузка из сети не выполняется.
+`VIDEO_NOTE_DESCRIPTION`: `off` отключает автоописание кружков, `silent` только
+сохраняет описание, `reply` ещё и отправляет его ответом.
+
+Модель занимает около 2 ГБ видеопамяти в bf16. На GPU с 8 ГБ она делит память
+с Ollama и GigaAM; если не помещается, задайте `SMOLVLM_DEVICE=cpu` (медленно,
+порядка десятков секунд на кружок). Вариант 256M легче, а 2.2B (около 4,5 ГБ весов)
+рядом с моделью Ollama не помещается. Сервер резидентный и держит память, пока
+работает сервис. Если запуск не удался, бот пишет предупреждение `[smolvlm]` и
+продолжает работу, а описание видео отвечает «недоступно».
+
+Проверка модели без бота (печатает описание и завершается):
+
+```sh
+"$SMOLVLM_PYTHON" scripts/smolvlm-server.py --model "$SMOLVLM_MODEL_DIR" \
+  --device auto --describe-file video.mp4
+```
+
 ## Серии сообщений
 
 Discord и Telegram объединяют последовательные сообщения одного автора в одном

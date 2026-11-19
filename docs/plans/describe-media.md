@@ -338,4 +338,4 @@ Do:
   - the `--describe-file` smoke command
 
 Done when: `grep -q "SMOLVLM_MODEL_DIR" README.md && grep -q "describe-file" README.md && grep -q "## Описание видео" docs/ARCHITECTURE.md && grep -q "smolvlm_server_test" docs/DEVELOPMENT.md && bun run format:check && bun run lint && bun run typecheck && bun test`
-Status: todo
+Status: done
