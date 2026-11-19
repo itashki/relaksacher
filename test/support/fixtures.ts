@@ -4,10 +4,8 @@ import { createImageSearch as imageSearch } from "../../src/core/tools/image-sea
 import { createAssistant as assistant } from "../../src/core/assistant/index.ts";
 import { createToolService as tools } from "../../src/core/tools/index.ts";
 import { createDiscordBot as discord } from "../../src/adapters/discord/index.ts";
-import {
-  createTelegramBot as telegram,
-  createTelegramApi as telegramApi,
-} from "../../src/adapters/telegram/index.ts";
+import { createTelegramBot as telegram } from "../../src/adapters/telegram/index.ts";
+import { createTelegramApi as telegramApi } from "../../src/adapters/telegram/api.ts";
 import { createSupervisor as supervisor } from "../../src/core/assistant/supervisor.ts";
 import { createCliControls as cli } from "../../src/adapters/terminal/cli.ts";
 import { createTui as tui } from "../../src/adapters/terminal/tui.ts";

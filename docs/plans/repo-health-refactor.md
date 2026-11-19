@@ -24,7 +24,7 @@ Status: done
 Files: src/adapters/telegram/voice-commands.ts (new), src/adapters/telegram/index.ts, test/support/fixtures.ts, docs/ARCHITECTURE.md
 Do: Move the `!voice`/`!голос` and `!transcribe`/`!расшифруй` handling (index.ts lines ~146-227) into `voice-commands.ts`. Export a documented `handleTelegramVoiceCommands(message, deps): Promise<boolean>`, which returns true when the message was fully handled, including the cases that currently `return` early: a command addressed to another bot, a usage error reply, and a sent transcription. deps is `{ api, me, transcribe?, generateVoice?, remember }`, with `me` passed per call because it is set lazily. Keep the order of checks, the error texts and the reply/thread parameters exactly as they are. Add a small helper there for the repeated `{ chat_id, message_thread_id?, reply_parameters }` base object, and use it for the three sendMessage/sendVoice payloads in this module. In `index.ts`, replace the block with `if (await handleTelegramVoiceCommands(message, {...})) return;`. Also drop the `export { createTelegramApi } from "./api.ts"` re-export: DEVELOPMENT.md says subsystem `index.ts` files must not be re-export chains, and only `test/support/fixtures.ts` uses it, so change that import to `../../src/adapters/telegram/api.ts`. Add an ARCHITECTURE "Адаптеры" row for `adapters/telegram/voice-commands.ts` ("Команды !voice и !transcribe: синтез, расшифровка и ответы об ошибках").
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test && test $(wc -l < src/adapters/telegram/index.ts) -lt 540`
-Status: todo
+Status: done
 
 ## Step 3: Extract Telegram streamed reply delivery
 

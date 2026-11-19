@@ -11,15 +11,13 @@ import {
   rememberTelegramImages,
 } from "./message.ts";
 import { createMessageBatches } from "../../core/message-batches.ts";
-import { parseSpeechArguments } from "../speech/silero.ts";
+import { handleTelegramVoiceCommands } from "./voice-commands.ts";
 import { attachImages } from "../shared/images.ts";
 import { formatTelegramChunks } from "./format.ts";
 import { run } from "@grammyjs/runner";
 import { createTelegramApi } from "./api.ts";
 import { createTelegramSnake, TELEGRAM_UPDATES, type SnakeQuery } from "./snake-leaderboard.ts";
 import { parseCommands } from "../../core/text.ts";
-
-export { createTelegramApi } from "./api.ts";
 
 /**
  * Construct the Telegram adapter; no network access until an update or start().
@@ -143,88 +141,10 @@ export function createTelegramBot({
       };
       rememberTelegramImages(message, images);
     }
-    const voiceCommand = (message.text ?? "")
-      .trim()
-      .match(/^!(?:voice|голос)(?:@(\w+))?(?:\s+([\s\S]*))?$/iu);
-    if (voiceCommand && message.from && !message.from.is_bot) {
-      if (voiceCommand[1] && voiceCommand[1].toLowerCase() !== me.username?.toLowerCase()) return;
-      const base = {
-        chat_id: message.chat.id,
-        ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
-        reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
-      };
-      try {
-        const argument = parseSpeechArguments(voiceCommand[2]);
-        const text = (
-          argument.text ||
-          message.reply_to_message?.text ||
-          message.reply_to_message?.caption ||
-          ""
-        ).trim();
-        if (!text || text.length > 2000)
-          throw new Error(
-            "Используйте !voice [--speaker имя] <текст> или !voice ответом на сообщение, до 2000 символов.",
-          );
-        if (!generateVoice) throw new Error("Синтез голосовых сообщений недоступен.");
-        const recording = await generateVoice(text, argument.speaker);
-        await api("sendVoice", {
-          ...base,
-          voice: recording.audio,
-          duration: Math.ceil(recording.duration),
-        });
-      } catch (error) {
-        await api("sendMessage", {
-          ...base,
-          text: error instanceof Error ? error.message : "Не удалось отправить голосовое.",
-        }).catch(() => {});
-      }
-      return;
-    }
-    const transcriptionCommand = (message.text ?? "")
-      .trim()
-      .match(/^!(?:transcribe|расшифруй)(?:@(\w+))?$/iu);
     if (
-      transcriptionCommand?.[1] &&
-      transcriptionCommand[1].toLowerCase() !== me.username?.toLowerCase()
+      await handleTelegramVoiceCommands(message, { api, me, transcribe, generateVoice, remember })
     )
       return;
-    const voiceMessage = transcriptionCommand ? message.reply_to_message : message;
-    if (transcriptionCommand && message.from && !message.from.is_bot) {
-      const error = !voiceMessage?.voice
-        ? "Используйте !transcribe ответом на голосовое сообщение."
-        : !transcribe
-          ? "Расшифровка голосовых сообщений недоступна."
-          : undefined;
-      if (error) {
-        await api("sendMessage", {
-          chat_id: message.chat.id,
-          ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
-          text: error,
-          reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
-        });
-        return;
-      }
-    }
-    if (voiceMessage?.voice && message.from && !message.from.is_bot && transcribe) {
-      let text: string;
-      let transcript: string;
-      try {
-        transcript = await transcribe(() => api.downloadVoice(voiceMessage.voice.file_id));
-        text = "🎙\n" + transcript;
-      } catch {
-        text =
-          "Не удалось расшифровать голосовое. Проверьте доступность Whisper и попробуйте ещё раз.";
-      }
-      for (const chunk of splitText(text))
-        await api("sendMessage", {
-          chat_id: message.chat.id,
-          ...(message.message_thread_id ? { message_thread_id: message.message_thread_id } : {}),
-          text: chunk,
-          reply_parameters: { message_id: message.message_id, allow_sending_without_reply: true },
-        });
-      if (transcript) remember({ ...voiceMessage, text: transcript });
-      return;
-    }
     if (
       (!message.text && !message.caption && !imageFiles(message).length) ||
       !message.from ||
