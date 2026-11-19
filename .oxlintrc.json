@@ -10,12 +10,5 @@
   "globals": {
     "Bun": "readonly"
   },
-  "ignorePatterns": [
-    "node_modules/**",
-    "memory/**",
-    ".git/**",
-    ".agents/**",
-    ".codex/**",
-    ".aws/**"
-  ]
+  "ignorePatterns": ["node_modules/**", "memory/**", ".git/**", ".aws/**"]
 }

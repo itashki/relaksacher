@@ -17,6 +17,6 @@ export async function replaceFileAtomically(
   const temporary = `${file}.tmp`;
   if (options.createPath === undefined) await Bun.write(temporary, contents);
   else await Bun.write(temporary, contents, { createPath: options.createPath });
-  // rename is kept on purpose: it is the atomic replacement primitive (see AGENTS.md).
+  // rename is kept on purpose: it is the atomic replacement primitive (see CLAUDE.md).
   await rename(temporary, file);
 }

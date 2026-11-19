@@ -28,7 +28,7 @@ by responsibility. `bun run check:size` enforces the limit and runs as part of
 After successful changes, complete the required local checks. Rebuild the bot
 when runtime code changes. Restart it only when the running bot needs to load
 changed code, configuration, or runtime assets; documentation-only changes,
-including AGENTS.md edits, do not require a rebuild or restart. Before restarting,
+including CLAUDE.md edits, do not require a rebuild or restart. Before restarting,
 check the control socket's `/snapshot`: no current generation, an empty model
 queue, and `activeRequests === 0` mean the bot is idle. If busy, wait rather than
 interrupting its reply. Use `relaksacher restart` (or the compiled executable's

@@ -1,7 +1,5 @@
 node_modules/
 .git/
-.agents/
-.codex/
 .aws/
 memory/
 bun.lock
