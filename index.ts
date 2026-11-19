@@ -1,6 +1,8 @@
 /** @file Application startup, operator commands and messenger/speech lifecycle. */
 import { createWhisperServer } from "./src/core/speech/whisper-server.ts";
 import { createGigaamServer } from "./src/core/speech/gigaam-server.ts";
+import { createSmolvlmServer, smolvlmOrigin } from "./src/core/media/smolvlm-server.ts";
+import { createVideoDescriber } from "./src/core/media/video-description.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
 import { createRequestLog } from "./src/core/request-log.ts";
 import { resolvePath } from "./src/core/paths.ts";
@@ -60,7 +62,17 @@ const recordRequest: import("./src/core/statistics.ts").RecordRequest = (
 };
 const requests = createRequestLifecycle<RuntimeEvent>((event) => application.handle(event));
 const transports = createTransports(config, requests.dispatch);
-const application = createApplication(config, transports.connections, music.publish, recordRequest);
+const videoDescriber = createVideoDescriber({
+  url: config.smolvlm.url,
+  timeoutMs: config.smolvlm.timeoutMs,
+});
+const application = createApplication(
+  config,
+  transports.connections,
+  music.publish,
+  recordRequest,
+  videoDescriber,
+);
 const cli =
   mode !== "service" && process.stdin.isTTY
     ? createCliControls({
@@ -97,6 +109,7 @@ const speech =
         model: config.whisperModel,
         enabled: config.whisperAutoStart,
       });
+const smolvlm = config.smolvlm.enabled ? createSmolvlmServer(config.smolvlm) : undefined;
 const shutdown = createShutdown({
   steps: [
     () => control?.close(),
@@ -108,6 +121,7 @@ const shutdown = createShutdown({
     },
     () => transports.stop(),
     () => speech.stop(),
+    () => smolvlm?.stop(),
   ],
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => void shutdown.run());
@@ -121,3 +135,23 @@ speech
     console.error("Failed to start application:", error);
     void shutdown.run(1);
   });
+// Video description starts in parallel: it may take minutes and must never block or stop the app.
+void startVideoDescription().catch((error) => {
+  console.warn("[smolvlm] unavailable:", error instanceof Error ? error.message : String(error));
+});
+
+/** Mark video description available once the managed server is ready or an external one is healthy. */
+async function startVideoDescription() {
+  if (smolvlm && new URL(config.smolvlm.url).origin === smolvlmOrigin) {
+    await smolvlm.start();
+    if (!shutdown.started) videoDescriber.setAvailable(true);
+    return;
+  }
+  const response = await fetch(new URL("/health", config.smolvlm.url), {
+    signal: AbortSignal.timeout(3000),
+    redirect: "error",
+  });
+  const healthy = response.ok && ((await response.json()) as { status?: unknown }).status === "ok";
+  if (!healthy) throw new Error("health check failed");
+  if (!shutdown.started) videoDescriber.setAvailable(true);
+}

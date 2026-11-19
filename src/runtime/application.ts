@@ -20,6 +20,7 @@ export function createApplication(
   transports: RuntimeTransports,
   onMusicStatus: Parameters<typeof createDiscordBot>[0]["onMusicStatus"],
   onRequest?: import("../core/statistics.ts").RecordRequest,
+  videoDescriber?: import("../core/media/video-description.ts").VideoDescriber,
 ) {
   const voice = createVoiceSynthesizer({ silero: config.silero });
   const transcribe = createTranscriber({
@@ -86,6 +87,8 @@ export function createApplication(
     : null;
   return {
     assistant,
+    /** Stored for later steps; adapters do not use the video describer yet. */
+    videoDescriber,
     /** Resolve only after complete processing and final delivery of the accepted event. */
     async handle(event: RuntimeEvent) {
       if (event.kind === "discord-message") await discord?.receiveMessage(event.message);

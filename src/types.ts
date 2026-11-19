@@ -147,6 +147,18 @@ export type AppConfig = {
     url: string;
     enabled: boolean;
   };
+  /** SmolVLM2 video-description server settings; see `core/media/smolvlm-server.ts`. */
+  smolvlm?: {
+    python: string;
+    modelDirectory: string;
+    device: "auto" | "cuda" | "cpu";
+    url: string;
+    enabled: boolean;
+    timeoutMs: number;
+    maxFrames: number;
+  };
+  /** Automatic Telegram video-note description: off, store silently, or also reply. */
+  videoNoteDescription?: "off" | "silent" | "reply";
   whisperAutoStart?: boolean;
   whisperUrl?: string;
   whisperTimeoutMs?: number;

@@ -126,7 +126,7 @@ Do:
 - Add `docs/ARCHITECTURE.md` rows ("Адаптеры" or a new table under `## Описание видео`) for `core/media/smolvlm-server.ts` and `core/media/video-description.ts`.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test test/media && bun test`
-Status: todo
+Status: done
 
 ## Step 4: Image describer through the shared queue and the media-description facade
 

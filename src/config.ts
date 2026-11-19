@@ -125,6 +125,25 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   const gigaamUrl = env.GIGAAM_URL?.trim() || "http://127.0.0.1:8082/inference";
   if (!["http:", "https:"].includes(new URL(gigaamUrl).protocol))
     throw new Error("Invalid GIGAAM_URL");
+  const smolvlmDevice = env.SMOLVLM_DEVICE?.trim() || "auto";
+  if (!["auto", "cuda", "cpu"].includes(smolvlmDevice)) throw new Error("Invalid SMOLVLM_DEVICE");
+  const smolvlmUrl = env.SMOLVLM_URL?.trim() || "http://127.0.0.1:8083/describe";
+  let smolvlmProtocol: string;
+  try {
+    smolvlmProtocol = new URL(smolvlmUrl).protocol;
+  } catch {
+    throw new Error("Invalid SMOLVLM_URL");
+  }
+  if (!["http:", "https:"].includes(smolvlmProtocol)) throw new Error("Invalid SMOLVLM_URL");
+  const smolvlmTimeoutMs = Number(env.SMOLVLM_TIMEOUT_MS ?? 300000);
+  if (!Number.isSafeInteger(smolvlmTimeoutMs) || smolvlmTimeoutMs <= 0)
+    throw new Error("Invalid SMOLVLM_TIMEOUT_MS: expected a positive integer");
+  const smolvlmMaxFrames = Number(env.SMOLVLM_MAX_FRAMES ?? 8);
+  if (!Number.isSafeInteger(smolvlmMaxFrames) || smolvlmMaxFrames < 1 || smolvlmMaxFrames > 32)
+    throw new Error("Invalid SMOLVLM_MAX_FRAMES: expected an integer from 1 to 32");
+  const videoNoteDescription = env.VIDEO_NOTE_DESCRIPTION?.trim() || "silent";
+  if (!["off", "silent", "reply"].includes(videoNoteDescription))
+    throw new Error("Invalid VIDEO_NOTE_DESCRIPTION: expected off, silent or reply");
   const whisperUrl = env.WHISPER_URL?.trim() || "http://127.0.0.1:8080/inference";
   const whisperAddress = new URL(whisperUrl);
   if (!["http:", "https:"].includes(whisperAddress.protocol))
@@ -157,6 +176,16 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
       url: gigaamUrl,
       enabled: env.GIGAAM_AUTO_START !== "false",
     },
+    smolvlm: {
+      python: env.SMOLVLM_PYTHON?.trim() || "python3",
+      modelDirectory: env.SMOLVLM_MODEL_DIR?.trim() || "models/smolvlm2",
+      device: smolvlmDevice as "auto" | "cuda" | "cpu",
+      url: smolvlmUrl,
+      enabled: env.SMOLVLM_AUTO_START !== "false",
+      timeoutMs: smolvlmTimeoutMs,
+      maxFrames: smolvlmMaxFrames,
+    },
+    videoNoteDescription: videoNoteDescription as "off" | "silent" | "reply",
     whisperModel: env.WHISPER_MODEL?.trim() || "models/ggml-small.bin",
     whisperAutoStart: env.WHISPER_AUTO_START !== "false",
     whisperUrl,
