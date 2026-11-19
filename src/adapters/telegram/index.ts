@@ -12,6 +12,7 @@ import {
 } from "./message.ts";
 import { createMessageBatches } from "../../core/message-batches.ts";
 import { handleTelegramVoiceCommands } from "./voice-commands.ts";
+import { handleTelegramMediaCommands } from "./media-commands.ts";
 import { attachImages } from "../shared/images.ts";
 import { createTelegramReplyDelivery } from "./delivery.ts";
 import { run } from "@grammyjs/runner";
@@ -33,6 +34,8 @@ export function createTelegramBot({
   assistant,
   transcribe,
   generateVoice,
+  describer,
+  videoDescriptions,
   onRequest,
   memoryDirectory = "memory",
   api = createTelegramApi(config.telegramToken, fetch, {
@@ -48,6 +51,10 @@ export function createTelegramBot({
     speaker?: string,
   ) => Promise<import("../../types.ts").VoiceRecording>;
   transcribe?: (load: () => Promise<Blob>) => Promise<string>;
+  describer?: import("../../core/media/index.ts").MediaDescriber;
+  videoDescriptions?: ReturnType<
+    typeof import("../../core/memory/video-descriptions.ts").createVideoDescriptionStore
+  >;
   api?: import("../../types.ts").TelegramApi;
 }) {
   const snake = createTelegramSnake(memoryDirectory, api);
@@ -148,6 +155,17 @@ export function createTelegramBot({
     }
     if (
       await handleTelegramVoiceCommands(message, { api, me, transcribe, generateVoice, remember })
+    )
+      return;
+    if (
+      await handleTelegramMediaCommands(message, {
+        api,
+        me,
+        describer,
+        store: videoDescriptions,
+        chatId: (entry) => `telegram_${roomKey(entry)}`,
+        remember,
+      })
     )
       return;
     if (

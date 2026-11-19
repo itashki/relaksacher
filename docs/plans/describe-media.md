@@ -220,7 +220,7 @@ Do:
   - add `docs/ARCHITECTURE.md` rows for `adapters/telegram/media-commands.ts` and `adapters/shared/video.ts`
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test test/telegram test/core/images.test.ts && bun test && grep -q '!describe' docs/COMMANDS.md`
-Status: todo
+Status: done
 
 ## Step 7: Automatic description of Telegram video notes only
 

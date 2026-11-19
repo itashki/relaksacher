@@ -28,19 +28,32 @@ export function setup(
   ) => Promise<unknown>,
   config: Partial<AppConfig> = { telegramUpdateIntervalMs: 0 },
   memoryDirectory?: string,
+  extra: {
+    describer?: Partial<import("../../src/core/media/index.ts").MediaDescriber>;
+    videoDescriptions?: ReturnType<
+      typeof import("../../src/core/memory/video-descriptions.ts").createVideoDescriptionStore
+    >;
+    downloadImage?: (fileId: string) => Promise<string>;
+    downloadVideo?: (fileId: string) => Promise<Blob>;
+  } = {},
 ) {
   const calls: { method: string; payload?: TelegramPayload }[] = [];
   const inputs: TestSessionOptions[] = [];
+  const api = async (method: string, payload: TelegramPayload = {}) => {
+    calls.push({ method, payload });
+    if (method === "getMe") return { id: 99, username: "testbot", is_bot: true };
+    if (method === "sendWidget") return { message_id: calls.length, widget: { id: "snake-id" } };
+    if (method === "getChatMember") return { status: "member" };
+    return { message_id: calls.length, text: payload.text };
+  };
+  api.downloadImage = extra.downloadImage ?? (async (fileId: string) => `image:${fileId}`);
+  if (extra.downloadVideo) api.downloadVideo = extra.downloadVideo;
   const bot = createTelegramBot({
     config,
     memoryDirectory,
-    api: async (method, payload: TelegramPayload = {}) => {
-      calls.push({ method, payload });
-      if (method === "getMe") return { id: 99, username: "testbot", is_bot: true };
-      if (method === "sendWidget") return { message_id: calls.length, widget: { id: "snake-id" } };
-      if (method === "getChatMember") return { status: "member" };
-      return { message_id: calls.length, text: payload.text };
-    },
+    describer: extra.describer,
+    videoDescriptions: extra.videoDescriptions,
+    api,
     assistant: {
       createSession(options) {
         inputs.push(options);

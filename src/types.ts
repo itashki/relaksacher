@@ -206,6 +206,7 @@ export type TelegramRequest = (
 export type TelegramApi = TelegramRequest & {
   downloadImage: (arg0: string) => Promise<string>;
   downloadVoice?: (fileId: string) => Promise<Blob>;
+  downloadVideo?: (fileId: string) => Promise<Blob>;
 };
 /** Search-selected image or GIF metadata; candidate URLs are not arbitrary model input. */
 export type ImageCandidate = {

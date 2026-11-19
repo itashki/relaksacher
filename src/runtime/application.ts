@@ -96,6 +96,8 @@ export function createApplication(
         onRequest,
         transcribe,
         generateVoice: voice.generate,
+        describer,
+        videoDescriptions,
         api: transports.telegram,
         memoryDirectory,
       })

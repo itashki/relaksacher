@@ -1,5 +1,6 @@
 /** @file Adapt grammY requests with deadlines, bounded retries and platform-hosted image downloads. */
 import { downloadVoice } from "../speech/voice.ts";
+import { downloadVideo } from "../shared/video.ts";
 import { Api, InputFile, HttpError, GrammyError } from "grammy";
 import { autoRetry } from "@grammyjs/auto-retry";
 import pRetry from "p-retry";
@@ -164,6 +165,30 @@ export function createTelegramApi(
       });
     } catch {
       throw new Error("Telegram voice download failed");
+    }
+  };
+  /**
+   * Resolve a Telegram file id and download a bounded MP4/MOV video.
+   * @param fileId Telegram file identifier.
+   * @returns Video blob of type video/mp4.
+   * @throws {Error} When metadata, size or download validation fails.
+   */
+  request.downloadVideo = async (fileId: string) => {
+    const file = (await request("getFile", { file_id: fileId })) as import("@grammyjs/types").File;
+    if (
+      file.file_size > 20 * 1024 * 1024 ||
+      !file.file_path ||
+      !/^[\w/.-]+$/.test(file.file_path) ||
+      file.file_path.includes("..")
+    )
+      throw new Error("Invalid or oversized video file");
+    try {
+      return await downloadVideo(`https://api.telegram.org/file/bot${token}/${file.file_path}`, {
+        fetchImpl,
+        allowedHosts: ["api.telegram.org"],
+      });
+    } catch {
+      throw new Error("Telegram video download failed");
     }
   };
   return request;

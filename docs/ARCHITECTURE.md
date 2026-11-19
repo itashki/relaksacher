@@ -98,6 +98,8 @@ Discord или чат/тема Telegram, включая личные сообщ�
 | `adapters/telegram/conversation.ts`   | Сборка явной цепочки ответов и сообщений модели, распознавание обращения                   |
 | `adapters/telegram/api.ts`            | grammY, тайм-ауты, ограниченные повторы безопасных запросов                                |
 | `adapters/telegram/voice-commands.ts` | Команды !voice и !transcribe: синтез, расшифровка и ответы об ошибках                      |
+| `adapters/telegram/media-commands.ts` | Команда !describe: описание изображений и видео, кеш описаний видео, ответы об ошибках     |
+| `adapters/shared/video.ts`            | Загрузка видео (MP4/MOV, до 20 МБ) с разрешённых HTTPS-хостов, проверка сигнатуры `ftyp`   |
 | `adapters/telegram/format.ts`         | Markdown → Telegram HTML с корректными границами длинных сообщений                         |
 | `adapters/shared/images.ts`           | Загрузка изображений с платформенных хостов и подготовка входов модели                     |
 | `adapters/terminal/cli.ts`            | Выбор интерактивного TUI или построчного управления генерацией                             |

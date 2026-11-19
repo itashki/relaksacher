@@ -1,6 +1,7 @@
 /** @file Regression coverage for images behavior and its external boundaries. */
 import { expect, test } from "bun:test";
 import { attachImages, downloadImage } from "../../src/adapters/shared/images.ts";
+import { downloadVideo } from "../../src/adapters/shared/video.ts";
 import { guardContext } from "../../src/core/assistant/context.ts";
 
 test("downloads valid image bytes as base64 and rejects non-images and untrusted hosts", async () => {
@@ -49,4 +50,30 @@ test("context budgeting does not count base64 as text tokens", () => {
   ];
   expect(guardContext(messages, [], 16384).trimmed).toBe(false);
   expect(messages[1].images[0].length).toBe(1000000);
+});
+
+test("downloads MP4 video and rejects untrusted hosts, oversize bodies and non-ftyp bodies", async () => {
+  const mp4 = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112, 109, 112, 52, 50, 0, 0]);
+  const options = {
+    allowedHosts: ["api.telegram.org"],
+    fetchImpl: async () => new Response(mp4),
+  };
+  const blob = await downloadVideo("https://api.telegram.org/file/v.mp4", options);
+  expect(blob.type).toBe("video/mp4");
+  expect(blob.size).toBe(mp4.length);
+  await expect(downloadVideo("https://evil.example/v.mp4", options)).rejects.toThrow(
+    "Video download failed",
+  );
+  await expect(
+    downloadVideo("https://api.telegram.org/v.mp4", {
+      ...options,
+      fetchImpl: async () => new Response("plain text, not video"),
+    }),
+  ).rejects.toThrow("Video download failed");
+  await expect(
+    downloadVideo("https://api.telegram.org/v.mp4", {
+      ...options,
+      fetchImpl: async () => new Response(new Uint8Array(21 * 1024 * 1024)),
+    }),
+  ).rejects.toThrow("Video download failed");
 });
