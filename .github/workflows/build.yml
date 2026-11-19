@@ -54,7 +54,7 @@ jobs:
       - name: Package executable and Silero helper
         run: >-
           tar -czf dist/relaksacher-linux-x64.tar.gz
-          -C dist relaksacher -C .. scripts/silero-tts.py LICENSE
+          -C dist relaksacher -C .. scripts/silero-tts.py scripts/smolvlm-server.py LICENSE
 
       - name: Upload build
         uses: actions/upload-artifact@v7

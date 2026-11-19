@@ -94,8 +94,17 @@ def load_model(model_dir, device):
         device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
     processor = AutoProcessor.from_pretrained(model_dir, local_files_only=True)
+    # The default torchvision resize cannot do the Lanczos resampling this model
+    # is configured with (transformers 5), so use the PIL image processor.
+    from transformers.models.smolvlm.image_processing_pil_smolvlm import SmolVLMImageProcessorPil
+
+    # One 512 px tile per frame (no splitting) keeps 8 frames far below the
+    # 8192-token context; the default would upscale and split every frame.
+    processor.image_processor = SmolVLMImageProcessorPil.from_pretrained(
+        model_dir, local_files_only=True, do_image_splitting=False, size={"longest_edge": 512}
+    )
     model = AutoModelForImageTextToText.from_pretrained(
-        model_dir, local_files_only=True, torch_dtype=dtype
+        model_dir, local_files_only=True, dtype=dtype
     ).to(device)
     model.eval()
     return {"processor": processor, "model": model, "device": device, "dtype": dtype}

@@ -84,7 +84,7 @@ Do:
 - This is the first run against the real model. If the smoke run fails, fix the server's model loading or message handling in `scripts/smolvlm-server.py`: the processor's frame/message format, `use_fast`, chat-template shape or dtype. Keep the Step 1 test green.
 
 Done when: `nix eval --raw path:.#packages.x86_64-linux.default.drvPath && nix build --no-link path:.#packages.x86_64-linux.default && nix develop path:. --command bash -c 'd=$(mktemp -d) && ffmpeg -loglevel error -f lavfi -i testsrc=duration=3:size=384x384:rate=10 "$d/c.mp4" && test -n "$("$SMOLVLM_PYTHON" scripts/smolvlm-server.py --model "$SMOLVLM_MODEL_DIR" --device auto --describe-file "$d/c.mp4")"' && bun run lint && bun run format:check && bun test`
-Status: todo
+Status: done
 
 ## Step 3: Configuration, server lifecycle and the queued video client
 
