@@ -38,7 +38,7 @@ Status: done
 Files: src/adapters/telegram/conversation.ts (new), src/adapters/telegram/index.ts, docs/ARCHITECTURE.md
 Do: Move the explicit reply-chain walk (index.ts ~285-300, bounded to 30 messages, using `batches.resolve` and the `past` cache) and the mapping to model `conversation` entries (leading-mention stripping, quote JSON, `[Автор: …]` prefix, `parseCommands(cleanTelegramCommands(...))`) into `conversation.ts`. Expose documented pure-ish functions: `collectTelegramReplyChain(message, past, resolve)` and `buildTelegramConversation(messages, me)`. Also move the `mentioned`/`botCommand` entity checks into `isTelegramBotAddressed(message, me)` there. Image attachment (`attachImages`) stays in `index.ts`. Add focused unit tests in `test/telegram/telegram-conversation.test.ts` covering the chain-length bound, cycle protection, leading-mention stripping and quote formatting, so these rules are tested directly and not only through the adapter. Add an ARCHITECTURE row for `adapters/telegram/conversation.ts` ("Сборка явной цепочки ответов и сообщений модели, распознавание обращения").
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test && test $(wc -l < src/adapters/telegram/index.ts) -lt 400`
-Status: todo
+Status: done
 
 ## Step 5: Extract the assistant's background memory observer
 

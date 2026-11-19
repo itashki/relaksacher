@@ -93,6 +93,7 @@ Discord или чат/тема Telegram, включая личные сообщ�
 | `adapters/discord/index.ts`           | Discord-события, ветки, цепочки ответов, сообщения и кнопки остановки                      |
 | `adapters/telegram/index.ts`          | Telegram polling, ограниченный кэш цепочек ответов и потоковая доставка                    |
 | `adapters/telegram/delivery.ts`       | Потоковая отправка и редактирование ответов, кнопка остановки                              |
+| `adapters/telegram/conversation.ts`   | Сборка явной цепочки ответов и сообщений модели, распознавание обращения                   |
 | `adapters/telegram/api.ts`            | grammY, тайм-ауты, ограниченные повторы безопасных запросов                                |
 | `adapters/telegram/voice-commands.ts` | Команды !voice и !transcribe: синтез, расшифровка и ответы об ошибках                      |
 | `adapters/telegram/format.ts`         | Markdown → Telegram HTML с корректными границами длинных сообщений                         |

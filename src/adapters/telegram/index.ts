@@ -18,6 +18,11 @@ import { run } from "@grammyjs/runner";
 import { createTelegramApi } from "./api.ts";
 import { createTelegramSnake, TELEGRAM_UPDATES, type SnakeQuery } from "./snake-leaderboard.ts";
 import { parseCommands } from "../../core/text.ts";
+import {
+  buildTelegramConversation,
+  collectTelegramReplyChain,
+  isTelegramBotAddressed,
+} from "./conversation.ts";
 
 /**
  * Construct the Telegram adapter; no network access until an update or start().
@@ -169,27 +174,10 @@ export function createTelegramBot({
         text: observationText,
         authorName: author(message.from),
       });
-    const mentioned = (message.entities ?? []).some(
-      (entity) =>
-        (entity.type === "text_mention" && entity.user?.id === me.id) ||
-        (entity.type === "mention" &&
-          message.text.slice(entity.offset, entity.offset + entity.length).toLowerCase() ===
-            `@${me.username}`.toLowerCase()),
-    );
-    const botCommand = (message.entities ?? []).some((entity) => {
-      if (entity.type !== "bot_command") return false;
-      const command = message.text
-        .slice(entity.offset, entity.offset + entity.length)
-        .toLowerCase();
-      return ["/think"].some(
-        (name) => command === name || command === `${name}@${me.username}`.toLowerCase(),
-      );
-    });
     let spontaneousReply;
     if (
       message.chat.type !== "private" &&
-      !mentioned &&
-      !botCommand &&
+      !isTelegramBotAddressed(message, me) &&
       message.reply_to_message?.from?.id !== me.id
     ) {
       if (message.reply_to_message || message.external_reply) return;
@@ -202,56 +190,11 @@ export function createTelegramBot({
       if (!spontaneousReply) return;
     }
 
-    const conversationMessages = [message];
-    const seen = new Set([message.message_id]);
-    let parent: import("@grammyjs/types").Message | undefined = message.reply_to_message;
-    while (parent && !seen.has(parent.message_id) && conversationMessages.length < 30) {
-      parent = batches.resolve(parent, { room: roomKey(message), id: String(parent.message_id) });
-      if (seen.has(parent.message_id)) break;
-      seen.add(parent.message_id);
-      if ((parent.text || parent.caption || imageFiles(parent).length) && parent.from) {
-        const entry = { ...parent, text: parent.text ?? parent.caption ?? "Изображение." };
-        rememberTelegramImages(entry, imageFiles(parent));
-        conversationMessages.unshift(entry);
-      }
-      parent =
-        past.find((entry) => entry.message_id === parent.message_id)?.reply_to_message ??
-        parent.reply_to_message;
-    }
+    const conversationMessages = collectTelegramReplyChain(message, past, (parent) =>
+      batches.resolve(parent, { room: roomKey(message), id: String(parent.message_id) }),
+    );
     const { flags } = parseCommands(cleanTelegramCommands(message.text, me.username));
-    const conversation = conversationMessages.map((entry) => {
-      if (entry.from.id === me.id) return { role: "assistant", content: entry.text };
-      let text = entry.text;
-      const offset = text.length - text.trimStart().length;
-      const leadingMention = (entry.entities ?? entry.caption_entities ?? []).find(
-        (entity) =>
-          entity.offset === offset &&
-          ((entity.type === "text_mention" && entity.user.id === me.id) ||
-            (entity.type === "mention" &&
-              text.slice(offset, offset + entity.length).toLowerCase() ===
-                `@${me.username}`.toLowerCase())),
-      );
-      if (leadingMention) text = text.slice(offset + leadingMention.length).trimStart();
-      else {
-        const username = text.trimStart().match(/^@(\w+)/u);
-        if (username && username[1].toLowerCase() === me.username.toLowerCase()) {
-          text = text.trimStart().slice(username[0].length).trimStart();
-        }
-      }
-      const quote = entry.quote?.text
-        ? `Цитируемый фрагмент (JSON): ${JSON.stringify({
-            text: entry.quote.text,
-            messageId:
-              entry.reply_to_message?.message_id ?? entry.external_reply?.message_id ?? null,
-            position: entry.quote.position,
-            manuallySelected: entry.quote.is_manual === true,
-          })}\nТекст реплики:\n`
-        : "";
-      return {
-        role: "user",
-        content: `[Автор: ${author(entry.from)}]\n${quote}${parseCommands(cleanTelegramCommands(text, me.username)).content}`,
-      };
-    });
+    const conversation = buildTelegramConversation(conversationMessages, me);
     await attachImages(conversation, conversationMessages.map(imageFiles), (fileId) =>
       api.downloadImage(fileId),
     );
