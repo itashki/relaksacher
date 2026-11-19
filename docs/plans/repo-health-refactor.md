@@ -52,7 +52,7 @@ Status: done
 Files: docs/DEVELOPMENT.md
 Do: The paragraph after the project tree still says that `src/runtime/` holds a "заменяемую сборку приложения, загрузчик", and that `bun start` plus `[R Рестарт]` checks logic changes "без обрыва генерации". `src/runtime/loader.ts` and hot reload were removed in 6d3dcf8. Restart now drains handlers and exits with code 75 so that systemd can restart the process. Rewrite the paragraph so it matches docs/ARCHITECTURE.md "Запуск и перезапуск сервиса". The new text should say: `src/runtime/` builds the application, owns the messenger transports and the control socket; `[R Рестарт]`/`relaksacher restart` waits for current requests and then exits for systemd to restart, so under plain `bun start` without a supervisor the process just ends; `bun dev` restarts on file changes and cancels current work. Also add `src/runtime/` to the project tree block, which currently leaves it out.
 Done when: `! grep -q "загрузчик" docs/DEVELOPMENT.md && grep -qE "^  runtime/ " docs/DEVELOPMENT.md && bun run lint && bun run typecheck && bun run format:check && bun test`
-Status: todo
+Status: done
 
 ## Step 7: Full verification and executable rebuild
 
