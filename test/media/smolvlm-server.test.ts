@@ -27,6 +27,7 @@ test("configuration has defaults and validates SmolVLM and video-note settings",
     enabled: true,
     timeoutMs: 300000,
     maxFrames: 8,
+    idleTimeoutMs: 300000,
   });
   expect(config.videoNoteDescription).toBe("reply");
   expect((await loadConfig({ ...env, SMOLVLM_AUTO_START: "false" })).smolvlm.enabled).toBe(false);
@@ -39,6 +40,7 @@ test("configuration has defaults and validates SmolVLM and video-note settings",
     ["SMOLVLM_URL", "file:///tmp/x"],
     ["SMOLVLM_URL", "nonsense"],
     ["SMOLVLM_TIMEOUT_MS", "0"],
+    ["SMOLVLM_IDLE_TIMEOUT_MS", "0"],
     ["SMOLVLM_MAX_FRAMES", "33"],
     ["SMOLVLM_MAX_FRAMES", "1.5"],
   ] as const)

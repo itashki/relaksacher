@@ -20,13 +20,21 @@ const maxWaiting = 10;
  * `describe(load, prompt?)` loads the video lazily when its job starts, requires 1 byte to
  * 20 MiB, posts multipart `file` (video.mp4) and optional `prompt`, and rejects on overload,
  * transport failure, timeout, non-OK status or a missing/empty `description`.
+ * `withServer(job)`, when given, wraps each request (after the video loads) so the caller can
+ * start a lazily managed server for it and let it idle out afterwards.
  * `available()` is false until `setAvailable(true)` is called after the server is ready;
  * callers skip work while it is false. */
 export function createVideoDescriber({
   url = "http://127.0.0.1:8083/describe",
   timeoutMs = 300000,
   fetchImpl = fetch,
-}: { url?: string; timeoutMs?: number; fetchImpl?: import("../../types.ts").HttpFetch } = {}) {
+  withServer = (job) => job(),
+}: {
+  url?: string;
+  timeoutMs?: number;
+  fetchImpl?: import("../../types.ts").HttpFetch;
+  withServer?: <T>(job: () => Promise<T>) => Promise<T>;
+} = {}) {
   const queue = new PQueue({ concurrency: 1 });
   let ready = false;
   return {
@@ -45,12 +53,14 @@ export function createVideoDescriber({
         const body = new FormData();
         body.set("file", video, "video.mp4");
         if (prompt?.trim()) body.set("prompt", prompt.trim());
-        const response = await fetchImpl(url, {
-          method: "POST",
-          body,
-          signal: AbortSignal.timeout(timeoutMs),
-          redirect: "error",
-        });
+        const response = await withServer(() =>
+          fetchImpl(url, {
+            method: "POST",
+            body,
+            signal: AbortSignal.timeout(timeoutMs),
+            redirect: "error",
+          }),
+        );
         if (!response.ok) throw new Error("Video description request failed");
         const result = (await response.json().catch(() => ({}))) as {
           description?: unknown;

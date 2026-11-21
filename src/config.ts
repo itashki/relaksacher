@@ -138,6 +138,9 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   const smolvlmTimeoutMs = Number(env.SMOLVLM_TIMEOUT_MS ?? 300000);
   if (!Number.isSafeInteger(smolvlmTimeoutMs) || smolvlmTimeoutMs <= 0)
     throw new Error("Invalid SMOLVLM_TIMEOUT_MS: expected a positive integer");
+  const smolvlmIdleTimeoutMs = Number(env.SMOLVLM_IDLE_TIMEOUT_MS ?? 300000);
+  if (!Number.isSafeInteger(smolvlmIdleTimeoutMs) || smolvlmIdleTimeoutMs <= 0)
+    throw new Error("Invalid SMOLVLM_IDLE_TIMEOUT_MS: expected a positive integer");
   const smolvlmMaxFrames = Number(env.SMOLVLM_MAX_FRAMES ?? 8);
   if (!Number.isSafeInteger(smolvlmMaxFrames) || smolvlmMaxFrames < 1 || smolvlmMaxFrames > 32)
     throw new Error("Invalid SMOLVLM_MAX_FRAMES: expected an integer from 1 to 32");
@@ -184,6 +187,7 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
       enabled: env.SMOLVLM_AUTO_START !== "false",
       timeoutMs: smolvlmTimeoutMs,
       maxFrames: smolvlmMaxFrames,
+      idleTimeoutMs: smolvlmIdleTimeoutMs,
     },
     videoNoteDescription: videoNoteDescription as "off" | "silent" | "reply",
     whisperModel: env.WHISPER_MODEL?.trim() || "models/ggml-small.bin",

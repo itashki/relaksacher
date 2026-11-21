@@ -174,6 +174,8 @@ export type AppConfig = {
     enabled: boolean;
     timeoutMs: number;
     maxFrames: number;
+    /** Idle time before the managed Python server is stopped to free memory. */
+    idleTimeoutMs: number;
   };
   /** Automatic Telegram video-note description: off, store silently, or also reply. */
   videoNoteDescription?: "off" | "silent" | "reply";
