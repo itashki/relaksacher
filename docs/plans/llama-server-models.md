@@ -432,7 +432,7 @@ Do:
   - Live checks now mean llama-server.
 
 Done when: `bun run format:check && test ! -e ollama && ! grep -rnE 'OLLAMA_(URL|MODEL|VISION_MODEL|SUPERVISOR_MODEL)\b|ollama (pull|ps|create)|SMOLVLM_|smolvlm_server_test' README.md .env.example docs/COMMANDS.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md && grep -q LLAMA_MMPROJ README.md && grep -q LLAMA_MODEL .env.example && grep -q LLAMA_MMPROJ docs/COMMANDS.md`
-Status: todo
+Status: done
 
 ## Step 9: Gated deploy: .env, build, idle check, restart and live verification
 
