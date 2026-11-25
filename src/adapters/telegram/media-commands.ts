@@ -1,7 +1,7 @@
 /** @file Telegram `!describe` / `!опиши` command: image and video descriptions with a per-chat video cache. */
 import type { Message, User } from "@grammyjs/types";
 import { author, imageFiles, splitText } from "./message.ts";
-import { extractAudio } from "../shared/video.ts";
+import { cropVideoNote, extractAudio } from "../shared/video.ts";
 import type { MediaDescriber } from "../../core/media/index.ts";
 import type { createVideoDescriptionStore } from "../../core/memory/video-descriptions.ts";
 import type { TelegramApi, VideoDescription } from "../../types.ts";
@@ -118,9 +118,13 @@ async function describeVideoTarget(
         );
         return "";
       })) ?? "";
-  const described = await describer.describeVideo(() => Promise.resolve(blob), question, {
-    translate,
-  });
+  const described = await describer.describeVideo(
+    async () => (video.kind === "video_note" ? cropVideoNote(blob) : blob),
+    question,
+    {
+      translate,
+    },
+  );
   console.info(`[video-speech] speech=${speech.length}`);
   const result = speech
     ? { ...described, description: `${described.description}\nРечь в видео: ${speech}` }

@@ -85,3 +85,32 @@ export async function extractAudio(video: Blob): Promise<Blob | undefined> {
     await rm(path, { force: true });
   }
 }
+
+/**
+ * Crop a video note to its central 60% so the corner Telegram logo outside the circle is gone.
+ * Goes through a temp file input and a fragmented-MP4 pipe output.
+ * @param video MP4 blob of a 400x400 video note.
+ * @param spawn Process launcher, injectable for tests.
+ * @returns Cropped MP4 blob, or the original when ffmpeg fails.
+ */
+export async function cropVideoNote(
+  video: Blob,
+  spawn: typeof Bun.spawn = Bun.spawn,
+): Promise<Blob> {
+  const path = `${tmpdir()}/relaksacher-${crypto.randomUUID()}.mp4`;
+  try {
+    await Bun.write(path, video);
+    const ffmpeg = spawn(
+      ["ffmpeg", "-nostdin", "-v", "error", "-i", path, "-vf", "crop=iw*0.6:ih*0.6"]
+        .concat(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "copy"])
+        .concat(["-f", "mp4", "-movflags", "frag_keyframe+empty_moov", "pipe:1"]),
+      { stdout: "pipe", stderr: "ignore", timeout: 60000 },
+    );
+    const cropped = await new Response(ffmpeg.stdout).blob();
+    return (await ffmpeg.exited) === 0 && cropped.size ? cropped : video;
+  } catch {
+    return video;
+  } finally {
+    await rm(path, { force: true });
+  }
+}

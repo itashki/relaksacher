@@ -270,3 +270,25 @@ test("Discord manual transcription handles retries, missing replies and unavaila
     expect(replies[0].allowedMentions).toEqual({ parse: [], repliedUser: false });
   }
 });
+
+test("the response body is read before the model server is stopped", async () => {
+  let running = false;
+  const servers = {
+    async use<T>(_key: string, job: () => Promise<T>) {
+      running = true;
+      const value = await job();
+      running = false;
+      return value;
+    },
+  };
+  const fetchImpl = async () =>
+    ({
+      ok: true,
+      json: async () => {
+        if (!running) throw new Error("server already stopped");
+        return { text: "привет" };
+      },
+    }) as Response;
+  const transcribe = createTranscriber({ fetchImpl, servers });
+  expect(await transcribe(async () => new Blob(["x"]))).toBe("привет");
+});

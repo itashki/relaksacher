@@ -122,3 +122,21 @@ test("llama server command uses absolute paths, -np 1 and port 8084", async () =
   expect(command.join(" ")).toContain("-np 1 -c 8192 --host 127.0.0.1 --port 8084");
   await server.stop();
 });
+
+test("a llama job queued while a gigaam job runs starts after its stop and resolves", async () => {
+  const { log, servers, job } = harness();
+  const speech = servers.use(gigaamKey, job("speech"));
+  await Bun.sleep(0);
+  const video = servers.use("llama", job("video"));
+  expect(await Promise.all([speech, video])).toEqual(["speech", "video"]);
+  expect(log).toEqual([
+    "start gigaam",
+    "job speech",
+    "stop gigaam",
+    "stopped gigaam",
+    "start llama",
+    "job video",
+    "stop llama",
+    "stopped llama",
+  ]);
+});

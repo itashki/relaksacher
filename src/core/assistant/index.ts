@@ -1,7 +1,7 @@
 /** @file Coordinate cancellable model sessions, shared inference scheduling and background observation. */
 import { createMemoryObserver } from "./observer.ts";
 import { createSpontaneousPolicy } from "./spontaneous.ts";
-import { guardContext, ContextLimitError } from "./context.ts";
+import { guardContext } from "./context.ts";
 import { createRequestQueue } from "../queue.ts";
 import { createRepetitionDetector } from "./repetition.ts";
 import { buildMessages } from "./prompt.ts";
@@ -451,9 +451,7 @@ export function createAssistant({
               }
             } catch (error) {
               // Abort по кнопке/таймауту бросает AbortError — это не ошибка.
-              if (error instanceof ContextLimitError) {
-                incompleteReason = "context_limit";
-              } else if (!generation.stopped) {
+              if (!generation.stopped) {
                 failed = true;
                 console.error("Failed to get model response:", error);
               }

@@ -1,6 +1,6 @@
 /** @file Regression coverage for images behavior and its external boundaries. */
 import { expect, test } from "bun:test";
-import { attachImages, downloadImage } from "../../src/adapters/shared/images.ts";
+import { attachImages, downloadImage, limitImageSize } from "../../src/adapters/shared/images.ts";
 import { downloadVideo } from "../../src/adapters/shared/video.ts";
 import { guardContext } from "../../src/core/assistant/context.ts";
 
@@ -25,6 +25,34 @@ test("downloads valid image bytes as base64 and rejects non-images and untrusted
         new Response(jpeg, { headers: { "content-length": String(11 * 1024 * 1024) } }),
     }),
   ).rejects.toThrow(/10 MB/);
+});
+
+test("downscales images above 1280 px and leaves small ones unchanged", async () => {
+  const make = async (size: string) =>
+    new Uint8Array(
+      await new Response(
+        Bun.spawn(
+          ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", `color=red:s=${size}`].concat([
+            "-frames:v",
+            "1",
+            "-f",
+            "image2pipe",
+            "-c:v",
+            "png",
+            "pipe:1",
+          ]),
+          { stdout: "pipe" },
+        ).stdout,
+      ).arrayBuffer(),
+    );
+  const small = await make("64x32");
+  expect(await limitImageSize(small)).toBe(small);
+  const resized = await limitImageSize(await make("2000x500"));
+  const probe = Bun.spawn(
+    ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", "pipe:0"],
+    { stdin: resized, stdout: "pipe" },
+  );
+  expect((await new Response(probe.stdout).text()).trim()).toBe("1280,320");
 });
 
 test("limits images, prioritizes current request and reports download failures", async () => {

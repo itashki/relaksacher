@@ -1,6 +1,49 @@
 /** @file Validate platform-hosted image downloads and attach bounded image inputs to conversations. */
 import type { Message } from "ollama";
 const MAX_BYTES = 10 * 1024 * 1024;
+const MAX_SIDE = 1280; // keep in sync with the per-image allowance in core/assistant/context.ts
+
+/** Downscale to a MAX_SIDE longest side with ffmpeg; undecodable or small input is returned as is. */
+export async function limitImageSize(data: Uint8Array) {
+  const run = async (cmd: string[]) => {
+    const proc = Bun.spawn(cmd, { stdin: data, stdout: "pipe", stderr: "ignore", timeout: 30000 });
+    const out = await new Response(proc.stdout).bytes();
+    return (await proc.exited) === 0 ? out : undefined;
+  };
+  const probe = await run([
+    "ffprobe",
+    "-v",
+    "error",
+    "-select_streams",
+    "v:0",
+    "-show_entries",
+    "stream=width,height",
+    "-of",
+    "csv=p=0",
+    "pipe:0",
+  ]);
+  const side = Math.max(...new TextDecoder().decode(probe).trim().split(",").map(Number));
+  if (!(side > MAX_SIDE)) return data;
+  const filter = `scale='if(gt(iw,ih),${MAX_SIDE},-2)':'if(gt(iw,ih),-2,${MAX_SIDE})'`;
+  return (
+    (await run([
+      "ffmpeg",
+      "-v",
+      "error",
+      "-i",
+      "pipe:0",
+      "-vf",
+      filter,
+      "-frames:v",
+      "1",
+      "-f",
+      "image2pipe",
+      "-c:v",
+      "mjpeg",
+      "pipe:1",
+    ])) ?? data
+  );
+}
 
 /**
  * Download a trusted-host image with timeout, byte limit and signature validation.
@@ -41,7 +84,7 @@ export async function downloadImage(
     (decoder.decode(data.subarray(0, 4)) === "RIFF" &&
       decoder.decode(data.subarray(8, 12)) === "WEBP");
   if (!valid) throw new Error("Expected JPEG, PNG or WebP");
-  return data.toBase64();
+  return (await limitImageSize(data)).toBase64();
 }
 
 /**

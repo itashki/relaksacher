@@ -173,14 +173,6 @@ test("search tools are always available, including with a legacy disable flag", 
   expect(env.requests[1].tools.some((t) => t.function.name === "web_search")).toBeTruthy();
 });
 
-test("oversized required context is reported without starting model generation", async () => {
-  const env = setup([], { numCtx: 1024 });
-  const result = await env.assistant.createSession(env.options).run();
-  expect(env.requests.length).toBe(0);
-  expect(result.incompleteReason).toBe("context_limit");
-  expect(result.text).toMatch(/контекст слишком велики/);
-});
-
 test("owner facts reach the system prompt independently of shared memory", async () => {
   const env = setup([[{ message: { content: "answer" } }]], { facts: ["Game night is Friday."] });
   await env.assistant.createSession(env.options).run();

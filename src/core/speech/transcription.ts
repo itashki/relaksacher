@@ -29,16 +29,18 @@ export function createTranscriber({
       body.set("response_format", "json");
       body.set("language", "auto");
       body.set("translate", "false");
-      const post = () =>
-        fetchImpl(url, {
+      // The body is read inside the job: the server is stopped as soon as the job returns.
+      const post = async () => {
+        const response = await fetchImpl(url, {
           method: "POST",
           body,
           signal: AbortSignal.timeout(timeoutMs),
           redirect: "error",
         });
-      const response = await (servers ? servers.use(gigaamKey, post) : post());
-      if (!response.ok) throw new Error("Transcription request failed");
-      const result = (await response.json()) as { text?: unknown };
+        if (!response.ok) throw new Error("Transcription request failed");
+        return (await response.json()) as { text?: unknown };
+      };
+      const result = await (servers ? servers.use(gigaamKey, post) : post());
       if (typeof result.text !== "string" || !result.text.trim())
         throw new Error("Transcription returned no speech");
       return result.text.trim();
