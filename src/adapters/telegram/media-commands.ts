@@ -99,11 +99,18 @@ async function describeVideoTarget(
   if (cached) return cached.description;
   if (!api.downloadVideo) throw new Error("Скачивание видео недоступно.");
   const blob = await api.downloadVideo(video.fileId);
+  console.info(
+    `[video-speech] transcribe=${typeof deps.transcribe === "function"} blob=${blob.size} reuse=${reuse} translate=${translate}`,
+  );
   const [described, speech] = await Promise.all([
     describer.describeVideo(() => Promise.resolve(blob), question, { translate }),
     // No audio track or no recognized speech just means there is nothing to add.
     deps
-      .transcribe?.(async () => (await extractAudio(blob)) ?? new Blob())
+      .transcribe?.(async () => {
+        const audio = await extractAudio(blob);
+        console.info(`[video-speech] audio=${audio?.size ?? 0}`);
+        return audio ?? new Blob();
+      })
       .catch((error: unknown) => {
         console.warn(
           "Telegram video speech transcription failed:",
@@ -112,6 +119,7 @@ async function describeVideoTarget(
         return "";
       }) ?? "",
   ]);
+  console.info(`[video-speech] speech=${speech.length}`);
   const result = speech
     ? { ...described, description: `${described.description}\nРечь в видео: ${speech}` }
     : described;
