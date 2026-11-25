@@ -48,7 +48,6 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
       cause: error,
     });
   }
-  const supervisorModel = env.OLLAMA_SUPERVISOR_MODEL || "qwen3:0.6b";
   const supervisorTimeoutMs = Number(env.OLLAMA_SUPERVISOR_TIMEOUT_MS ?? 30000);
   if (!Number.isSafeInteger(supervisorTimeoutMs) || supervisorTimeoutMs <= 0)
     throw new Error("Invalid OLLAMA_SUPERVISOR_TIMEOUT_MS");
@@ -96,23 +95,19 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
   if (adapters.includes("telegram") && !telegramToken) {
     throw new Error("TELEGRAM_BOT_TOKEN is required for the Telegram adapter");
   }
-  const OLLAMA_URL = env.OLLAMA_URL;
-  const OLLAMA_MODEL = env.OLLAMA_MODEL?.trim();
-  if (!OLLAMA_MODEL) throw new Error("OLLAMA_MODEL is required; set it in .env.");
+  const LLAMA_MODEL = env.LLAMA_MODEL?.trim();
+  if (!LLAMA_MODEL) throw new Error("LLAMA_MODEL is required; set it in .env.");
+  const supervisorModel = env.LLAMA_SUPERVISOR_MODEL?.trim() || LLAMA_MODEL;
   const OLLAMA_TIMEOUT = parseInt(env.OLLAMA_TIMEOUT, 10);
   // Необязателен: без ключа используется резервный веб-поиск.
   const OLLAMA_API_KEY = env.OLLAMA_API_KEY || null;
-  // Размер контекстного окна. По умолчанию Ollama часто даёт всего 2-4k токенов,
-  // и результаты поиска просто обрезаются.
-  const OLLAMA_NUM_CTX = Number(env.OLLAMA_NUM_CTX ?? 16384);
+  // Размер контекстного окна; он же задаёт `-c` llama-server (калибровка в README: 8192).
+  const OLLAMA_NUM_CTX = Number(env.OLLAMA_NUM_CTX ?? 8192);
   if (!Number.isSafeInteger(OLLAMA_NUM_CTX) || OLLAMA_NUM_CTX <= 0) {
     throw new Error("OLLAMA_NUM_CTX must be a positive integer.");
   }
   if (adapters.includes("discord") && !token) {
     throw new Error("BOT_TOKEN is not defined in the environment variables.");
-  }
-  if (!OLLAMA_URL) {
-    throw new Error("OLLAMA_URL is not defined in the environment variables.");
   }
   if (isNaN(OLLAMA_TIMEOUT)) {
     throw new Error("OLLAMA_TIMEOUT is not a valid number.");
@@ -208,9 +203,9 @@ export async function loadConfig(env: Record<string, string | undefined> = Bun.e
     telegramTimeoutMs,
     telegramUpdateIntervalMs,
     adapters,
-    OLLAMA_URL,
-    OLLAMA_MODEL,
-    OLLAMA_VISION_MODEL: env.OLLAMA_VISION_MODEL?.trim() || undefined,
+    LLAMA_MODEL,
+    LLAMA_VISION_MODEL: env.LLAMA_VISION_MODEL?.trim() || undefined,
+    LLAMA_MMPROJ: env.LLAMA_MMPROJ?.trim() || undefined,
     OLLAMA_TIMEOUT,
     OLLAMA_API_KEY,
     OLLAMA_NUM_CTX,

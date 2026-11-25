@@ -1,10 +1,8 @@
 /** @file Application startup, operator commands and messenger/speech lifecycle. */
 import { createWhisperServer } from "./src/core/speech/whisper-server.ts";
-import { createGigaamServer } from "./src/core/speech/gigaam-server.ts";
 import { createIdleServer } from "./src/core/media/idle-server.ts";
 import { createSmolvlmServer, smolvlmOrigin } from "./src/core/media/smolvlm-server.ts";
-import { Ollama } from "ollama";
-import { createVideoDescriber, unloadOllamaModels } from "./src/core/media/video-description.ts";
+import { createVideoDescriber } from "./src/core/media/video-description.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
 import { createRequestLog } from "./src/core/request-log.ts";
 import { resolvePath } from "./src/core/paths.ts";
@@ -74,15 +72,10 @@ const smolvlm = smolvlmManaged
       idleMs: config.smolvlm.idleTimeoutMs,
     })
   : undefined;
-const ollama = new Ollama({ host: config.OLLAMA_URL });
 const videoDescriber = createVideoDescriber({
   url: config.smolvlm.url,
   timeoutMs: config.smolvlm.timeoutMs,
-  // SmolVLM2 OOMs on an 8 GB GPU while Ollama keeps its chat model resident.
-  withServer: async (job) => {
-    await unloadOllamaModels(ollama);
-    return smolvlm ? smolvlm.use(job) : job();
-  },
+  withServer: (job) => (smolvlm ? smolvlm.use(job) : job()),
 });
 const application = createApplication(
   config,
@@ -119,14 +112,15 @@ const control =
         restart,
       })
     : null;
+// GigaAM is started on demand by the model manager inside the application.
 const speech =
-  config.transcriptionBackend === "gigaam"
-    ? createGigaamServer(config.gigaam)
-    : createWhisperServer({
+  config.transcriptionBackend === "whisper"
+    ? createWhisperServer({
         url: config.whisperUrl,
         model: config.whisperModel,
         enabled: config.whisperAutoStart,
-      });
+      })
+    : undefined;
 const shutdown = createShutdown({
   steps: [
     () => control?.close(),
@@ -137,13 +131,12 @@ const shutdown = createShutdown({
       await requestLog.close();
     },
     () => transports.stop(),
-    () => speech.stop(),
+    () => speech?.stop(),
     () => smolvlm?.dispose(),
   ],
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => void shutdown.run());
-speech
-  .start()
+(speech?.start() ?? Promise.resolve())
   .then(() => {
     if (!shutdown.started) return transports.start();
   })

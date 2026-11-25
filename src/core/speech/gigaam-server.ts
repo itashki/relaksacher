@@ -1,4 +1,4 @@
-/** @file Configure the resident Russian GigaAM backend and its shared lifecycle. */
+/** @file Configure the on-demand Russian GigaAM backend and its shared lifecycle. */
 import { resolvePath } from "../paths.ts";
 import { projectDirectory } from "../project.ts";
 import { createLocalSpeechServer } from "./local-server.ts";

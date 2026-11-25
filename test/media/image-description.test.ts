@@ -69,7 +69,7 @@ test("maps vision errors and rejects empty output", async () => {
   const { describer } = make(async () => {
     throw new Error("this model does not support images");
   });
-  await expect(describer.describeImage("A")).rejects.toThrow("OLLAMA_VISION_MODEL");
+  await expect(describer.describeImage("A")).rejects.toThrow("LLAMA_MMPROJ");
   await expect(make(async () => fakeStream(["  "])).describer.describeImage("A")).rejects.toThrow(
     "no text",
   );

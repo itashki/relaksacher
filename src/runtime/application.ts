@@ -1,6 +1,9 @@
 /** @file Compose model clients, stores and adapters around process-owned messenger connections. */
 import { Ollama } from "ollama";
 import { createVoiceSynthesizer } from "../adapters/speech/silero.ts";
+import { createLlamaClient } from "../core/llama/client.ts";
+import { createGigaamServer } from "../core/speech/gigaam-server.ts";
+import { createLlamaServer, createModelServers, gigaamKey } from "../core/llama/servers.ts";
 import { createTranscriber } from "../core/speech/transcription.ts";
 import { createMemoryStore } from "../core/memory/index.ts";
 import { createGifSearch } from "../core/tools/gif-search.ts";
@@ -27,9 +30,22 @@ export function createApplication(
   videoDescriber?: import("../core/media/video-description.ts").VideoDescriber,
 ) {
   const voice = createVoiceSynthesizer({ silero: config.silero });
+  const visionModel = config.LLAMA_VISION_MODEL ?? config.LLAMA_MODEL;
+  // One model process at a time: llama-server per GGUF path, or GigaAM (see core/llama/servers.ts).
+  const servers = createModelServers({
+    create: (key) =>
+      key === gigaamKey
+        ? createGigaamServer(config.gigaam)
+        : createLlamaServer({
+            model: key,
+            mmproj: key === visionModel ? config.LLAMA_MMPROJ : undefined,
+            numCtx: config.OLLAMA_NUM_CTX,
+          }),
+  });
   const transcribe = createTranscriber({
     url: config.transcriptionBackend === "gigaam" ? config.gigaam?.url : config.whisperUrl,
     timeoutMs: config.whisperTimeoutMs,
+    servers: config.transcriptionBackend === "gigaam" ? servers : undefined,
   });
   const memoryDirectory = resolvePath(Bun.env.MEMORY_DIR || "memory", projectDirectory);
   const memory = createMemoryStore(memoryDirectory);
@@ -42,7 +58,7 @@ export function createApplication(
         headers: { Authorization: `Bearer ${config.OLLAMA_API_KEY}` },
       })
     : null;
-  const modelClient = new Ollama({ host: config.OLLAMA_URL });
+  const modelClient = createLlamaClient({ servers });
   const supervisor = createSupervisor({
     modelClient,
     model: config.supervisorModel,
@@ -63,8 +79,8 @@ export function createApplication(
     }),
     facts: config.facts,
     personality: config.personality,
-    model: config.OLLAMA_MODEL,
-    visionModel: config.OLLAMA_VISION_MODEL,
+    model: config.LLAMA_MODEL,
+    visionModel: config.LLAMA_VISION_MODEL,
     numCtx: config.OLLAMA_NUM_CTX,
     timeoutMs: config.OLLAMA_TIMEOUT,
     updateIntervalMs: 1200,
@@ -72,14 +88,14 @@ export function createApplication(
   const describer = createMediaDescriber({
     image: createImageDescriber({
       modelClient,
-      model: config.OLLAMA_VISION_MODEL ?? config.OLLAMA_MODEL,
+      model: visionModel,
       timeoutMs: config.OLLAMA_TIMEOUT,
       runExclusive: assistant.runExclusive,
     }),
     video: videoDescriber,
     translator: createTranslator({
       modelClient,
-      model: config.OLLAMA_MODEL,
+      model: config.LLAMA_MODEL,
       timeoutMs: config.OLLAMA_TIMEOUT,
       runExclusive: assistant.runExclusive,
     }),
@@ -130,9 +146,9 @@ export function createApplication(
     async dispose() {
       assistant.stopObserving();
       assistant.stopCurrentGeneration();
-      modelClient.abort();
       searchClient?.abort();
       await Promise.all([voice.stop(), discord?.stop(), telegram?.stop()]);
+      await servers.dispose();
     },
   };
 }

@@ -318,7 +318,7 @@ Do:
   - `runtime-application.test.ts`: the `gigaam` backend builds its transcriber with the shared `servers`.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test && ! grep -rnE 'OLLAMA_(URL|MODEL|VISION_MODEL|SUPERVISOR_MODEL)\b|unloadOllamaModels' index.ts src test && grep -q createLlamaClient src/runtime/application.ts && grep -q gigaamKey src/core/speech/transcription.ts && ! grep -q createGigaamServer index.ts`
-Status: todo
+Status: done
 
 ## Step 6: Video description through the vision model
 

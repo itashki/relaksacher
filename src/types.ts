@@ -130,7 +130,7 @@ export type ToolService = {
 };
 /** Injected model, storage, tools and scheduling settings used to construct the core. */
 export type AssistantOptions = {
-  modelClient: Pick<import("ollama").Ollama, "chat">;
+  modelClient: ModelClient;
   memory: MemoryStore;
   toolService: ToolService;
   model: string;
@@ -187,9 +187,10 @@ export type AppConfig = {
   telegramTimeoutMs: number;
   telegramUpdateIntervalMs: number;
   adapters: string[];
-  OLLAMA_URL: string;
-  OLLAMA_MODEL: string;
-  OLLAMA_VISION_MODEL?: string;
+  /** GGUF path, absolute or relative to the project root. */
+  LLAMA_MODEL: string;
+  LLAMA_VISION_MODEL?: string;
+  LLAMA_MMPROJ?: string;
   OLLAMA_TIMEOUT: number;
   gifApiKey: string | null;
   OLLAMA_API_KEY: string | null;

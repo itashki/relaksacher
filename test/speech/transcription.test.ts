@@ -25,6 +25,27 @@ test("Whisper serializes downloads and inference and preserves the recognized te
   expect(events).toEqual(["load", "infer", "load", "infer"]);
 });
 
+test("with servers the POST runs inside use(gigaam) and lock wait does not time out", async () => {
+  const events: string[] = [];
+  const servers = {
+    async use<T>(key: string, job: () => Promise<T>) {
+      events.push(`use ${key}`);
+      await Bun.sleep(60);
+      return job();
+    },
+  };
+  const transcribe = createTranscriber({
+    timeoutMs: 30,
+    servers,
+    fetchImpl: async () => {
+      events.push("post");
+      return Response.json({ text: "ok" });
+    },
+  });
+  expect(await transcribe(async () => new Blob(["ogg"]))).toBe("ok");
+  expect(events).toEqual(["use gigaam", "post"]);
+});
+
 test("Whisper rejects failure, empty speech and invalid responses", async () => {
   for (const response of [
     new Response("", { status: 500 }),

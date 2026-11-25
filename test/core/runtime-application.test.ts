@@ -12,8 +12,7 @@ test("real application bundle validates config and constructs offline without op
   const config = await loadConfig({
     BOT_ADAPTERS: "telegram",
     TELEGRAM_BOT_TOKEN: "fixture",
-    OLLAMA_URL: "http://127.0.0.1:11434",
-    OLLAMA_MODEL: "fixture-model",
+    LLAMA_MODEL: "fixture-model",
     OLLAMA_TIMEOUT: "30000",
     FACTS_FILE: `${directory}/facts.json5`,
     PERSONALITY_FILE: `${directory}/personality.json5`,

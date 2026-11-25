@@ -414,7 +414,7 @@ export function createAssistant({
                 messages.push({
                   role: "assistant",
                   content: cleanAssistantText(roundContent),
-                  // При tool calling Ollama рекомендует возвращать рассуждения модели обратно.
+                  // При tool calling рассуждения модели возвращаются обратно как reasoning_content.
                   thinking: roundThinking || undefined,
                   tool_calls: toolCalls,
                 });
@@ -455,7 +455,7 @@ export function createAssistant({
                 incompleteReason = "context_limit";
               } else if (!generation.stopped) {
                 failed = true;
-                console.error("Failed to get response from Ollama:", error);
+                console.error("Failed to get model response:", error);
               }
             } finally {
               clearTimeout(timeoutTimer);

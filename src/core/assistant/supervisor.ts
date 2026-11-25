@@ -49,7 +49,7 @@ export function createSupervisor({
   model = "qwen3:0.6b",
   timeoutMs = 30000,
 }: {
-  modelClient: import("ollama").Ollama;
+  modelClient: import("../../types.ts").ModelClient;
   model?: string;
   timeoutMs?: number;
 }) {

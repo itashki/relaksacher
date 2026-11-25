@@ -1,13 +1,23 @@
 /** @file Serialize voice downloads and compatible speech-server requests across all adapters. */
 import PQueue from "p-queue";
+import { gigaamKey } from "../llama/servers.ts";
 
 /** Create a bounded single-worker transcription queue. Audio is loaded only when its job starts.
- * Rejects overload, transport failures, malformed responses and empty recognition results. */
+ * Rejects overload, transport failures, malformed responses and empty recognition results.
+ * With `servers` (the model manager) each request runs as `servers.use(gigaamKey, …)`: GigaAM
+ * starts on demand and the timeout starts inside the job, so lock wait and cold start are not
+ * counted. Without it the request is sent directly. */
 export function createTranscriber({
   url = "http://127.0.0.1:8080/inference",
   timeoutMs = 300000,
   fetchImpl = fetch,
-}: { url?: string; timeoutMs?: number; fetchImpl?: import("../../types.ts").HttpFetch } = {}) {
+  servers,
+}: {
+  url?: string;
+  timeoutMs?: number;
+  fetchImpl?: import("../../types.ts").HttpFetch;
+  servers?: { use<T>(key: string, job: () => Promise<T>): Promise<T> };
+} = {}) {
   const queue = new PQueue({ concurrency: 1 });
   return async (load: () => Promise<Blob>): Promise<string> => {
     if (queue.size >= 20) throw new Error("Transcription queue is full");
@@ -19,12 +29,14 @@ export function createTranscriber({
       body.set("response_format", "json");
       body.set("language", "auto");
       body.set("translate", "false");
-      const response = await fetchImpl(url, {
-        method: "POST",
-        body,
-        signal: AbortSignal.timeout(timeoutMs),
-        redirect: "error",
-      });
+      const post = () =>
+        fetchImpl(url, {
+          method: "POST",
+          body,
+          signal: AbortSignal.timeout(timeoutMs),
+          redirect: "error",
+        });
+      const response = await (servers ? servers.use(gigaamKey, post) : post());
       if (!response.ok) throw new Error("Transcription request failed");
       const result = (await response.json()) as { text?: unknown };
       if (typeof result.text !== "string" || !result.text.trim())

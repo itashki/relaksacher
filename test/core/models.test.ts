@@ -6,26 +6,38 @@ import { loadConfig } from "../../src/config.ts";
 
 const env = {
   BOT_TOKEN: "test",
-  OLLAMA_URL: "http://localhost:11434",
   OLLAMA_TIMEOUT: "1000",
-  OLLAMA_MODEL: "test-model",
+  LLAMA_MODEL: "test-model.gguf",
 };
 
-test("loads one main model and context from environment", async () => {
-  const config = await loadConfig({ ...env, OLLAMA_MODEL: "fixed-model", OLLAMA_NUM_CTX: "32768" });
-  expect(config.OLLAMA_MODEL).toBe("fixed-model");
-  expect(config.OLLAMA_VISION_MODEL).toBeUndefined();
-  expect(
-    (await loadConfig({ ...env, OLLAMA_VISION_MODEL: " vision-model " })).OLLAMA_VISION_MODEL,
-  ).toBe("vision-model");
+test("loads the GGUF, optional vision settings and context from environment", async () => {
+  const config = await loadConfig({ ...env, LLAMA_MODEL: " fixed.gguf ", OLLAMA_NUM_CTX: "32768" });
+  expect(config.LLAMA_MODEL).toBe("fixed.gguf");
+  expect(config.LLAMA_VISION_MODEL).toBeUndefined();
+  expect(config.LLAMA_MMPROJ).toBeUndefined();
+  const vision = await loadConfig({
+    ...env,
+    LLAMA_VISION_MODEL: " vision.gguf ",
+    LLAMA_MMPROJ: " proj.gguf ",
+  });
+  expect(vision.LLAMA_VISION_MODEL).toBe("vision.gguf");
+  expect(vision.LLAMA_MMPROJ).toBe("proj.gguf");
+  expect((await loadConfig({ ...env, LLAMA_MMPROJ: " " })).LLAMA_MMPROJ).toBeUndefined();
   expect(config.OLLAMA_NUM_CTX).toBe(32768);
-  expect((await loadConfig(env)).OLLAMA_NUM_CTX).toBe(16384);
+  expect((await loadConfig(env)).OLLAMA_NUM_CTX).toBe(8192);
   for (const model of [undefined, "", "   "]) {
-    await expect(loadConfig({ ...env, OLLAMA_MODEL: model })).rejects.toThrow(/OLLAMA_MODEL/);
+    await expect(loadConfig({ ...env, LLAMA_MODEL: model })).rejects.toThrow(/LLAMA_MODEL/);
   }
   for (const ctx of ["0", "-1", "1.5", "invalid", ""]) {
     await expect(loadConfig({ ...env, OLLAMA_NUM_CTX: ctx })).rejects.toThrow(/OLLAMA_NUM_CTX/);
   }
+});
+
+test("supervisor defaults to the chat GGUF and can be overridden", async () => {
+  expect((await loadConfig(env)).supervisorModel).toBe("test-model.gguf");
+  expect(
+    (await loadConfig({ ...env, LLAMA_SUPERVISOR_MODEL: " small.gguf " })).supervisorModel,
+  ).toBe("small.gguf");
 });
 
 test("Telegram-only configuration does not require Discord credentials", async () => {
