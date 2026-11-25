@@ -1,6 +1,6 @@
 /** Shared contracts for the assistant and platform adapters. */
 /** Model-compatible conversation entry, including optional image inputs. */
-export type ChatMessage = import("ollama").Message;
+export type ChatMessage = import("ollama").Message & { videos?: string[] };
 /** Model tool schema accepted by the Ollama client. */
 export type ToolDefinition = import("ollama").Tool;
 /** Model-requested tool invocation with parsed arguments. */
@@ -264,7 +264,22 @@ export type ObservedMessage = {
   authorName: string;
 };
 /** Abortable incremental model response iterator. */
-export type ModelStream = AsyncIterable<import("ollama").ChatResponse> & { abort(): void };
+/** Tool call as streamed by llama-server; Ollama's type has no `id`. */
+export type ModelToolCall = import("ollama").ToolCall & { id?: string };
+/** One streamed model chunk, shared by the Ollama and llama-server clients. */
+export type ModelPart = {
+  message?: { content?: string; thinking?: string; tool_calls?: ModelToolCall[] };
+  done?: boolean;
+  done_reason?: string;
+};
+export type ModelStream = AsyncIterable<ModelPart> & { abort(): void };
+/** Streaming chat request; `videos` on messages are base64 MP4. */
+export type ModelRequest = Omit<import("ollama").ChatRequest, "messages"> & {
+  stream: true;
+  messages?: ChatMessage[];
+};
+/** Chat client over a local model server. */
+export type ModelClient = { chat(request: ModelRequest): Promise<ModelStream> };
 /** Public search hit with extracted text and optional source metadata. */
 export type WebSearchResult = { title?: string; url?: string; content: string };
 /** Injectable search/fetch provider contract shared by primary and fallback clients. */

@@ -270,7 +270,7 @@ Do:
 - `docs/ARCHITECTURE.md`: add a row for `core/llama/client.ts`.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test test/core/llama-client.test.ts && bun test`
-Status: todo
+Status: done
 
 ## Step 5: Chat, supervisor, image description and translation on llama-server
 
