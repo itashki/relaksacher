@@ -17,7 +17,7 @@ function setup(options: { video?: boolean; store?: Record<string, unknown> } = {
     describeVideo: async (load: () => Promise<Blob>) => {
       await load();
       calls.push("video");
-      return { description: "a dog", frames: 1, duration: 1, model: "SmolVLM2" };
+      return { description: "a dog", model: "vision-model" };
     },
     videoAvailable: () => options.video ?? true,
   } as MediaDescriber;

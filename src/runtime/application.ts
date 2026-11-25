@@ -10,6 +10,7 @@ import { createGifSearch } from "../core/tools/gif-search.ts";
 import { createToolService } from "../core/tools/index.ts";
 import { createSupervisor } from "../core/assistant/supervisor.ts";
 import { createImageDescriber } from "../core/media/image-description.ts";
+import { createVideoDescriber } from "../core/media/video-description.ts";
 import { createMediaDescriber } from "../core/media/index.ts";
 import { createTranslator } from "../core/media/translate.ts";
 import { createAssistant } from "../core/assistant/index.ts";
@@ -27,7 +28,6 @@ export function createApplication(
   transports: RuntimeTransports,
   onMusicStatus: Parameters<typeof createDiscordBot>[0]["onMusicStatus"],
   onRequest?: import("../core/statistics.ts").RecordRequest,
-  videoDescriber?: import("../core/media/video-description.ts").VideoDescriber,
 ) {
   const voice = createVoiceSynthesizer({ silero: config.silero });
   const visionModel = config.LLAMA_VISION_MODEL ?? config.LLAMA_MODEL;
@@ -92,7 +92,12 @@ export function createApplication(
       timeoutMs: config.OLLAMA_TIMEOUT,
       runExclusive: assistant.runExclusive,
     }),
-    video: videoDescriber,
+    video: createVideoDescriber({
+      modelClient,
+      model: visionModel,
+      timeoutMs: config.OLLAMA_TIMEOUT,
+      available: Boolean(config.LLAMA_MMPROJ),
+    }),
     translator: createTranslator({
       modelClient,
       model: config.LLAMA_MODEL,
@@ -129,12 +134,10 @@ export function createApplication(
     : null;
   return {
     assistant,
-    /** Image and video description facade; not yet passed to adapters. */
+    /** Image and video description facade. */
     describer,
-    /** Persistent per-chat video descriptions; adapters do not use it yet. */
+    /** Persistent per-chat video descriptions. */
     videoDescriptions,
-    /** Stored for later steps; adapters do not use the video describer yet. */
-    videoDescriber,
     /** Resolve only after complete processing and final delivery of the accepted event. */
     async handle(event: RuntimeEvent) {
       if (event.kind === "discord-message") await discord?.receiveMessage(event.message);

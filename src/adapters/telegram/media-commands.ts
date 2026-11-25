@@ -102,7 +102,7 @@ async function describeVideoTarget(
   console.info(
     `[video-speech] transcribe=${typeof deps.transcribe === "function"} blob=${blob.size} reuse=${reuse} translate=${translate}`,
   );
-  // Sequential, not parallel: GigaAM and SmolVLM together overflow an 8 GB GPU.
+  // Sequential, not parallel: GigaAM and the vision model together overflow an 8 GB GPU.
   // No audio track or no recognized speech just means there is nothing to add.
   const speech =
     (await deps
@@ -145,14 +145,14 @@ async function describeVideoTarget(
   return result.description;
 }
 
-/** Cap for an on-demand description made inside a model session, separate from `SMOLVLM_TIMEOUT_MS`. */
+/** Cap for an on-demand description made inside a model session, separate from `OLLAMA_TIMEOUT`. */
 export const ON_DEMAND_TIMEOUT_MS = 120_000;
 
 /**
  * Describe a cached video message for the `read_video_descriptions` tool and return its stored entry.
- * Runs inside a model session that holds the shared Ollama queue, so it calls only `describeVideo`
- * (the SmolVLM process) and never translates, since both `describeImage` and the translator
- * would deadlock on that queue; the stored text is therefore English in this path.
+ * Runs inside a model session that holds the shared assistant queue, so it calls only `describeVideo`
+ * and never translates (`translate: false`), since both `describeImage` and the translator
+ * would deadlock on that queue; the vision model's Russian text is stored as is.
  * @param target Cached message that may carry a video.
  * @param deps Command collaborators; `describer` and `store` are required for a result.
  * @param context Message whose chat and thread own the stored entry.

@@ -362,7 +362,7 @@ Do:
   - In the runtime-application test, `videoAvailable()` is false without `LLAMA_MMPROJ` and true with it.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test && ! grep -rniE 'smolvlm' index.ts src/runtime src/core/media/video-description.ts src/core/media/index.ts src/adapters/telegram/media-commands.ts && ! grep -rn setAvailable src index.ts && grep -q videos src/core/media/video-description.ts`
-Status: todo
+Status: done
 
 ## Step 7: Delete the SmolVLM2 stack and the Ollama Nix leftovers
 

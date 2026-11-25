@@ -1,7 +1,6 @@
 /** @file Verify SmolVLM2 server command construction, lifecycle and configuration. */
 import { expect, test } from "bun:test";
 import { createSmolvlmServer } from "../../src/core/media/smolvlm-server.ts";
-import { createVideoDescriber } from "../../src/core/media/video-description.ts";
 import { loadConfig } from "../../src/config.ts";
 import { temporaryDirectory } from "../support/temp.ts";
 
@@ -46,7 +45,7 @@ test("configuration has defaults and validates SmolVLM and video-note settings",
     await expect(loadConfig({ ...env, [name]: value })).rejects.toThrow(name);
 });
 
-test("SmolVLM server builds its command and availability follows start", async () => {
+test("SmolVLM server builds its command and builds its command", async () => {
   const probes: string[] = [];
   let command: string[] = [];
   let code: number | null = null;
@@ -77,11 +76,7 @@ test("SmolVLM server builds its command and availability follows start", async (
       };
     },
   });
-  const describer = createVideoDescriber();
-  expect(describer.available()).toBe(false);
   await server.start();
-  describer.setAvailable(true);
-  expect(describer.available()).toBe(true);
   expect(probes[0]).toBe("http://127.0.0.1:8083/health");
   expect(command[0]).toBe("/python/bin/python3");
   expect(command[2]).toEndWith("/scripts/smolvlm-server.py");

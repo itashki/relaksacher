@@ -21,7 +21,7 @@ const translator = (chat: (request: any) => Promise<any>) => {
   });
 };
 
-const english = { description: "A cat.", frames: 4, duration: 3, model: "SmolVLM2" };
+const english = { description: "A cat.", model: "vision-model" };
 const video = { available: () => true, describe: async () => english };
 const image = { describeImage: async () => "x" };
 
@@ -51,7 +51,7 @@ test("facade stores a Russian description and an honest model name", async () =>
   expect(await media.describeVideo(async () => new Blob(["v"]))).toEqual({
     ...english,
     description: "Кошка.",
-    model: "SmolVLM2+text-model",
+    model: "vision-model+text-model",
   });
 });
 

@@ -1,8 +1,5 @@
 /** @file Application startup, operator commands and messenger/speech lifecycle. */
 import { createWhisperServer } from "./src/core/speech/whisper-server.ts";
-import { createIdleServer } from "./src/core/media/idle-server.ts";
-import { createSmolvlmServer, smolvlmOrigin } from "./src/core/media/smolvlm-server.ts";
-import { createVideoDescriber } from "./src/core/media/video-description.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
 import { createRequestLog } from "./src/core/request-log.ts";
 import { resolvePath } from "./src/core/paths.ts";
@@ -62,28 +59,7 @@ const recordRequest: import("./src/core/statistics.ts").RecordRequest = (
 };
 const requests = createRequestLifecycle<RuntimeEvent>((event) => application.handle(event));
 const transports = createTransports(config, requests.dispatch);
-// The managed Python server (torch, weights, CUDA context) starts on the first description
-// and is stopped after an idle period, so an idle bot does not hold that memory.
-const smolvlmManaged =
-  config.smolvlm.enabled && new URL(config.smolvlm.url).origin === smolvlmOrigin;
-const smolvlm = smolvlmManaged
-  ? createIdleServer({
-      create: () => createSmolvlmServer(config.smolvlm),
-      idleMs: config.smolvlm.idleTimeoutMs,
-    })
-  : undefined;
-const videoDescriber = createVideoDescriber({
-  url: config.smolvlm.url,
-  timeoutMs: config.smolvlm.timeoutMs,
-  withServer: (job) => (smolvlm ? smolvlm.use(job) : job()),
-});
-const application = createApplication(
-  config,
-  transports.connections,
-  music.publish,
-  recordRequest,
-  videoDescriber,
-);
+const application = createApplication(config, transports.connections, music.publish, recordRequest);
 const cli =
   mode !== "service" && process.stdin.isTTY
     ? createCliControls({
@@ -132,7 +108,6 @@ const shutdown = createShutdown({
     },
     () => transports.stop(),
     () => speech?.stop(),
-    () => smolvlm?.dispose(),
   ],
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => void shutdown.run());
@@ -145,23 +120,3 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => vo
     console.error("Failed to start application:", error);
     void shutdown.run(1);
   });
-// Video description availability is checked in parallel and never blocks or stops the app.
-void startVideoDescription().catch((error) => {
-  console.warn("[smolvlm] unavailable:", error instanceof Error ? error.message : String(error));
-});
-
-/** Mark video description available: a managed server starts lazily on the first request;
- * an external one must be healthy now. */
-async function startVideoDescription() {
-  if (smolvlm) {
-    videoDescriber.setAvailable(true);
-    return;
-  }
-  const response = await fetch(new URL("/health", config.smolvlm.url), {
-    signal: AbortSignal.timeout(3000),
-    redirect: "error",
-  });
-  const healthy = response.ok && ((await response.json()) as { status?: unknown }).status === "ok";
-  if (!healthy) throw new Error("health check failed");
-  if (!shutdown.started) videoDescriber.setAvailable(true);
-}

@@ -1,7 +1,6 @@
 /** @file Verify lazy start, idle shutdown and restart of the managed server lifecycle. */
 import { expect, test } from "bun:test";
 import { createIdleServer } from "../../src/core/media/idle-server.ts";
-import { createVideoDescriber } from "../../src/core/media/video-description.ts";
 
 function fixture(failFirst = false) {
   const log: string[] = [];
@@ -50,21 +49,4 @@ test("a new job cancels the pending idle shutdown and a failed start is retried"
   expect(log).not.toContain("stop2");
   await wait(50);
   expect(log).toEqual(["start1", "stop1", "start2", "stop2"]);
-});
-
-test("video describer wraps each request in withServer", async () => {
-  const events: string[] = [];
-  const describer = createVideoDescriber({
-    withServer: async (job) => {
-      events.push("enter");
-      return job();
-    },
-    fetchImpl: async () => {
-      events.push("fetch");
-      return Response.json({ description: "a cat" });
-    },
-  });
-  const result = await describer.describe(async () => new Blob(["x"]));
-  expect(result.description).toBe("a cat");
-  expect(events).toEqual(["enter", "fetch"]);
 });

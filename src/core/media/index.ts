@@ -7,9 +7,9 @@ export type MediaDescriber = {
   describeImage(base64: string, question?: string): Promise<string>;
   /**
    * Describe a video lazily loaded by `load`; rejects with "Описание видео недоступно." when unavailable.
-   * The description is translated to Russian through the shared model queue unless
-   * `options.translate` is false; pass false from inside a running session or tool, where the
-   * queue is held and translating would deadlock (the English text is then returned as is).
+   * The vision model describes in Russian, so translation runs only for output that is not
+   * Russian, through the shared model queue, unless `options.translate` is false; pass false from
+   * inside a running session or tool, where the queue is held and translating would deadlock.
    */
   describeVideo(
     load: () => Promise<Blob>,
@@ -21,8 +21,8 @@ export type MediaDescriber = {
 };
 
 /** Compose an image describer and an optional video describer into one `MediaDescriber`.
- * With `translator`, SmolVLM2's English text is translated to Russian and `model` becomes
- * `SmolVLM2+<text model>`. A translation failure is logged as a warning and the English
+ * With `translator`, a description that is not Russian is translated and `model` becomes
+ * `<vision model>+<text model>`. A translation failure is logged as a warning and the original
  * description is kept, so a description is never dropped. */
 export function createMediaDescriber({
   image,
@@ -54,7 +54,7 @@ export function createMediaDescriber({
         };
       } catch (error) {
         console.warn(
-          "Video description translation failed, keeping English:",
+          "Video description translation failed, keeping original:",
           error instanceof Error ? error.message : error,
         );
         return result;

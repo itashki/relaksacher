@@ -24,6 +24,9 @@ test("real application bundle validates config and constructs offline without op
   expect(application.describer.videoAvailable()).toBe(false);
   expect(typeof application.describer.describeImage).toBe("function");
   await application.dispose();
+  const withVision = createApplication({ ...config, LLAMA_MMPROJ: "mmproj.gguf" }, {}, () => {});
+  expect(withVision.describer.videoAvailable()).toBe(true);
+  await withVision.dispose();
   const client = new Client({ intents: [] });
   const destroy = spyOn(client, "destroy");
   const managed = createApplication(config, { discord: client }, () => {});

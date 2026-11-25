@@ -345,16 +345,16 @@ Telegram сохраняет текст под идентификатором и�
 | `core/llama/servers.ts`           | Один резидентный процесс модели: общая FIFO-блокировка llama-server и GigaAM; после задания сервер остаётся, только если следующее в очереди задание использует ту же модель, иначе останавливается               |
 | `core/llama/client.ts`            | OpenAI-совместимый потоковый клиент llama-server: сообщения и инструменты Ollama переводятся в `/v1/chat/completions`, SSE разбирается в части ответа; блокировка серверов держится до конца потока или `abort()` |
 | `core/media/idle-server.ts`       | Ленивый запуск и остановка по простою перезапускаемого локального сервера (`createIdleServer`)                                                                                                                    |
-| `core/media/video-description.ts` | Очередь с одним исполнителем (до 10 ожидающих), HTTP-клиент SmolVLM2 и признак доступности `available()`                                                                                                          |
+| `core/media/video-description.ts` | Очередь с одним исполнителем (до 10 ожидающих): клип уходит как `videos` (base64) в потоковый вызов модели зрения без инструментов, таймаут прерывает поток; `available()` = задан `LLAMA_MMPROJ`                 |
 | `core/media/image-description.ts` | Нейтральное описание изображения прямым потоковым вызовом Ollama (`OLLAMA_VISION_MODEL`) через общую очередь `assistant.runExclusive`; таймаут прерывает поток                                                    |
 | `core/media/translate.ts`         | Перевод английского описания видео на русский моделью `OLLAMA_MODEL` через `assistant.runExclusive`; русский текст не переводится                                                                                 |
-| `core/media/index.ts`             | Фасад `MediaDescriber`: `describeImage`, `describeVideo` (с переводом, при сбое остаётся английский), `videoAvailable`; без SmolVLM2 видео отклоняется                                                            |
+| `core/media/index.ts`             | Фасад `MediaDescriber`: `describeImage`, `describeVideo` (перевод только не русского текста, при сбое остаётся оригинал), `videoAvailable`; без `LLAMA_MMPROJ` видео отклоняется                                  |
 
 `describeImage` и перевод описания видео используют общую очередь с concurrency 1 и не должны
 вызываться из работающей сессии или инструмента: это приведёт к взаимной блокировке. Поэтому
 описание по требованию из `read_video_descriptions` вызывает `describeVideo` с
-`translate: false` и хранится по-английски (`model: SmolVLM2`); переведённые описания
-хранятся с `model: SmolVLM2+<OLLAMA_MODEL>`.
+`translate: false`; модель зрения отвечает по-русски, поэтому перевод нужен только для
+не русского вывода (тогда `model` = `<модель зрения>+<LLAMA_MODEL>`).
 
 `available()` равен `false`, пока приложение не подтвердит доступность (для управляемого сервера
 сразу при старте; сам запуск идёт лениво внутри `describe`, до пяти минут).

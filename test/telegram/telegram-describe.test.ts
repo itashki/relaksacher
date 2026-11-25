@@ -11,7 +11,7 @@ const base = {
   message_thread_id: 7,
   date: 1700000000,
 };
-const result = { description: "A cat.", frames: 4, duration: 3, model: "SmolVLM2" as const };
+const result = { description: "A cat.", model: "vision-model" as const };
 const circle = { file_id: "f1", file_unique_id: "u1", length: 240, duration: 5 };
 
 function describer(overrides = {}) {
@@ -76,7 +76,7 @@ test("!опиши replying to a video stores the entry and reuses it for the sam
     kind: "video_note",
     fileUniqueId: "u1",
     durationSec: 5,
-    model: "SmolVLM2",
+    model: "vision-model",
   });
   expect(inputs).toHaveLength(0);
 });

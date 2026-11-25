@@ -1,34 +1,35 @@
-/** @file Verify the queued SmolVLM2 client with injected fetch and no network. */
+/** @file Verify the queued video describer with a fake model client and no server. */
 import { expect, test } from "bun:test";
 import { createVideoDescriber } from "../../src/core/media/video-description.ts";
 
 const video = () => Promise.resolve(new Blob(["x"]));
+const stream = (text: string, onAbort = () => {}) => ({
+  abort: onAbort,
+  async *[Symbol.asyncIterator]() {
+    yield { message: { content: text } };
+  },
+});
+const make = (chat: (request: any) => Promise<any>, timeoutMs = 1000, available = true) =>
+  createVideoDescriber({ modelClient: { chat }, model: "vision", timeoutMs, available });
 
-test("describes a video and posts multipart file and prompt", async () => {
-  let form: FormData | undefined;
-  const describer = createVideoDescriber({
-    url: "http://127.0.0.1:8083/describe",
-    fetchImpl: async (_url, init) => {
-      form = init?.body as FormData;
-      expect(init?.redirect).toBe("error");
-      return Response.json({ description: "  A cat.  ", frames: 4, duration: 2.5 });
-    },
+test("sends the clip as a base64 video, tool-free, with a Russian prompt", async () => {
+  let request: any;
+  const describer = make(async (r) => ((request = r), stream("  Кот.  ")));
+  expect(await describer.describe(video, " что? ")).toEqual({
+    description: "Кот.",
+    model: "vision",
   });
-  expect(await describer.describe(video, " what? ")).toEqual({
-    description: "A cat.",
-    frames: 4,
-    duration: 2.5,
-    model: "SmolVLM2",
-  });
-  expect(((form as FormData).get("file") as File).name).toBe("video.mp4");
-  expect(form?.get("prompt")).toBe("what?");
+  expect(request.model).toBe("vision");
+  expect(request.tools).toBeUndefined();
+  expect(request.messages[0].content).toMatch(/на русском языке/);
+  expect(request.messages[1]).toEqual({ role: "user", content: "что?", videos: [btoa("x")] });
+  await describer.describe(video);
+  expect(request.messages[1].content).toBe("Подробно опиши это видео.");
 });
 
 test("rejects empty and oversized videos before any request", async () => {
-  const describer = createVideoDescriber({
-    fetchImpl: async () => {
-      throw new Error("Must not fetch");
-    },
+  const describer = make(async () => {
+    throw new Error("Must not chat");
   });
   await expect(describer.describe(async () => new Blob([]))).rejects.toThrow("Invalid video size");
   await expect(
@@ -36,30 +37,22 @@ test("rejects empty and oversized videos before any request", async () => {
   ).rejects.toThrow("Invalid video size");
 });
 
-test("rejects non-OK, non-JSON and empty description responses", async () => {
-  const responses = [
-    new Response("no", { status: 500 }),
-    new Response("not json"),
-    Response.json({ description: "  " }),
-    Response.json({}),
-  ];
-  const describer = createVideoDescriber({ fetchImpl: async () => responses.shift()! });
-  await expect(describer.describe(video)).rejects.toThrow("request failed");
-  await expect(describer.describe(video)).rejects.toThrow("no text");
-  await expect(describer.describe(video)).rejects.toThrow("no text");
-  await expect(describer.describe(video)).rejects.toThrow("no text");
+test("rejects empty output", async () => {
+  await expect(make(async () => stream("  ")).describe(video)).rejects.toThrow("no text");
+});
+
+test("timeout aborts the stream, including one that arrives after the timer fired", async () => {
+  let aborted = 0;
+  const late = make(async () => (await Bun.sleep(30), stream("late", () => aborted++)), 5);
+  await expect(late.describe(video)).rejects.toThrow("timed out");
+  expect(aborted).toBe(1);
 });
 
 test("loads lazily when the job starts and rejects queue overflow", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
   let loads = 0;
-  const describer = createVideoDescriber({
-    fetchImpl: async () => {
-      await gate;
-      return Response.json({ description: "ok" });
-    },
-  });
+  const describer = make(async () => (await gate, stream("ok")));
   const load = () => {
     loads++;
     return video();
@@ -73,9 +66,7 @@ test("loads lazily when the job starts and rejects queue overflow", async () => 
   expect(loads).toBe(11);
 });
 
-test("availability is false until set", () => {
-  const describer = createVideoDescriber();
-  expect(describer.available()).toBe(false);
-  describer.setAvailable(true);
-  expect(describer.available()).toBe(true);
+test("availability is the construction flag", () => {
+  expect(make(async () => stream("x"), 1, false).available()).toBe(false);
+  expect(make(async () => stream("x")).available()).toBe(true);
 });
