@@ -3,7 +3,8 @@ import { createWhisperServer } from "./src/core/speech/whisper-server.ts";
 import { createGigaamServer } from "./src/core/speech/gigaam-server.ts";
 import { createIdleServer } from "./src/core/media/idle-server.ts";
 import { createSmolvlmServer, smolvlmOrigin } from "./src/core/media/smolvlm-server.ts";
-import { createVideoDescriber } from "./src/core/media/video-description.ts";
+import { Ollama } from "ollama";
+import { createVideoDescriber, unloadOllamaModels } from "./src/core/media/video-description.ts";
 import { createShutdown } from "./src/core/shutdown.ts";
 import { createRequestLog } from "./src/core/request-log.ts";
 import { resolvePath } from "./src/core/paths.ts";
@@ -73,10 +74,15 @@ const smolvlm = smolvlmManaged
       idleMs: config.smolvlm.idleTimeoutMs,
     })
   : undefined;
+const ollama = new Ollama({ host: config.OLLAMA_URL });
 const videoDescriber = createVideoDescriber({
   url: config.smolvlm.url,
   timeoutMs: config.smolvlm.timeoutMs,
-  withServer: smolvlm ? (job) => smolvlm.use(job) : undefined,
+  // SmolVLM2 OOMs on an 8 GB GPU while Ollama keeps its chat model resident.
+  withServer: async (job) => {
+    await unloadOllamaModels(ollama);
+    return smolvlm ? smolvlm.use(job) : job();
+  },
 });
 const application = createApplication(
   config,

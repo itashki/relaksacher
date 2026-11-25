@@ -1,6 +1,9 @@
 /** @file Verify the queued SmolVLM2 client with injected fetch and no network. */
 import { expect, test } from "bun:test";
-import { createVideoDescriber } from "../../src/core/media/video-description.ts";
+import {
+  createVideoDescriber,
+  unloadOllamaModels,
+} from "../../src/core/media/video-description.ts";
 
 const video = () => Promise.resolve(new Blob(["x"]));
 
@@ -78,4 +81,20 @@ test("availability is false until set", () => {
   expect(describer.available()).toBe(false);
   describer.setAvailable(true);
   expect(describer.available()).toBe(true);
+});
+
+test("unloadOllamaModels unloads every resident model and survives errors", async () => {
+  const unloaded: unknown[] = [];
+  await unloadOllamaModels({
+    ps: async () => ({ models: [{ model: "a" }, { model: "b" }] }),
+    generate: async (request) => unloaded.push(request),
+  });
+  expect(unloaded).toEqual([
+    { model: "a", prompt: "", keep_alive: 0 },
+    { model: "b", prompt: "", keep_alive: 0 },
+  ]);
+  await unloadOllamaModels({
+    ps: async () => Promise.reject(new Error("down")),
+    generate: async () => {},
+  });
 });
