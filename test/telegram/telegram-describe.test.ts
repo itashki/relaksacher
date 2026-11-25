@@ -306,3 +306,51 @@ test("!describe on a video appends recognized speech, and a sticker is sent as a
   expect(imageFiles({ sticker: { ...sticker, is_video: true } } as never)).toStrictEqual([]);
   expect(inputs).toHaveLength(0);
 });
+
+test.skipIf(!Bun.which("ffmpeg"))(
+  "a described video note feeds its real extracted audio to transcribe, and a failure is logged",
+  async () => {
+    const dir = await temporaryDirectory("tg-vn-");
+    const path = `${dir}/note.mp4`;
+    const ffmpeg = Bun.spawn(
+      ["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=10"].concat([
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440",
+        "-t",
+        "1",
+        "-pix_fmt",
+        "yuv420p",
+        path,
+      ]),
+      { stdin: "ignore" },
+    );
+    expect(await ffmpeg.exited).toBe(0);
+    const sizes: number[] = [];
+    const warnings: unknown[][] = [];
+    const warn = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args);
+    try {
+      const { describer: d } = describer();
+      const run = async (transcribe: (load: () => Promise<Blob>) => Promise<string>) => {
+        const { bot, calls } = setup(
+          undefined,
+          { telegramUpdateIntervalMs: 0, videoNoteDescription: "reply" },
+          undefined,
+          { describer: d, downloadVideo: async () => Bun.file(path), transcribe },
+        );
+        await bot.handleUpdate(circleUpdate(1));
+        return sent(calls)[0].payload.text;
+      };
+      expect(await run(async (load) => (sizes.push((await load()).size), "привет"))).toContain(
+        "Речь в видео: привет",
+      );
+      expect(sizes[0]).toBeGreaterThan(0);
+      expect(await run(async () => Promise.reject(new Error("boom")))).not.toContain("Речь");
+      expect(warnings[0]).toContain("boom");
+    } finally {
+      console.warn = warn;
+    }
+  },
+);

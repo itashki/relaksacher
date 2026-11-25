@@ -102,7 +102,15 @@ async function describeVideoTarget(
   const [described, speech] = await Promise.all([
     describer.describeVideo(() => Promise.resolve(blob), question, { translate }),
     // No audio track or no recognized speech just means there is nothing to add.
-    deps.transcribe?.(async () => (await extractAudio(blob)) ?? new Blob()).catch(() => "") ?? "",
+    deps
+      .transcribe?.(async () => (await extractAudio(blob)) ?? new Blob())
+      .catch((error: unknown) => {
+        console.warn(
+          "Telegram video speech transcription failed:",
+          error instanceof Error ? error.message : error,
+        );
+        return "";
+      }) ?? "",
   ]);
   const result = speech
     ? { ...described, description: `${described.description}\nРечь в видео: ${speech}` }
