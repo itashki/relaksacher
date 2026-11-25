@@ -1,4 +1,4 @@
-# Shared Python with prebuilt CUDA Torch (Blackwell-capable) for GigaAM and SmolVLM2.
+# Shared Python with prebuilt CUDA Torch (Blackwell-capable) for GigaAM.
 { pkgs }:
 let
   nccl = import ./nccl-bin.nix { inherit pkgs; };

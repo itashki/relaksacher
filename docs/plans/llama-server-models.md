@@ -388,7 +388,7 @@ Do:
 - Evaluate with `.#` (git), not `path:.`, so the untracked `.env` is not copied into the store.
 
 Done when: `bun run lint && bun run typecheck && bun run format:check && bun test && ! grep -rqiE 'smolvlm|ollama-cuda|createIdleServer' index.ts src scripts nix .github && nix eval --raw .#packages.x86_64-linux.default.drvPath >/dev/null && nix eval --raw .#devShells.x86_64-linux.default.drvPath >/dev/null`
-Status: todo
+Status: done
 
 ## Step 8: User-facing and developer documentation
 

@@ -18,8 +18,6 @@ let
   models = import ./models.nix { inherit fetchurl; };
   gigaamPython = import ./gigaam.nix { inherit pkgs; };
   gigaamModels = import ./gigaam-models.nix { inherit pkgs; };
-  smolvlmPython = import ./smolvlm.nix { inherit pkgs; };
-  smolvlmModels = import ./smolvlm-models.nix { inherit pkgs; };
   # Whisper stays available as a CPU fallback; GigaAM owns CUDA inference.
   whisper = whisper-cpp.override {
     cudaSupport = false;
@@ -74,8 +72,6 @@ stdenvNoCC.mkDerivation {
       --set-default TRANSCRIPTION_BACKEND gigaam \
       --set-default GIGAAM_PYTHON ${gigaamPython}/bin/python3 \
       --set-default GIGAAM_MODEL_DIR ${gigaamModels} \
-      --set-default SMOLVLM_PYTHON ${smolvlmPython}/bin/python3 \
-      --set-default SMOLVLM_MODEL_DIR ${smolvlmModels} \
       --set-default WHISPER_MODEL ${models.whisper} \
       --set-default SILERO_MODEL ${models.sileroRu} \
       --set-default SILERO_MODEL_EN ${models.sileroEn} \

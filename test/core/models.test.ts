@@ -131,3 +131,13 @@ test("message burst interval defaults to 1200 ms and rejects unsafe limits", asy
       "MESSAGE_BATCH_WINDOW_MS",
     );
 });
+
+test("video-note description defaults to reply and validates its mode", async () => {
+  expect((await loadConfig(env)).videoNoteDescription).toBe("reply");
+  expect(
+    (await loadConfig({ ...env, VIDEO_NOTE_DESCRIPTION: "silent" })).videoNoteDescription,
+  ).toBe("silent");
+  await expect(loadConfig({ ...env, VIDEO_NOTE_DESCRIPTION: "loud" })).rejects.toThrow(
+    "VIDEO_NOTE_DESCRIPTION",
+  );
+});
