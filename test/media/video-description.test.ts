@@ -85,10 +85,13 @@ test("availability is false until set", () => {
 
 test("unloadOllamaModels unloads every resident model and survives errors", async () => {
   const unloaded: unknown[] = [];
-  await unloadOllamaModels({
-    ps: async () => ({ models: [{ model: "a" }, { model: "b" }] }),
-    generate: async (request) => unloaded.push(request),
-  });
+  await unloadOllamaModels(
+    {
+      ps: async () => ({ models: [{ model: "a" }, { model: "b" }] }),
+      generate: async (request) => unloaded.push(request),
+    },
+    0,
+  );
   expect(unloaded).toEqual([
     { model: "a", prompt: "", keep_alive: 0 },
     { model: "b", prompt: "", keep_alive: 0 },

@@ -21,15 +21,20 @@ const maxWaiting = 10;
  * shortcut: a chat reply starting during the description reloads Ollama unserialized (partial
  * offload at worst); serialize through the model queue if that ever hurts (it would deadlock the
  * on-demand path, which already holds it). */
-export async function unloadOllamaModels(client: {
-  ps(): Promise<{ models: { model: string }[] }>;
-  generate(request: { model: string; prompt: string; keep_alive: number }): Promise<unknown>;
-}): Promise<void> {
+export async function unloadOllamaModels(
+  client: {
+    ps(): Promise<{ models: { model: string }[] }>;
+    generate(request: { model: string; prompt: string; keep_alive: number }): Promise<unknown>;
+  },
+  settleMs = 2000,
+): Promise<void> {
   try {
     const { models } = await client.ps();
     await Promise.all(
       models.map(({ model }) => client.generate({ model, prompt: "", keep_alive: 0 })),
     );
+    // shortcut: fixed delay for Ollama to free VRAM, poll nvidia-smi if it proves too short
+    if (models.length > 0) await Bun.sleep(settleMs);
   } catch (error) {
     console.warn(
       "Ollama unload before video description failed:",
