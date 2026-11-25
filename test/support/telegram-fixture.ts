@@ -35,6 +35,7 @@ export function setup(
     >;
     downloadImage?: (fileId: string) => Promise<string>;
     downloadVideo?: (fileId: string) => Promise<Blob>;
+    transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   } = {},
 ) {
   const calls: { method: string; payload?: TelegramPayload }[] = [];
@@ -52,6 +53,7 @@ export function setup(
     config,
     memoryDirectory,
     describer: extra.describer,
+    transcribe: extra.transcribe,
     videoDescriptions: extra.videoDescriptions,
     api,
     assistant: {

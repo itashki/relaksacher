@@ -1,6 +1,7 @@
 /** @file Telegram `!describe` / `!опиши` command: image and video descriptions with a per-chat video cache. */
 import type { Message, User } from "@grammyjs/types";
 import { author, imageFiles, splitText } from "./message.ts";
+import { extractAudio } from "../shared/video.ts";
 import type { MediaDescriber } from "../../core/media/index.ts";
 import type { createVideoDescriptionStore } from "../../core/memory/video-descriptions.ts";
 import type { TelegramApi, VideoDescription } from "../../types.ts";
@@ -10,6 +11,8 @@ export interface TelegramMediaDeps {
   api: TelegramApi;
   me: User;
   describer?: MediaDescriber;
+  /** Speech recognizer; when set, speech in described videos is appended to their description. */
+  transcribe?: (load: () => Promise<Blob>) => Promise<string>;
   store?: ReturnType<typeof createVideoDescriptionStore>;
   /** Chat id under which video descriptions are stored. */
   chatId: (message: Message) => string;
@@ -95,9 +98,15 @@ async function describeVideoTarget(
   const cached = reuse ? await store?.findByFile(chat, video.fileUniqueId) : null;
   if (cached) return cached.description;
   if (!api.downloadVideo) throw new Error("Скачивание видео недоступно.");
-  const result = await describer.describeVideo(() => api.downloadVideo(video.fileId), question, {
-    translate,
-  });
+  const blob = await api.downloadVideo(video.fileId);
+  const [described, speech] = await Promise.all([
+    describer.describeVideo(() => Promise.resolve(blob), question, { translate }),
+    // No audio track or no recognized speech just means there is nothing to add.
+    deps.transcribe?.(async () => (await extractAudio(blob)) ?? new Blob()).catch(() => "") ?? "",
+  ]);
+  const result = speech
+    ? { ...described, description: `${described.description}\nРечь в видео: ${speech}` }
+    : described;
   if (reuse)
     await store?.save(chat, {
       messageId: String(target.message_id),

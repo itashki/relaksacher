@@ -162,6 +162,7 @@ export function createTelegramBot({
       api,
       me,
       describer,
+      transcribe,
       store: videoDescriptions,
       chatId: (entry: import("@grammyjs/types").Message) => `telegram_${roomKey(entry)}`,
       remember,

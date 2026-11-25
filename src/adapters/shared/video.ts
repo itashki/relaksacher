@@ -1,4 +1,6 @@
-/** @file Download platform-hosted videos with a deadline, a streaming byte limit and an MP4/MOV signature check. */
+/** @file Download platform-hosted videos with a deadline, a streaming byte limit and an MP4/MOV signature check; extract their audio. */
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 const MAX_BYTES = 20 * 1024 * 1024;
 
@@ -46,5 +48,40 @@ export async function downloadVideo(
     return new Blob([data], { type: "video/mp4" });
   } catch {
     throw new Error("Video download failed");
+  }
+}
+
+/**
+ * Extract the audio track of a video as mono 16 kHz Ogg/Opus for speech recognition.
+ * Goes through a temp file because MP4 may need seeking.
+ * @param video MP4/MOV blob.
+ * @returns Ogg blob, or undefined when ffmpeg fails (no audio track, bad file).
+ */
+export async function extractAudio(video: Blob): Promise<Blob | undefined> {
+  const path = `${tmpdir()}/relaksacher-${crypto.randomUUID()}.mp4`;
+  try {
+    await Bun.write(path, video);
+    const ffmpeg = Bun.spawn(
+      [
+        "ffmpeg",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-i",
+        path,
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+      ].concat(["-c:a", "libopus", "-f", "ogg", "pipe:1"]),
+      { stdout: "pipe", stderr: "ignore", timeout: 60000 },
+    );
+    const audio = await new Response(ffmpeg.stdout).blob();
+    return (await ffmpeg.exited) === 0 && audio.size ? audio : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    await rm(path, { force: true });
   }
 }

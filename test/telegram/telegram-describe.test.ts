@@ -282,3 +282,27 @@ test("on-demand describe stops at the injected cap", async () => {
   expect(entry).toBeNull();
   expect(Date.now() - started).toBeLessThan(2000);
 });
+
+test("!describe on a video appends recognized speech, and a sticker is sent as an image", async () => {
+  const { describer: d } = describer();
+  const { bot, calls, inputs } = setup(undefined, undefined, undefined, {
+    describer: d,
+    downloadVideo: async () => new Blob(["v"]),
+    transcribe: async () => "привет",
+  });
+  await bot.handleUpdate({
+    update_id: 1,
+    message: {
+      ...base,
+      message_id: 2,
+      text: "!describe",
+      reply_to_message: { ...base, message_id: 1, video_note: circle },
+    },
+  });
+  expect(sent(calls)[0].payload.text).toBe("🎬 A cat.\nРечь в видео: привет");
+  const { imageFiles } = await import("../../src/adapters/telegram/message.ts");
+  const sticker = { file_id: "s1", is_animated: false, is_video: false };
+  expect(imageFiles({ ...base, message_id: 3, sticker } as never)).toStrictEqual(["s1"]);
+  expect(imageFiles({ sticker: { ...sticker, is_video: true } } as never)).toStrictEqual([]);
+  expect(inputs).toHaveLength(0);
+});

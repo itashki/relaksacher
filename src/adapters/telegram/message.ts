@@ -22,13 +22,15 @@ export function splitText(text: string, limit: number = 3800) {
 const groupedImages = new WeakMap<import("@grammyjs/types").Message, string[]>();
 
 /**
- * Select the largest photo or a supported image document.
+ * Select the largest photo, a static (WebP) sticker or a supported image document.
  * @param message Telegram message.
  * @returns Downloadable file identifiers.
  */
 export function imageFiles(message: import("@grammyjs/types").Message) {
   if (groupedImages.has(message)) return groupedImages.get(message);
   if (message.photo?.length) return [message.photo.at(-1).file_id];
+  const { sticker } = message;
+  if (sticker && !sticker.is_animated && !sticker.is_video) return [sticker.file_id];
   if (/^image\/(jpeg|png|webp)$/.test(message.document?.mime_type ?? ""))
     return [message.document.file_id];
   return [];
