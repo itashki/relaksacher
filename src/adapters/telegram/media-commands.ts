@@ -102,10 +102,10 @@ async function describeVideoTarget(
   console.info(
     `[video-speech] transcribe=${typeof deps.transcribe === "function"} blob=${blob.size} reuse=${reuse} translate=${translate}`,
   );
-  const [described, speech] = await Promise.all([
-    describer.describeVideo(() => Promise.resolve(blob), question, { translate }),
-    // No audio track or no recognized speech just means there is nothing to add.
-    deps
+  // Sequential, not parallel: GigaAM and SmolVLM together overflow an 8 GB GPU.
+  // No audio track or no recognized speech just means there is nothing to add.
+  const speech =
+    (await deps
       .transcribe?.(async () => {
         const audio = await extractAudio(blob);
         console.info(`[video-speech] audio=${audio?.size ?? 0}`);
@@ -117,8 +117,10 @@ async function describeVideoTarget(
           error instanceof Error ? error.message : error,
         );
         return "";
-      }) ?? "",
-  ]);
+      })) ?? "";
+  const described = await describer.describeVideo(() => Promise.resolve(blob), question, {
+    translate,
+  });
   console.info(`[video-speech] speech=${speech.length}`);
   const result = speech
     ? { ...described, description: `${described.description}\nРечь в видео: ${speech}` }
